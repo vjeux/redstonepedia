@@ -97,8 +97,13 @@ pub const RESYNC_QUIET: i64 = 30;
 pub const RESET_W: i64 = 4;
 /// A J -> the cart's D press.
 pub const J_TO_D: i64 = 4;
-/// K(x)'s window around the napper's crossing of J(x).
+/// K(x)'s window around the napper's crossing of J(x): its LATE half.
 pub const K_HALF: i64 = 10;
+/// K(x)'s EARLY half (day-1 05:15, G1 CHANGES 7's world-open finding): the lane -1 napper rides only 12 gt behind its
+/// batch's slot 3 at J(-1), so a symmetric 10 left slot 3 2 gt clear of the window and a k + j 3 open after the napper's
+/// release put slot 3 inside it (forced into lane -1); the early half covers the napper's earliest arrival (the -2 jitter
+/// + 3), leaving slot 3 7 gt clear.
+pub const K_EARLY: i64 = 5;
 /// G11: the HOLDs' reset after the picked cart's arrival at the J (k), and the lane-7 pick's delta7.
 pub const HOLD_K: i64 = 1;
 pub const DELTA7: i64 = 10;
@@ -268,6 +273,8 @@ pub struct Defects {
     pub reb_no_persist: bool,
     pub reb_no_holdoff: bool,
     pub reb_standin_on_dx: bool,
+    /// The OLD SYMMETRIC K window (its early half at K_HALF): the twin of the asymmetric window (day-1 05:15).
+    pub k_symmetric: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -507,6 +514,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut k_windows: Vec<(i64, i64, usize)> = Vec::new();
     // (each K window's napper batch, and the batches already credited: K(7) masks by ORDER, day-1 02:51)
     let mut k_win_batch: Vec<usize> = Vec::new();
+    // (each K / OFF window's napper RELEASE tick: an open before it shifts the window with the carts)
+    let mut k_win_rel: Vec<i64> = Vec::new();
+    let mut off_win_rel: Vec<i64> = Vec::new();
     let mut credited_b: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // (batch carts that left the lane route into the way-in leg)
     let mut left_route: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
@@ -542,12 +552,15 @@ pub fn run(row: &Row, def: Defects) -> Out {
             for x in resets.iter_mut().chain(s3old_at.iter_mut()).filter(|x| **x >= t_open) {
                 *x += idle;
             }
-            for x in k_windows.iter_mut() {
+            for (i, x) in k_windows.iter_mut().enumerate() {
+                // (G1 CHANGES 7: a K window rides its napper's RELEASE, keyed on ARM3's press (an ENTITY event): an open
+                // before the release delays the trigger with the carts (idle + kj); after it, the window is redstone)
+                let d = if k_win_rel.get(i).is_some_and(|&r| r > t_open) { idle + kj } else { idle };
                 if x.0 >= t_open {
-                    x.0 += idle;
+                    x.0 += d;
                 }
                 if x.1 >= t_open {
-                    x.1 += idle;
+                    x.1 += d;
                 }
             }
             if let Some(u) = unlock.as_mut() {
@@ -560,12 +573,13 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     u.0 += idle;
                 }
             }
-            for x in off_windows.iter_mut() {
+            for (i, x) in off_windows.iter_mut().enumerate() {
+                let d = if off_win_rel.get(i).is_some_and(|&r| r > t_open) { idle + kj } else { idle };
                 if x.0 >= t_open {
-                    x.0 += idle;
+                    x.0 += d;
                 }
                 if x.1 >= t_open {
-                    x.1 += idle;
+                    x.1 += d;
                 }
             }
             for x in wait_armed.iter_mut().filter(|x| **x >= t_open) {
@@ -864,12 +878,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
             for &(nb, lane, extra) in &row.napper {
                 if nb == b {
                     let nt = [t + napper_t[0] + extra + lag, t + napper_t[1] + extra + lag, t + napper_t[2] + extra + lag];
+                    // (the napper's RELEASE tick: ARM3's press (REL + 57, slot 3's offset with it) through its chain: the
+                    // hold rail at REL + 65 (+ the train's napper shift); its K / OFF windows ride it)
+                    let rel_tick = t + 65 + row.napper_shift + extra + lag;
                     // (K(lane) and the OFF windows of the J's west of it ride the napper's nominal timing; its ride may be
                     // jittered past them (item 4's control))
-                    k_windows.push((nt[lane] - k_half, nt[lane] + k_half, lane));
+                    let k_early = if def.k_symmetric { k_half } else { k_half.min(K_EARLY) };
+                    k_windows.push((nt[lane] - k_early, nt[lane] + k_half, lane));
                     k_win_batch.push(b);
+                    k_win_rel.push(rel_tick);
                     for (ji, &ntj) in nt.iter().enumerate().take(lane) {
-                        off_windows.push((ntj - k_half, ntj + k_half, ji));
+                        off_windows.push((ntj - k_early, ntj + k_half, ji));
+                        off_win_rel.push(rel_tick);
                     }
                     let jit = row.napper_jitter.iter().filter(|x| x.0 == b).map(|x| x.1).sum::<i64>();
                     carts.push(Cart { batch: b, slot: None, ji: 0, arr: [nt[0] + jit, nt[1] + jit, nt[2] + jit], nap: Some(lane), picked: false });
@@ -2013,7 +2033,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             lines.push(format!("  CONTROL ({twin}): the effect \"{effect}\" at release lateness {} (the design: {}): {c}", ranges_of(&hits), ranges_of(&design_hits)));
         }
         let w = if route_bad.is_empty() {
-            v.bar_n("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars (recovery within 2 batches, the store per batch)", 25, true).to_string()
+            v.bar_n("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars (the ring in phase within 2 batches, THE STORE CORRECT healed within 4 RELs; slips and the per-batch view as cost)", 25, true).to_string()
         } else {
             v.bar(&format!("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars fail at release lateness {} (its J windows meet batch 6's carts)", ranges_of(&route_bad)), false).to_string()
         };
@@ -2100,9 +2120,13 @@ fn recovery_bars(o: &Out, row: &Row, bf: usize) -> Vec<String> {
     if !out.is_empty() {
         bad.push(format!("THE RING DOES NOT RETURN TO ITS PHASE within 2 batches (out of phase at batches {out:?}: {})", phase_line(o, row)));
     }
-    // (ironspec 02:54 (3): on a single-fault row the REL slips print as COST, not a bar (the resync net's restoration
-    // costs one or two long periods); the cadence is judged on the normal nights (`design_bars`))
-    let _cadence_cost = o.rels.len() > from + 1 && o.rels[from..].windows(2).any(|w| w[1] - w[0] != PERIOD);
+    // (ironspec 02:54 (3): on a single-fault row the REL slips print as COST, not a bar (printed by `cost_line` on every
+    // row); the cadence is judged on the normal nights (`design_bars`); G1 CHANGES 7 C3: THE HEAL BOUND is judged: every
+    // claim answered within HEAL_N RELs)
+    let (lag, lb) = heal_lag(o);
+    if lag > HEAL_N {
+        bad.push(format!("THE STORE NOT HEALED WITHIN {HEAL_N} RELs: claim {lb:?} answered after {lag} RELs"));
+    }
     let late_mis: Vec<&String> = o.misroutes.iter().filter(|m| m.split_whitespace().nth(1).and_then(|x| x.trim_end_matches("'s").parse::<usize>().ok()).is_some_and(|b| b >= from)).collect();
     if !late_mis.is_empty() {
         bad.push(format!("misroutes after the recovery: {late_mis:?}"));
@@ -2176,6 +2200,48 @@ fn kinds_of(bad: &[String]) -> String {
 fn line(v: &mut Verdict, name: &str, bad: &[String], o: &Out, row: &Row, lines: &mut Vec<String>) {
     let w = v.bar(&format!("ctl-credit: {name}{}", if bad.is_empty() { String::new() } else { format!(" [kinds: {}]", kinds_of(bad)) }), bad.is_empty());
     lines.push(format!("  {name}: {}: {w}{}", describe(o, row), if bad.is_empty() { String::new() } else { format!(" ({})", bad.join("; ")) }));
+    // (G1 CHANGES 7 C3: every row prints its COST beside its verdict: the slips and ironspec 02:54 (3)'s per-batch view)
+    lines.push(format!("    cost: {}", cost_line(o)));
+}
+
+/// G1 CHANGES 7 C3: a row's cost (ironspec 02:54 (3): slips are cost; the per-batch view printed, judged on the normal
+/// nights): the REL slips and the per-batch ledger, and the heal lag (the worst claim's answer, in RELs).
+fn cost_line(o: &Out) -> String {
+    let slips: i64 = o.slips.iter().sum();
+    let long = o.slips.iter().filter(|&&s| s > 0).count();
+    let pb = ledger_bars(o);
+    let (lag, b) = heal_lag(o);
+    format!("slips {slips} gt over {long} long periods; per batch [{}]; the heal lag {lag} RELs (claim {b:?}, the normal 1; bar <= {HEAL_N})", if pb.is_empty() { "clean".to_string() } else { pb.join("; ") })
+}
+
+/// G1 CHANGES 7 C3: the heal bound: every claim (a REL) answered within HEAL_N RELs of its own (the normal credit lands
+/// 1 REL after its batch's: REL_b + ~189 with REL_{b+1} between).
+pub const HEAL_N: usize = 4;
+
+/// The worst claim's answer lag: the RELs fired after the claim's REL up to its answering credit (an unanswered claim
+/// counts every REL after it).
+fn heal_lag(o: &Out) -> (usize, Option<usize>) {
+    let mut worst = (0usize, None);
+    let mut answered_at: Vec<Option<i64>> = vec![None; o.rels.len()];
+    for (i, a) in o.answers.iter().enumerate() {
+        if let Some(b) = a {
+            if *b < answered_at.len() {
+                answered_at[*b] = Some(o.credits[i].0);
+            }
+        }
+    }
+    let judged = o.ledger_exempt.as_ref().map_or(o.rels.len(), |e| e.0);
+    for b in 0..judged.min(o.rels.len()) {
+        let rb = o.rels[b];
+        let lag = match answered_at[b] {
+            Some(ta) => o.rels.iter().filter(|&&r| r > rb && r <= ta).count(),
+            None => o.rels.iter().filter(|&&r| r > rb).count(),
+        };
+        if lag > worst.0 {
+            worst = (lag, Some(b));
+        }
+    }
+    worst
 }
 
 fn control(v: &mut Verdict, name: &str, bites: bool, o: &Out, row: &Row, lines: &mut Vec<String>) {
@@ -2325,7 +2391,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let (pl, pf) = plant_roles(&o, r, &o_norm_pl);
         lines.push(format!("    the plants: {}", pl.join("; ")));
         bad.extend(pf);
-        line(v, &format!("FAULT ROW {name}: the ring back in its SAME phase within 2 batches, P = 100 from REL_7, no misroute after, no credit gained, the store's bars ({})", moved_note(&o)), &bad, &o, r, lines);
+        line(v, &format!("FAULT ROW {name}: the ring back in its SAME phase within 2 batches, no misroute after, no credit gained, THE STORE CORRECT (the FIFO ledger) and healed within {HEAL_N} RELs ({})", moved_note(&o)), &bad, &o, r, lines);
         o
     };
     for s in 0..3 {
@@ -2510,8 +2576,15 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 if !o.leg_entries.is_empty() {
                     bad.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
                 }
+                // (G1 CHANGES 7 C7: a picked cart diverted into a lane under a stray is judged in this sweep too, its own
+                // kind, never hidden by the LEG-ENTRY remap nor counted as OTHER)
                 for k in kinds_of(&bad).split(", ").filter(|k| !k.is_empty()) {
-                    by_kind.entry(if k == "OTHER" && bad.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else { k }.to_string()).or_default().push(d);
+                    let k = if k == "OTHER" && bad.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else { k };
+                    by_kind.entry(k.to_string()).or_default().push(d);
+                }
+                if !o.pick_diverted.is_empty() {
+                    bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
+                    by_kind.entry("PICK-DIVERTED".to_string()).or_default().push(d);
                 }
                 if o.lane_delta != [0; 3] || !o.misroutes.is_empty() {
                     documented.push(d);
@@ -2526,7 +2599,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             };
             let mut marks = Vec::new();
             if by_kind.is_empty() {
-                marks.push(v.bar_n(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars (recovery within 2 batches, the store per batch, no batch cart into the way-in leg; every kind clear)"), 55, true).to_string());
+                marks.push(v.bar_n(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars (the ring in phase within 2 batches, THE STORE CORRECT healed within {HEAL_N} RELs, no batch cart into the way-in leg, no picked cart diverted; every kind clear)"), 55, true).to_string());
             }
             for (k, ds) in &by_kind {
                 marks.push(format!("{k} at + {}: {}", ranges(ds), v.bar(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars: kind {k} at REL_6 + {}", ranges(ds)), false)));
@@ -2556,6 +2629,17 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         rp.pick = vec![(5, 0)];
         let op = run(&rp, Defects { no_hold3: true, ..Default::default() });
         control(v, "a PICKED CART DIVERTED (HOLD_3 removed on batch 5's lane -1 pick): the per-kind aggregation adds the PICK-DIVERTED kind", kinds_route(&op).contains(&"PICK-DIVERTED") && kinds_route(&run(&rp, Defects::default())).is_empty(), &op, &rp, &mut lines);
+        // (G1 CHANGES 7 C7: the same control run THROUGH THE STRAY SWEEP's bad list: a stray D(7) at REL_6 + 66 with batch 6
+        // carrying lane -1's picked napper and HOLD_3 removed: the sweep's aggregation reports PICK-DIVERTED)
+        let mut rs = Row::normal("stray sweep pick control");
+        rs.stray = vec![(rel6 + 66, 7)];
+        rs.pick = vec![(6, 0)];
+        let os = run(&rs, Defects { no_hold3: true, ..Default::default() });
+        let mut bad = recovery_bars(&os, &rs, 6);
+        if !os.pick_diverted.is_empty() {
+            bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", os.pick_diverted.join("; ")));
+        }
+        control(v, "the stray sweep's own bad list (G1 CHANGES 7 C7): a stray D(7) at REL_6 + 66 with batch 6's lane -1 pick and HOLD_3 removed: PICK-DIVERTED reported", bad.iter().any(|b| b.contains("PICK-DIVERTED")), &os, &rs, &mut lines);
     }
     // (G1 01:00 / 01:01: THE DELAYED-CART SWEEP: one slot's batch-5 cart late by each of 1..60 gt, each slot, judged PER
     // KIND (r14's chain: J routes by arrival order, so a reorder misroutes); λ_pass per slot = the first misrouting
@@ -2739,11 +2823,11 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut n_open = 0usize;
     let mut bad_open = Vec::new();
     let (mut in_cool, mut cool_bad) = (0usize, Vec::new());
-    for (idle, kj) in [(1, 1), (2, 1), (1, 3), (2, 3)] {
+    for (idle, kj) in [(0, 3), (1, 1), (2, 1), (1, 3), (2, 3)] {
         for t0 in 500..720 {
             let mut r = Row::normal("open");
             r.open = Some((t0, idle, kj));
-            r.napper = vec![(4, 2, 0), (5, 0, 0)];
+            r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
             let o = run(&r, Defects::default());
             n_open += 1;
             if let Some((a, b)) = o.open_cooldown {
@@ -2757,14 +2841,60 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             if o.open_items.is_some_and(|(a, b)| a != b) && cool_bad.len() < 2 {
                 cool_bad.push(format!("open at {t0}: the items changed over the open {:?}", o.open_items));
             }
-            let bad = recovery_bars(&o, &r, bf);
+            let mut bad = recovery_bars(&o, &r, bf);
+            // (G1 CHANGES 7: a world open is NORMAL running: NO CART MISROUTED in any batch, judged)
+            if !o.misroutes.is_empty() {
+                bad.push(format!("A CART MISROUTED under a world open: {}", o.misroutes.join("; ")));
+            }
             if !bad.is_empty() && bad_open.len() < 2 {
                 bad_open.push(format!("open at {t0} idle {idle} kj {kj}: {}; {}", bad.join("; "), describe(&o, &r)));
             }
         }
     }
-    let w = v.bar_n("ctl-credit: FAULT ROW a world open at every tick of batch 5's span (t 500..719; idle 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 and -1): the ring in its same phase within 2 batches, P = 100, the store's bars, no napper misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown", n_open, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
-    lines.push(format!("  FAULT ROW a world open mid-batch, {n_open} runs ({in_cool} of them inside a hopper cooldown): {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    let w = v.bar_n("ctl-credit: A WORLD OPEN at every tick of batch 5's span (t 500..719; idle 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and each napper's release; a NORMAL event: G1 CHANGES 7 also NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown", n_open, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
+    lines.push(format!("  A WORLD OPEN mid-batch, {n_open} runs ({in_cool} of them inside a hopper cooldown): {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    // (G1 05:19 (5): THE K WINDOWS' SIX MARGINS (each napper lane: the batch cart AHEAD of the napper at its J against the
+    // window's early edge, the next batch's first cart BEHIND it at that J against the late edge), at train 15 and train
+    // 16, each under a kj = 3 shift in BOTH directions (the cart ahead 3 later, the cart behind 3 earlier); the early half
+    // against the napper's earliest arrival (its -2 jitter))
+    {
+        let mut six = Vec::new();
+        let mut least = i64::MAX;
+        for (tn, ss, ns) in [("train 15", [0i64, 0, 0], 0i64), ("train 16", [0, 3, 3], 2)] {
+            let st: [[i64; 3]; 3] = std::array::from_fn(|s| std::array::from_fn(|j| SLOT_T[s][j] + ss[s]));
+            let nt: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + ns);
+            for (l, name) in [(0usize, "K(-1)"), (1, "K(3)"), (2, "K(7)")] {
+                // (the cart ahead at J(l): the batch's latest cart reaching J(l) (slot 3 passes J(-1) / J(3), diverts at
+                // J(7)); the cart behind: the next batch's first cart reaching J(l) (slot 1 at J(-1), slot 2 at J(3), slot 3
+                // at J(7)), REL + PERIOD later)
+                let ahead = st[2][l];
+                let behind = PERIOD + st[l][l];
+                let early = nt[l] - K_EARLY;
+                let late = nt[l] + K_HALF;
+                let m_ahead = early - ahead - 3;
+                let m_behind = behind - 3 - late;
+                let m_jit = K_EARLY - 2;
+                least = least.min(m_ahead).min(m_behind);
+                six.push(format!("{tn} {name}: the cart ahead (REL + {ahead}) {m_ahead} gt before the early edge (REL + {early}) after a kj 3 shift; the next batch's cart behind (REL + {behind}) {m_behind} gt after the late edge (REL + {late}) after a kj 3 shift; the early half over the napper's -2 jitter {m_jit}"));
+            }
+        }
+        let w = v.bar("ctl-credit: THE K WINDOWS' SIX MARGINS (G1 05:19 (5): the cart ahead of each napper against its window's early edge, the next batch's cart behind against the late edge, each after a kj = 3 shift toward the window, train 15 and train 16) stay >= 2 (the jitter)", least >= 2);
+        lines.push(format!("  THE K WINDOWS' SIX MARGINS (K_EARLY {K_EARLY}, K_HALF {K_HALF}): {}; least {least}: {w}", six.join("; ")));
+        // (ironspec 05:18 (3): THE OLD SYMMETRIC WINDOW AS A PLANTED MISROUTE failing by name: a kj 3 world open between the
+        // lane -1 napper's release and its batch's slot 3 reaching J(-1), the early half back at 10)
+        let mut hits = Vec::new();
+        for t0 in 571..=650 {
+            let mut r = Row::normal("open, symmetric K");
+            r.open = Some((t0, 0, 3));
+            r.napper = vec![(5, 0, 0)];
+            let o = run(&r, Defects { k_symmetric: true, ..Default::default() });
+            if o.misroutes.iter().any(|m| m.contains("lane 7 cart into lane -1")) {
+                hits.push(t0);
+            }
+        }
+        let c = v.control("ctl-credit CONTROL (ironspec 05:18 (3)): THE OLD SYMMETRIC K WINDOW (early half 10): a kj 3 world open after the lane -1 napper's release forces its batch's slot 3 into lane -1 (A CART MISROUTED by name)", 1, !hits.is_empty()).to_string();
+        lines.push(format!("  CONTROL (the symmetric K window): batch 5's lane 7 cart into lane -1 with the open at t {}: {c}", ranges_of(&hits)));
+    }
     {
         let (mut nb, mut ex) = (0usize, String::new());
         for t0 in 500..720 {
@@ -3270,6 +3400,27 @@ mod tests {
                 println!("GUARDROW comp_only {comp_only}: credits (tick, batch) {:?}; credit presses {:?}; blocked {:?}; legit blocked {:?}; gaps {:?}; per batch [{}]", &o.credits[..o.credits.len().min(12)], &o.credit_press[..o.credit_press.len().min(12)], o.d7_blocked, o.d7_blocked_legit, o.d7_gap_after_completion, ledger_bars(&o).join("; "));
             }
         }
+        if std::env::var("CC_OPENDBG").is_ok() {
+            // (G1 CHANGES 7: a world open misrouting batch 5's lane-7 cart: which opens, which idle / kj)
+            let mut by: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+            for (idle, kj) in [(0i64, 1i64), (0, 3), (1, 1), (1, 3), (2, 1), (2, 3)] {
+                for t0 in 400..720 {
+                    let mut r = Row::normal("opendbg");
+                    r.open = Some((t0, idle, kj));
+                    let o = run(&r, Defects::default());
+                    if !o.misroutes.is_empty() {
+                        by.entry(format!("idle {idle} kj {kj}: {}", o.misroutes.join("; ").chars().take(80).collect::<String>())).or_default().push(t0);
+                    }
+                }
+            }
+            for (k, ts) in &by {
+                println!("OPENDBG {k}: opens at t {}", ranges_of(ts));
+            }
+            let mut r = Row::normal("opendbg");
+            r.open = Some((507, 1, 3));
+            let o = run(&r, Defects::default());
+            println!("OPENDBG (507, 1, 3): rels {:?}; batch 5 presses {:?}; pass b5 {:?}; misroutes {:?}", &o.rels[..8], o.presses.get(5), o.pass.get(5), o.misroutes);
+        }
         if std::env::var("CC_NETDBG").is_ok() {
             let r = Row::normal("netdbg");
             let o = run(&r, Defects::default());
@@ -3734,12 +3885,14 @@ mod tests {
         // 02:16 (3) / 02:43 (1) / 02:45 (3) / 02:54 (3): the test asserts the bench's EXACT verdict PER (row, kind), on the
         // ADOPTED bars only (a superseded bar is removed in code): the normal nights per batch (0 LOST, 0 GAIN, 0 credit
         // from no batch, nothing in flight at the end) and NO CART MISROUTED; the single-fault rows on THE STORE CORRECT
-        // (the FIFO ledger, the resync net restoring it), slips printed as cost. With SEEN3_OLD's own tap at REL + 79, THE
-        // ONE-CREDIT-PER-BATCH GUARD (20 gt, opened by every credit), every K(l) masking ALL of D(l)'s outputs (K(3) over the
-        // J(3) reset, K(7) by order) and THE RESYNC NET (two consecutive REL waits with one batch in flight), every late,
-        // missing, stray and late-napper row keeps the store correct. THE OPEN FAILURES (adopted bars, by name): a batch cart
-        // into the way-in leg under a stray D(-1) / D(3) with batch 6 carrying a picked napper (T's leg entries: the stray
-        // guard priced); every other bar passes and every control bites; the CLI exits 1 by name)
+        // (the FIFO ledger, the resync net restoring it), slips printed as cost. With SEEN3_OLD's own tap at REL + 80, THE
+        // ONE-CREDIT-PER-BATCH GUARD (50 gt, opened by every credit, every blocked press judged), every K(l) masking ALL of
+        // D(l)'s outputs (K(3) over the J(3) reset, K(7) by order; the windows' early half 5), THE CLAIM CAP and THE RESYNC
+        // NET (its item form, read from cart events), every late, missing, stray and late-napper row keeps the store correct.
+        // THE OPEN FAILURES (adopted bars, by name): a batch cart into the way-in leg under a stray D(-1) / D(3) with batch 6
+        // carrying a picked napper (T's leg entries: the stray guard priced); a picked cart diverted (G1 CHANGES 7 C7: now
+        // judged in the stray sweep: a stray D(-1) at REL_6 + 109..120 with lane 3's pick; and T behind a cart late past
+        // λ_pass); every other bar passes and every control bites; the CLI exits 1 by name)
         let mut v = Verdict::new("ctl-credit-test");
         for l in bench(&mut v) {
             println!("{l}");
@@ -3747,6 +3900,7 @@ mod tests {
         let fails = v.fails();
         let expected = [
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind PICK-DIVERTED at REL_6 + 109..120", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
             ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 104..120", ""),
             ("T on batch 5 carrying lane 3's picked napper, lane -1 late 1..60: the fault path's adopted bars: kind PICK-DIVERTED at lateness 9..60", ""),
