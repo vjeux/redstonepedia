@@ -3288,6 +3288,10 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         allow: Vec<String>,
     },
+    /// (ironspec Nov 13 20:39 / 20:43, G1 20:42) The band-contact audit of every string: each one's
+    /// band against the empty cart's box (end of tick, and raised on a slope: the swept test) and a
+    /// rider's along every rail within reach; each classed rider-keyed, CART-KEYED or never pressed.
+    StringAudit { design: PathBuf },
     /// (ironspec Nov 13 19:11, with day-1) The riderless-source statics on the route: (a) activator
     /// rails and every block that powers or could power them (--allow-activator names the design's
     /// own emptying rail's sources), (c) seated zombies whose attack box meets a rider with sight,
@@ -9421,6 +9425,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::StringAudit { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let (lines, n) = crate::fleecheck::string_audit(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            println!("string audit: {} string(s), {n} CART-KEYED", lines.iter().filter(|l| l.starts_with("string ")).count());
         }
         MobfarmCmd::Riderless { design, allow_activator } => {
             let (_c, spec) = load(version, &design)?;

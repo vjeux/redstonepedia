@@ -5248,6 +5248,72 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
     Ok((lines, bad))
 }
 
+/// (ironspec Nov 13 20:39 / 20:43, G1 20:42, ironfarm 20:41) The band-contact audit of every string:
+/// a tripwire presses only when a box meets its outline (the band: attached y + 1/16..2.5/16, loose
+/// y 0..8/16, its full cell in x and z; 26.3's `getEntityInsideCollisionShape`), and the game tests the
+/// cart's box SWEPT over its move: on an ascending rail the move and the block effects run at the rail
+/// + 1 before the snap, so a slope cart's raised box (rail y + 1 .. + 1.7) counts. For every rail
+/// within one column of a string and three below it, the cart sampled along it every 0.05: the empty
+/// cart's box (0.98 x 0.7, end of tick, and raised on a slope) and a seated villager's (0.6 x 1.95,
+/// feet at the cart's position). Each string classed: rider-keyed (a rider meets the band, no empty
+/// cart does), CART-KEYED (an empty cart's box meets it), or never pressed. Returns the lines and the
+/// count of CART-KEYED strings.
+pub fn string_audit(spec: &FarmSpec) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut cart_keyed = 0usize;
+    let rails: Vec<(BlockPos, String)> = spec.blocks.iter().map(|(p, _)| (*p, w.get(*p).to_string())).filter(|(_, s)| s.contains("rail") && !s.contains("tripwire")).collect();
+    let mut strings: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| matches!(w.get(*p), redsim::block::Block::Tripwire { .. })).collect();
+    strings.sort_by_key(|p| (p.y, p.z, p.x));
+    let meets = |a: [f64; 6], b: [f64; 6]| a[0] < b[1] && a[1] > b[0] && a[2] < b[3] && a[3] > b[2] && a[4] < b[5] && a[5] > b[4];
+    for s in &strings {
+        let attached = matches!(w.get(*s), redsim::block::Block::Tripwire { attached: true, .. });
+        let (lo, hi) = if attached { (1.0 / 16.0, 2.5 / 16.0) } else { (0.0, 0.5) };
+        let band = [s.x as f64, s.x as f64 + 1.0, s.y as f64 + lo, s.y as f64 + hi, s.z as f64, s.z as f64 + 1.0];
+        let (mut empty, mut raised, mut rider): (Option<String>, Option<String>, Option<String>) = (None, None, None);
+        for (r, shape) in rails.iter().filter(|(r, _)| (r.x - s.x).abs() <= 1 && (r.z - s.z).abs() <= 1 && r.y <= s.y && r.y >= s.y - 3) {
+            for i in 0..20 {
+                let t = i as f64 * 0.05;
+                let p = along_rail(*r, shape, t);
+                let at = || format!("the rail {},{},{} at {:.2},{:.2},{:.2}", r.x, r.y, r.z, p.x, p.y, p.z);
+                if empty.is_none() && meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band) {
+                    empty = Some(at());
+                }
+                if raised.is_none() && shape.contains("ascending") && meets([p.x - 0.49, p.x + 0.49, r.y as f64 + 1.0, r.y as f64 + 1.7, p.z - 0.49, p.z + 0.49], band) {
+                    raised = Some(at());
+                }
+                if rider.is_none() && meets([p.x - 0.3, p.x + 0.3, p.y, p.y + 1.95, p.z - 0.3, p.z + 0.3], band) {
+                    rider = Some(at());
+                }
+            }
+        }
+        let class = if empty.is_some() || raised.is_some() {
+            cart_keyed += 1;
+            "CART-KEYED"
+        } else if rider.is_some() {
+            "rider-keyed"
+        } else {
+            "never pressed"
+        };
+        lines.push(format!(
+            "string {},{},{} ({}, band y {:.4}..{:.4}): {class}: an empty cart's box {}; its raised box on a slope {}; a rider's box {}",
+            s.x,
+            s.y,
+            s.z,
+            if attached { "attached" } else { "loose" },
+            band[2],
+            band[3],
+            empty.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}")),
+            raised.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}")),
+            rider.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}"))
+        ));
+    }
+    if strings.is_empty() {
+        lines.push("strings: none".to_string());
+    }
+    Ok((lines, cart_keyed))
+}
+
 /// (ironspec Nov 13 19:11, with day-1) The riderless-source statics: what could take a rider out of its
 /// cart, or kill it, on the route (each rail place's three points, `scarer_points`).
 /// - (a) every activator rail with every block that powers or could power it (`power_into`; the
@@ -9021,6 +9087,49 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+    }
+
+    /// (ironspec Nov 13 20:39 / 20:43, G1 20:42) The band-contact audit, each class: a string one up
+    /// over a flat rail is pressed by a rider only (rider-keyed); over an ascending rail the empty cart's
+    /// raised box meets its band (CART-KEYED); a string two up over a flat rail is never pressed.
+    #[test]
+    fn string_audit_rider_keyed_cart_keyed_and_never() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let loose = "minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]";
+        let attached = "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]";
+        let mut blocks = Vec::new();
+        for x in 0..=8 {
+            for z in 0..=4 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        // a flat rail at x 1 with an attached string one up (hooks N / S on glass)
+        blocks.push((b(1, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        blocks.push((b(1, 2, 2), p(attached)));
+        blocks.push((b(1, 2, 1), p("minecraft:tripwire_hook[attached=true,facing=south,powered=false]")));
+        blocks.push((b(1, 2, 3), p("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")));
+        blocks.push((b(1, 2, 0), p("minecraft:glass")));
+        blocks.push((b(1, 2, 4), p("minecraft:glass")));
+        // an ascending rail at x 4 (up to the east, its high side on stone at x 5) with a loose string
+        // one up over it
+        blocks.push((b(4, 1, 2), p("minecraft:rail[shape=ascending_east,waterlogged=false]")));
+        blocks.push((b(5, 1, 2), p("minecraft:stone")));
+        blocks.push((b(4, 2, 2), p(loose)));
+        // a flat rail at x 7 with an attached string two up (above every box: a rider's top 3.0125 is
+        // under the band 3.0625)
+        blocks.push((b(7, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        blocks.push((b(7, 3, 2), p(attached)));
+        blocks.push((b(7, 3, 1), p("minecraft:tripwire_hook[attached=true,facing=south,powered=false]")));
+        blocks.push((b(7, 3, 3), p("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")));
+        blocks.push((b(7, 3, 0), p("minecraft:glass")));
+        blocks.push((b(7, 3, 4), p("minecraft:glass")));
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(8, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, n) = super::string_audit(&spec).unwrap_or_else(|e| panic!("{e}"));
+        let of = |c: &str| l.iter().find(|x| x.starts_with(&format!("string {c} "))).cloned().unwrap_or_else(|| panic!("{c}: {l:?}"));
+        assert!(of("1,2,2").contains(": rider-keyed: an empty cart's box never meets it"), "{l:?}");
+        assert!(of("4,2,2").contains(": CART-KEYED:") && of("4,2,2").contains("its raised box on a slope meets it"), "{l:?}");
+        assert!(of("7,3,2").contains(": never pressed:"), "{l:?}");
+        assert!(n == 1, "one CART-KEYED string: {l:?}");
     }
 
     /// (ironspec Nov 13 19:11, with day-1) The riderless statics, each both ways: a zombie seated in a
