@@ -8682,9 +8682,14 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     if !ours.errors.is_empty() {
         eprintln!("redsim model errors: {:?}", ours.errors);
     }
-    // (cc767b78, ironspec / G1 14:57: a replay ending with model errors isn't exact)
+    // (cc767b78, ironspec / G1 14:57: a replay ending with model errors isn't exact; the light reads taken
+    // with them, each once)
     cmp.model_errors = ours.errors.clone();
-    cmp.model_errors.extend(ours.take_light_errors());
+    for e in ours.take_light_errors() {
+        if !cmp.model_errors.contains(&e) {
+            cmp.model_errors.push(e);
+        }
+    }
     Ok(cmp)
 }
 

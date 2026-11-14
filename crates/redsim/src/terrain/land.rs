@@ -804,11 +804,32 @@ impl World {
         }
     }
 
-    /// The light reads that failed since the last tick (or the last take), taken: a judge that reads
-    /// light without ticking refuses its verdict on any.
+    /// The light reads that failed and that no judge has taken yet, wherever they are now: still
+    /// pending, or moved into `World::errors` by a tick since (kept for this take too), taken together
+    /// (ironspec 16:22: ONE helper that returns both, so a judge that ticks its world before it takes
+    /// misses none); a judge that reads light refuses its verdict on any.
     pub fn take_light_errors(&self) -> Vec<String> {
         // (a poisoned lock still gives them: G1 14:55 H7)
-        std::mem::take(&mut *self.sky_cache.read_errors.lock().unwrap_or_else(|p| p.into_inner()))
+        let mut out = std::mem::take(&mut *self.sky_cache.drained.lock().unwrap_or_else(|p| p.into_inner()));
+        for e in std::mem::take(&mut *self.sky_cache.read_errors.lock().unwrap_or_else(|p| p.into_inner())) {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+        out
+    }
+
+    /// (a tick's own drain) The pending light read errors moved out for `World::errors`, each kept in the
+    /// drained list for [`Self::take_light_errors`] until a judge takes it.
+    pub(crate) fn drain_pending_light_errors(&self) -> Vec<String> {
+        let pending = std::mem::take(&mut *self.sky_cache.read_errors.lock().unwrap_or_else(|p| p.into_inner()));
+        let mut drained = self.sky_cache.drained.lock().unwrap_or_else(|p| p.into_inner());
+        for e in &pending {
+            if !drained.contains(e) {
+                drained.push(e.clone());
+            }
+        }
+        pending
     }
 
     /// `getRawBrightness(pos, darken)` = `max(block, sky - darken)`.

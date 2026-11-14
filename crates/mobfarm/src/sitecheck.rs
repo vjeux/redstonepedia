@@ -1548,7 +1548,7 @@ pub fn lightning(p: &Placed) -> Verdict {
         // (G1 14:55 H6: the fire reach's own failed light reads, under their own label)
         let fire_errors = p.w.take_light_errors();
         if !fire_errors.is_empty() {
-            lines.push((false, format!("light read: {} failed in the fire reach (pending since the world's last tick or take: some may predate it): {}", fire_errors.len(), fire_errors.join("; "))));
+            lines.push((false, format!("light read: {} failed in the fire reach (untaken since the world's last take: pending, or moved into its errors by a tick: some may predate it): {}", fire_errors.len(), fire_errors.join("; "))));
         }
         let near = nearest.map(|(d, f, s)| format!("the nearest flammable farm block {} is {d:.1} blocks from the strike at {}", at(f), at(s))).unwrap_or_default();
         lines.push((reaching.is_empty(), if reaching.is_empty() { format!("fire: no surface strike's fire reaches any of the {} flammable farm blocks ({near})", flammable.len()) } else { format!("fire: {} strike fires reach a flammable farm block, e.g. from {} ({near})", reaching.len(), reaching.iter().take(3).map(|q| at(*q)).collect::<Vec<_>>().join(" ")) }));
@@ -1871,7 +1871,7 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     // ironspec 12:54)
     let light_errors = p.w.take_light_errors();
     if !light_errors.is_empty() {
-        lines.push((false, format!("light: {} read(s) failed in the floods' spawn rules (pending since the world's last tick or take: some may predate these floods): {}", light_errors.len(), light_errors.join("; "))));
+        lines.push((false, format!("light: {} read(s) failed in the floods' spawn rules (untaken since the world's last take: pending, or moved into its errors by a tick: some may predate these floods): {}", light_errors.len(), light_errors.join("; "))));
     }
     let posts: Vec<Aabb> = p.zombies.iter().flat_map(|z| z.boxes()).collect();
     // (golems and the AFK player are targets too: a trap's skeletons, and every skeleton and
