@@ -5048,6 +5048,39 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     Ok((lines, off.len(), cells))
 }
 
+/// (ironspec Nov 13 19:11 / 19:13) The components a cell's state change can trigger: every press or
+/// release of a string (a tripwire), a detector or a pressure plate updates its six neighbours, so an
+/// observer, a piston (sticky or not), a dropper or a dispenser among them (quasi-connected ones
+/// included: an update is what wakes them) would act. Each cell's six neighbours in the settled design,
+/// each such component listed. The bar: 0. Returns the lines and the count.
+pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut n = 0usize;
+    for c in cells {
+        let mut hits = Vec::new();
+        for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            let q = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+            let s = w.get(q).to_string();
+            let id = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+            if matches!(id.as_str(), "observer" | "piston" | "sticky_piston" | "dropper" | "dispenser") {
+                hits.push(format!("{} at {},{},{}", s.trim_start_matches("minecraft:"), q.x, q.y, q.z));
+            }
+        }
+        n += hits.len();
+        lines.push(format!(
+            "update reach of {},{},{} ({}): {} observer / piston / dropper / dispenser{}",
+            c.x,
+            c.y,
+            c.z,
+            w.get(*c).to_string().trim_start_matches("minecraft:"),
+            hits.len(),
+            if hits.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", hits.join("; ")) }
+        ));
+    }
+    Ok((lines, n))
+}
+
 /// (G1 Nov 13 18:37, B2 / B7) Whether an iron golem standing at `cell` (its box `MobType::IronGolem`'s
 /// width and height around the cell's centre, deflated by 1e-5 as `Entity.checkInsideBlocks` takes
 /// it) meets a nether portal block: a pad golem, which crosses at once.
@@ -8557,6 +8590,21 @@ mod gate_tests {
         // liquid block, so its feet term stands)
         let wl = super::GolemTerm { at: 0, kind: super::GolemTermKind::FeetNotAirOrLiquid, block: p("minecraft:rail[shape=north_south,waterlogged=true]"), pos: b(5, 1, 5) };
         assert!(!wl.stateful(&w), "a waterlogged rail is no liquid block");
+        // (ironspec 19:13: the update reach of a string: an observer or a piston beside it fails, a lone
+        // string passes)
+        let mut ub = vec![(b(2, 1, 2), string_b)];
+        for x in 0..=4 {
+            for z in 0..=4 {
+                ub.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        let uspec = redsim::entity::mob::farm::FarmSpec { blocks: ub.clone(), entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(4, 3, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (ul, un) = super::update_reach_components(&uspec, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(un == 0 && ul[0].ends_with("(PASS)"), "a lone string: {ul:?}");
+        ub.push((b(3, 1, 2), p("minecraft:observer[facing=west,powered=false]")));
+        let ospec = redsim::entity::mob::farm::FarmSpec { blocks: ub, ..uspec };
+        let (ol, on) = super::update_reach_components(&ospec, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(on == 1 && ol[0].contains("observer") && ol[0].ends_with("(FAIL)"), "an observer beside: {ol:?}");
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end
