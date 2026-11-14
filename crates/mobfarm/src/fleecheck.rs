@@ -5052,6 +5052,55 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     Ok((lines, off.len(), cells))
 }
 
+/// (ironspec Nov 13 19:11 / 19:13 / 19:45 (c), G1 20:02 E5 / E6) The components a cell's state change
+/// can trigger: every press or release of a string (a tripwire), a hook, a detector or a pressure plate
+/// updates the cells of its footprint, so an observer, a piston (sticky or not, or its head, which
+/// passes the update to its base), a dropper or a dispenser there (quasi-connected ones included: an
+/// update is what wakes them) would act. The footprint is the repo's own model for a signal source
+/// (`pushscan::update_reach`: a hook's six neighbours and its support's, a plate's or a detector's and
+/// the block under it's, an ascending detector's above too), a hookless string's its six faces. A cell
+/// holding none of those is NOT JUDGED. The bar: 0. Returns the lines and the count.
+pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut n = 0usize;
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).to_vec();
+    for c in cells {
+        let b = w.get(*c);
+        let here = b.to_string();
+        let id = here.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+        let (what, footprint): (String, Vec<BlockPos>) = if id == "tripwire" {
+            ("a string: its six faces".to_string(), n6(*c))
+        } else if (id == "tripwire_hook" || id.ends_with("pressure_plate") || id == "detector_rail")
+            && let Some((name, fp)) = crate::pushscan::update_reach(*c, &b)
+        {
+            (format!("a {name}: its footprint, {} cells", fp.len()), fp)
+        } else {
+            return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (no string, hook, plate or detector)", c.x, c.y, c.z, here.trim_start_matches("minecraft:")));
+        };
+        let mut hits = Vec::new();
+        for q in footprint.into_iter().filter(|q| q != c) {
+            let s = w.get(q).to_string();
+            let qid = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+            let hit = format!("{} at {},{},{}", s.trim_start_matches("minecraft:"), q.x, q.y, q.z);
+            if matches!(qid.as_str(), "observer" | "piston" | "sticky_piston" | "piston_head" | "moving_piston" | "dropper" | "dispenser") && !hits.contains(&hit) {
+                hits.push(hit);
+            }
+        }
+        n += hits.len();
+        lines.push(format!(
+            "update reach of {},{},{} ({}; {what}): {} observer / piston / dropper / dispenser{}",
+            c.x,
+            c.y,
+            c.z,
+            here.trim_start_matches("minecraft:"),
+            hits.len(),
+            if hits.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", hits.join("; ")) }
+        ));
+    }
+    Ok((lines, n))
+}
+
 /// (G1 Nov 13 18:37, B2 / B7) Whether an iron golem standing at `cell` (its box `MobType::IronGolem`'s
 /// width and height around the cell's centre, deflated by 1e-5 as `Entity.checkInsideBlocks` takes
 /// it) meets a nether portal block: a pad golem, which crosses at once.
@@ -8642,6 +8691,50 @@ mod gate_tests {
         assert!(!floor_t.removable(&w), "a floor term is never removable");
         // (G1 19:23 / 20:02 E1: the feet test is the BLOCK's liquid(): a waterlogged rail's term stands;
         // pinned on the real path in `golem_fragile_real_path_waterlogged_rail_observer_and_string`)
+    }
+
+    /// (ironspec Nov 13 19:13 / 19:45 (c), G1 20:02 E5 / E6) The update-reach footprints: a lone string
+    /// passes and an observer beside it fails; a hook takes its support's neighbours (an observer beside
+    /// the support fails); a plate takes the block under it's neighbours (a piston beside the stone under
+    /// it fails), as `pushscan::update_reach` has it; a piston head beside a string fails; a cell holding
+    /// no string, hook, plate or detector is NOT JUDGED.
+    #[test]
+    fn update_reach_footprints_string_hook_plate_and_not_judged() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let string_b = p("minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]");
+        let mk = |extra: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
+            let mut blocks = Vec::new();
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            blocks.extend(extra);
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(4, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let (ul, un) = super::update_reach_components(&mk(vec![(b(2, 1, 2), string_b)]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(un == 0 && ul[0].ends_with("(PASS)"), "a lone string: {ul:?}");
+        let (ol, on) = super::update_reach_components(&mk(vec![(b(2, 1, 2), string_b), (b(3, 1, 2), p("minecraft:observer[facing=west,powered=false]"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(on == 1 && ol[0].contains("observer") && ol[0].ends_with("(FAIL)"), "an observer beside: {ol:?}");
+        // a hook facing west on a glass support (2,1,1): an observer beside the support (3,1,1)
+        let hook = p("minecraft:tripwire_hook[attached=false,facing=west,powered=false]");
+        let (hl, hn) = super::update_reach_components(&mk(vec![(b(1, 1, 1), hook), (b(2, 1, 1), p("minecraft:glass"))]), &[b(1, 1, 1)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(hn == 0 && hl[0].contains("a tripwire hook: its footprint, 12 cells") && hl[0].ends_with("(PASS)"), "a lone hook: {hl:?}");
+        let (hl2, hn2) = super::update_reach_components(&mk(vec![(b(1, 1, 1), hook), (b(2, 1, 1), p("minecraft:glass")), (b(3, 1, 1), p("minecraft:observer[facing=west,powered=false]"))]), &[b(1, 1, 1)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(hn2 == 1 && hl2[0].contains("at 3,1,1") && hl2[0].ends_with("(FAIL)"), "beside the support: {hl2:?}");
+        // a plate on stone: a piston beside the stone under it
+        let plate = p("minecraft:stone_pressure_plate[powered=false]");
+        let mut pb = mk(vec![(b(2, 1, 3), plate)]);
+        pb.blocks.retain(|(q, _)| *q != b(3, 0, 3));
+        pb.blocks.push((b(3, 0, 3), p("minecraft:piston[extended=false,facing=up]")));
+        let (pl, pn) = super::update_reach_components(&pb, &[b(2, 1, 3)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(pn == 1 && pl[0].contains("piston[") && pl[0].contains("at 3,0,3") && pl[0].ends_with("(FAIL)"), "a piston beside the plate's floor: {pl:?}");
+        // a piston head beside a string (its piston held extended by a redstone block)
+        let (kl, kn) = super::update_reach_components(&mk(vec![(b(2, 1, 2), string_b), (b(2, 2, 2), p("minecraft:piston_head[facing=down,short=false,type=normal]")), (b(2, 3, 2), p("minecraft:piston[extended=true,facing=down]")), (b(2, 4, 2), p("minecraft:redstone_block"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(kn == 1 && kl[0].contains("piston_head"), "a piston head beside: {kl:?}");
+        // a cell holding none of them
+        let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
+        assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end
