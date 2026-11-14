@@ -926,6 +926,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, G1 21:25 (2)) (g)'s w = 2 boundary: the abutting handover into a torch's read
+    AbutLatch {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, ironspec 20:41) An empty cart from the napper lift over E under (E)'s string
     EString {
         #[arg(long, default_value = "26.3")]
@@ -2266,6 +2271,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
         MobaiCmd::EString { version, record } => crate::estring::e_string(&version, &record),
         MobaiCmd::SlopeString { version } => crate::slopestring::slope_string(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
