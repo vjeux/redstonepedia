@@ -15831,6 +15831,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(p) => crate::settle::read_scope(&std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?,
                 None => crate::settle::Scope::default(),
             };
+            // (G1 12:07, part 77) every `supersede:` line checked before anything is judged: a missing PATH, a cell the
+            // frozen copy doesn't hold, a line nothing uses: the run is NOT JUDGED by name (a stale line never skips
+            // cells silently)
+            if let Some(t) = &top {
+                let bad = crate::settle::check_supersedes(&scope, t);
+                anyhow::ensure!(bad.is_empty(), "settle-check: NOT JUDGED: the scope file's `supersede:` lines: {}", bad.join("; "));
+            }
             let is = |f: &std::path::Path, rel: &str| f.canonicalize().map(|c| c.ends_with(rel)).unwrap_or(false) || f.ends_with(rel);
             let (files, fixtures): (Vec<PathBuf>, Vec<PathBuf>) = files.into_iter().partition(|f| !scope.fixtures.iter().any(|(rel, _)| is(f, rel)));
             for f in fixtures {
@@ -15863,13 +15870,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(got.starts_with(want.as_str()), "{}: NOT JUDGED: its record of record {} has md5 {} where scope line {} pins {want}: a stale composition", file.display(), rule.record, &got[..12], rule.line);
                 }
                 let rtext = String::from_utf8_lossy(&rbytes).to_string();
-                let diffs = crate::settle::part_in_context(&text, &rtext, rule.offset, rule.only, day_time, cap).map_err(|e| anyhow::anyhow!("{}: in its composed context: {e}", file.display()))?;
-                // (ironspec 11:51a (2), part 76) the part's superseded cells (another part re-lays them) are skipped
+                // (ironspec 11:51a (2) / G1 12:07, parts 76 / 77) the part's superseded cells (another part re-lays them)
+                // are left out of its check, through `part_in_context_skipping`, each printed
                 let sup: Vec<[i32; 3]> = scope.supersedes.iter().filter(|(p, ..)| is(&file, p)).flat_map(|(_, cs, owner, line)| {
                     println!("  superseded by {owner} (scope line {line}): {}", cs.iter().map(|c| format!("{},{},{}", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "));
                     cs.clone()
                 }).collect();
-                let diffs: Vec<_> = diffs.into_iter().filter(|(q, _, _)| !sup.contains(&[q.x, q.y, q.z])).collect();
+                let diffs = crate::settle::part_in_context_skipping(&text, &rtext, rule.offset, rule.only, &sup, day_time, cap).map_err(|e| anyhow::anyhow!("{}: in its composed context: {e}", file.display()))?;
                 println!(
                     "settle-check {} in its composed context ({}{} at {},{},{}{}, scope line {}): {}",
                     file.display(),

@@ -1091,10 +1091,53 @@ pub fn read_scope(text: &str) -> Result<Scope, String> {
     Ok(s)
 }
 
+/// (G1 Nov 14 12:07, part 77) The scope file's `supersede:` lines checked, each refusal by name: its PATH must exist
+/// (from the repository's top `top`), the frozen copy must HOLD each named cell (a block there, not air), and the line
+/// must be USED: its PATH a judged part's (a `part:` line's) or composed by a judged record of record (a `# + NAME: PATH`
+/// line in a `part:` line's RECORD; ironspec on the fixture case: the (b+) copy is a fixture V composes). Returns the
+/// refusals (empty: every line stands).
+pub fn check_supersedes(scope: &Scope, top: &std::path::Path) -> Vec<String> {
+    let mut bad = Vec::new();
+    for (path, cells, owner, line) in &scope.supersedes {
+        let full = top.join(path);
+        let text = match std::fs::read_to_string(&full) {
+            Ok(t) => t,
+            Err(e) => {
+                bad.push(format!("scope line {line}: supersede by {owner}: {path}: no such file ({e})"));
+                continue;
+            }
+        };
+        let d = match mctas::design::Design::parse(&text) {
+            Ok(d) => d,
+            Err(e) => {
+                bad.push(format!("scope line {line}: supersede by {owner}: {path} doesn't parse ({e})"));
+                continue;
+            }
+        };
+        for c in cells {
+            if !d.blocks.get(c).is_some_and(|s| s != "minecraft:air") {
+                bad.push(format!("scope line {line}: supersede by {owner}: {path} holds no block at {},{},{} (a stale or wrong cell)", c[0], c[1], c[2]));
+            }
+        }
+        let as_part = scope.parts.iter().any(|r| r.part == *path);
+        let composed = scope.parts.iter().any(|r| std::fs::read_to_string(top.join(&r.record)).is_ok_and(|t| t.lines().any(|l| l.starts_with("# + ") && l.contains(path.as_str()))));
+        if !as_part && !composed {
+            bad.push(format!("scope line {line}: supersede by {owner}: {path} is neither a judged part nor composed by a judged record of record: the line is never used"));
+        }
+    }
+    bad
+}
+
 /// (ironspec Nov 14 10:45a (2), part 72) A part judged IN ITS COMPOSED CONTEXT: the record of record's cells with the
 /// part's laid at `offset` over them, settled with the record's declarations and entities; returns the part's own cells
 /// (file frame) whose stored state differs from the composition's settled state, each (cell, stored, settled).
 pub fn part_in_context(part_text: &str, record_text: &str, offset: [i32; 3], only: Option<([i32; 3], [i32; 3])>, day_time: Option<i64>, cap: u32) -> Result<Vec<(BlockPos, String, String)>, String> {
+    part_in_context_skipping(part_text, record_text, offset, only, &[], day_time, cap)
+}
+
+/// (G1 Nov 14 12:07, part 77) [`part_in_context`] with the part's SUPERSEDED cells (part frame: another part re-lays them
+/// in the composition, a `supersede:` line) left out of the check.
+pub fn part_in_context_skipping(part_text: &str, record_text: &str, offset: [i32; 3], only: Option<([i32; 3], [i32; 3])>, skip: &[[i32; 3]], day_time: Option<i64>, cap: u32) -> Result<Vec<(BlockPos, String, String)>, String> {
     let (p, r) = (mctas::design::Design::parse(part_text).map_err(|e| format!("the part: {e}"))?, mctas::design::Design::parse(record_text).map_err(|e| format!("the record: {e}"))?);
     let rdecl = declared(record_text)?;
     let mut cells: BTreeMap<BlockPos, Block> = BTreeMap::new();
@@ -1124,6 +1167,7 @@ pub fn part_in_context(part_text: &str, record_text: &str, offset: [i32; 3], onl
     Ok(own
         .into_iter()
         .filter(|(_, at, _)| !exempt.contains(at))
+        .filter(|(q, _, _)| !skip.contains(&[q.x, q.y, q.z]))
         .filter_map(|(q, at, stored)| {
             let now = settled.get(&at).cloned().unwrap_or_else(|| "minecraft:air".to_string());
             (now != stored).then_some((q, stored, now))
@@ -1403,6 +1447,30 @@ mod tests {
         for bad in ["supersede: designs/b.txt 9,24,7 (no owner)\n", "supersede: designs/b.txt 9,24 by CTL (a bad cell)\n", "supersede: designs/b.txt 9,24,7 by CTL\n"] {
             assert!(read_scope(bad).is_err(), "{bad:?} refused");
         }
+        // (G1 12:07, part 77) the REAL-PATH control: the same lamp part in context FAILS on its cell where the record's
+        // lever is off, and passes with that cell superseded (another part re-lays it)
+        let d = part_in_context_skipping(part, &record(false), [1, 0, 0], only_first, &[], None, CAP).unwrap();
+        assert!(d.len() == 1 && d[0].0 == BlockPos::new(0, 0, 0), "without the line: the lamp fails: {d:?}");
+        assert!(part_in_context_skipping(part, &record(false), [1, 0, 0], only_first, &[[0, 0, 0]], None, CAP).unwrap().is_empty(), "superseded: the lamp skipped");
+        // the `supersede:` lines checked: a missing PATH, a cell the copy doesn't hold, a line nothing uses, each refused
+        // by name; the repository's own lines stand
+        let dir = std::env::temp_dir().join(format!("settle-sup-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("d")).unwrap();
+        std::fs::write(dir.join("d/copy.txt"), part).unwrap();
+        std::fs::write(dir.join("d/rec.txt"), format!("# + LEG: d/copy.txt (md5 0) moved by 1,0,0\n{}", record(true))).unwrap();
+        let sc = |s: &str| read_scope(s).unwrap();
+        let used = "part: d/other.txt in d/rec.txt at 0,0,0 (a judged part of that record)\n";
+        assert!(check_supersedes(&sc(&format!("{used}supersede: d/copy.txt 0,0,0 by CTL (r)\n")), &dir).is_empty(), "a held cell, composed by a judged record: stands");
+        let e = check_supersedes(&sc(&format!("{used}supersede: d/missing.txt 0,0,0 by CTL (r)\n")), &dir);
+        assert!(e.len() == 1 && e[0].contains("d/missing.txt: no such file"), "{e:?}");
+        let e = check_supersedes(&sc(&format!("{used}supersede: d/copy.txt 5,0,0 by CTL (r)\n")), &dir);
+        assert!(e.len() == 1 && e[0].contains("holds no block at 5,0,0"), "{e:?}");
+        let e = check_supersedes(&sc("supersede: d/copy.txt 0,0,0 by CTL (r)\n"), &dir);
+        assert!(e.len() == 1 && e[0].contains("the line is never used"), "{e:?}");
+        let top = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let own = read_scope(&std::fs::read_to_string(top.join("designs/settle-scope.txt")).unwrap()).unwrap();
+        assert_eq!(check_supersedes(&own, top), Vec::<String>::new(), "the repository's supersede lines stand");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The floor under a layout: stone at y = -1 over x 0..n, z -1..1.
