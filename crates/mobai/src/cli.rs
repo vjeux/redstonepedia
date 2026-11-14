@@ -926,6 +926,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, ironspec 22:12 / G1 22:15) A villager seated in a minecart dropped onto rails, slime, stone, water
+    CartFall {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, ironspec 21:42) A real P_STRING's release on a test rig: press vs the observer's pulse
     StringRelease {
         #[arg(long, default_value = "26.3")]
@@ -2276,6 +2281,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::CartFall { version } => crate::cartfall::cart_fall(&version),
         MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
         MobaiCmd::EString { version, record } => crate::estring::e_string(&version, &record),
