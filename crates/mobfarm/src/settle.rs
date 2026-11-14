@@ -42,11 +42,13 @@ fn split_outside(s: &str, sep: char) -> Vec<String> {
     out.into_iter().map(|e| e.trim().to_string()).filter(|e| !e.is_empty()).collect()
 }
 
-/// The file's declarations: its clocks (`# clock: x,y,z; x,y,z = REASON`, each cell with its reason)
-/// and its declared day time (`# day-time: N`).
+/// The file's declarations: its clocks (`# clock: x,y,z; x,y,z = period=N; REASON`, each cell with its reason and its
+/// declared period in gt) and its declared day time (`# day-time: N`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Declared {
     pub clocks: Vec<(BlockPos, String)>,
+    /// (ironspec Nov 14 12:44p (4)(a), part 81) each `# clock:` cell's DECLARED period, in game ticks (required)
+    pub clock_period: Vec<(BlockPos, u32)>,
     pub day_time: Option<i64>,
     /// The fluid cells laid by no build that the design means (`# water: x,y,z=REASON; x,y,z=REASON`:
     /// a lift's top-drift current, 7b90c3f1's key, farmopt 01:06), each with its reason.
@@ -78,13 +80,23 @@ pub fn declared(text: &str) -> Result<Declared, String> {
         // (`#water:`, `# Water :`, …) is an error, never a silent comment: the shared check over every
         // tool's keys, `declkeys::check`, run once before this loop)
         if let Some(rest) = l.strip_prefix("# clock:") {
-            let (cells, why) = rest.split_once('=').ok_or_else(|| format!("{l:?}: give `# clock: x,y,z; x,y,z = REASON`"))?;
-            let why = why.trim();
+            let (cells, why) = rest.split_once('=').ok_or_else(|| format!("{l:?}: give `# clock: x,y,z; x,y,z = period=N; REASON`"))?;
+            // (ironspec Nov 14 12:44p (4)(a), part 81: the period REQUIRED, the reason's first `;` segment, a whole
+            // number of game ticks above 0; the reason after it required too)
+            let segs = split_outside(why, ';');
+            let first = segs.first().map(|s| s.trim()).unwrap_or("");
+            let period = match first.strip_prefix("period=") {
+                Some(n) => n.trim().parse::<u32>().ok().filter(|n| *n > 0).ok_or_else(|| format!("{l:?}: `period={}` is no whole number of game ticks above 0", n.trim()))?,
+                None => return Err(format!("{l:?}: a clock needs its period: `# clock: CELLS = period=N; REASON` (ironspec 12:44p (4)(a))")),
+            };
+            let why = segs[1..].iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("; ");
             if why.is_empty() {
                 return Err(format!("{l:?}: a clock needs its REASON"));
             }
             for c in cells.split(';').map(str::trim).filter(|c| !c.is_empty()) {
-                d.clocks.push((cell(l, c)?, why.to_string()));
+                let p = cell(l, c)?;
+                d.clocks.push((p, why.to_string()));
+                d.clock_period.push((p, period));
             }
         } else if let Some(rest) = l.strip_prefix("# water:") {
             for entry in split_outside(rest, ';') {
@@ -215,6 +227,11 @@ pub struct Settle {
     /// `# clock:` cells never seen recurring (ironspec 02:41 (i)): false declarations, failing; their
     /// differences judged as any cell's.
     pub clock_false: Vec<BlockPos>,
+    /// (ironspec Nov 14 12:44p (4)(a), part 81) declared clock cells recurring at another period than declared:
+    /// (cell, declared, measured), failing by name
+    pub clock_period_wrong: Vec<(BlockPos, u32, Option<u32>)>,
+    /// The cap the run used: the given one, raised to cover 2 declared periods in its second half
+    pub cap_used: u32,
     /// Redstone cells whose fixed point differs from the stored state (the declared clocks' and held
     /// cells excluded): failing.
     pub redstone: Vec<Cell>,
@@ -311,6 +328,13 @@ impl Settle {
                 "{} `# clock:` cells never seen recurring (false declarations: a `# clock:` excuses only a cell that changes, ironspec 02:41 (i)): {}",
                 self.clock_false.len(),
                 cells(&self.clock_false)
+            ));
+        }
+        if !self.clock_period_wrong.is_empty() {
+            v.push(format!(
+                "{} `# clock:` cells recurring at another period than declared (ironspec 12:44p (4)(a)): {}",
+                self.clock_period_wrong.len(),
+                self.clock_period_wrong.iter().map(|(p, d, m)| format!("{},{},{} declared {d} gt, measured {}", p.x, p.y, p.z, m.map_or("none".to_string(), |m| format!("{m} gt")))).collect::<Vec<_>>().join("; ")
             ));
         }
         if !self.other.is_empty() {
@@ -500,6 +524,9 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     if blocks.is_empty() {
         return Ok(Settle::default());
     }
+    // (ironspec Nov 14 12:44p (4)(a), part 81: the run covers at least 2 declared periods in its second half, where a
+    // clock's recurrence is read: the cap raised to 4 periods and a margin when the given one is shorter)
+    let cap = cap.max(decl.clock_period.iter().map(|(_, n)| 4 * n + 8).max().unwrap_or(0));
     let (mut lo, mut hi) = (blocks[0].0, blocks[0].0);
     for (p, _) in blocks {
         lo = BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
@@ -710,6 +737,15 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     // difference is judged as any cell's)
     let recurring: std::collections::HashSet<BlockPos> = s.clock_declared.iter().copied().collect();
     s.clock_false = decl.clocks.iter().map(|(p, _)| *p).filter(|p| !recurring.contains(p)).collect();
+    // (ironspec 12:44p (4)(a), part 81: each declared cell seen recurring must recur at its DECLARED period)
+    s.cap_used = cap;
+    for (p, measured) in &s.clock_periods.clone() {
+        if let Some((_, want)) = decl.clock_period.iter().find(|(q, _)| q == p)
+            && *measured != Some(*want)
+        {
+            s.clock_period_wrong.push((*p, *want, *measured));
+        }
+    }
     // (the block entities: their contents laid against the fixed point's; a change fails, outside the
     // recurring clocks and held cells)
     let slots = |w: &World| -> std::collections::BTreeMap<(i32, i32, i32), String> { w.containers.map.iter().map(|(p, c)| ((p.x, p.y, p.z), format!("{:?}", c.slots))).collect() };
@@ -976,7 +1012,7 @@ mod tests {
         let s = check(&ring, &Declared::default());
         assert!(!s.fixed && s.ticks == CAP && !s.clock_undeclared.is_empty(), "{:?} {:?}", s.fixed, s.clock_undeclared);
         assert!(s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{:?}", s.fails(false));
-        let decl = declared("# clock: 0,0,0; 1,0,0; 1,0,1; 1,0,2; 0,0,2; -1,0,2; -1,0,1; -1,0,0 = the repeater ring's pulse\n").unwrap();
+        let decl = declared("# clock: 0,0,0; 1,0,0; 1,0,1; 1,0,2; 0,0,2; -1,0,2; -1,0,1; -1,0,0 = period=8; the repeater ring's pulse\n").unwrap();
         let s = check(&ring, &decl);
         assert!(s.clock_undeclared.is_empty() && !s.clock_declared.is_empty() && s.fails(false).is_empty(), "{:?} {:?} {:?}", s.clock_undeclared, s.fails(false), s.redstone);
         // (ironspec 06:21 (a): a declared clock no longer masks pending work away from it: the same declared
@@ -1000,9 +1036,22 @@ mod tests {
         let s = check(&pair, &Declared::default());
         assert!(s.fixed && s.observers_kicked == 2, "{} {}", s.fixed, s.observers_kicked);
         assert!(!s.clock_undeclared.is_empty() && s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{:?} {:?}", s.clock_undeclared, s.fails(false));
-        let decl = declared("# clock: 0,0,0; 1,0,0 = the observer pair\n").unwrap();
+        let decl = declared("# clock: 0,0,0; 1,0,0 = period=6; the observer pair\n").unwrap();
         let s = check(&pair, &decl);
-        assert!(s.clock_undeclared.is_empty() && s.clock_declared.len() == 2 && s.fails(false).is_empty(), "{:?} {:?}", s.clock_undeclared, s.fails(false));
+        assert!(s.clock_undeclared.is_empty() && s.clock_declared.len() == 2 && s.clock_period_wrong.is_empty() && s.fails(false).is_empty(), "{:?} {:?}", s.clock_undeclared, s.fails(false));
+        // (ironspec Nov 14 12:44p (4)(a), part 81: PLANTED controls) a WRONG period fails by name; a missing period, a
+        // period that is no whole gt above 0, and no reason after it are refused by name; one of the pair left
+        // undeclared fails by name (it changes, undeclared)
+        let wrong = check(&pair, &declared("# clock: 0,0,0; 1,0,0 = period=4; the observer pair\n").unwrap());
+        assert!(wrong.clock_period_wrong.len() == 2 && wrong.fails(false).iter().any(|f| f.contains("recurring at another period than declared") && f.contains("0,0,0 declared 4 gt, measured 6 gt")), "{:?}", wrong.fails(false));
+        for (bad, why) in [("# clock: 0,0,0 = the pair\n", "a clock needs its period"), ("# clock: 0,0,0 = period=0; the pair\n", "no whole number of game ticks above 0"), ("# clock: 0,0,0 = period=six; the pair\n", "no whole number"), ("# clock: 0,0,0 = period=6\n", "a clock needs its REASON")] {
+            let r = declared(bad);
+            assert!(r.as_ref().is_err_and(|e| e.contains(why)), "{bad:?} refused for {why:?}: {r:?}");
+        }
+        let half = check(&pair, &declared("# clock: 0,0,0 = period=6; one of the pair\n").unwrap());
+        assert!(half.clock_undeclared == vec![BlockPos::new(1, 0, 0)] && half.fails(false).iter().any(|f| f.contains("1,0,0")), "the undeclared one fails by name: {:?} {:?}", half.clock_undeclared, half.fails(false));
+        // (the run covers 2 declared periods in its second half: a 64-gt declaration raises a 30-gt cap to 264)
+        assert!(check(&pair, &declared("# clock: 0,0,0; 1,0,0 = period=64; a long declaration\n").unwrap()).cap_used >= 4 * 64, "the cap raised for 2 periods");
         let mut lone = floor(2);
         lone.extend([at(0, 0, 0, "minecraft:observer[facing=east,powered=false]"), at(1, 0, 0, "minecraft:redstone_lamp[lit=false]")]);
         let s = check(&lone, &Declared::default());
@@ -1130,7 +1179,7 @@ mod tests {
     /// header lines equal to the original's, the repeater on in the written copy.
     #[test]
     fn written_header_kept() {
-        let text = "# stand-in: 1,0,0\n# contacts: 2,0,0=a stop\n# clock: 0,0,0 = x\nname: t\npalette:\n  S minecraft:stone\n  R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]\n  B minecraft:redstone_block\nlayer -1:\n  SSS\nlayer 0:\n  BR.\n";
+        let text = "# stand-in: 1,0,0\n# contacts: 2,0,0=a stop\n# clock: 0,0,0 = period=1; x\nname: t\npalette:\n  S minecraft:stone\n  R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]\n  B minecraft:redstone_block\nlayer -1:\n  SSS\nlayer 0:\n  BR.\n";
         let d = mctas::design::Design::parse(text).unwrap();
         let blocks: Vec<(BlockPos, Block)> = d.blocks.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), b(s))).collect();
         let s = check(&blocks, &Declared::default());
@@ -1234,7 +1283,7 @@ mod tests {
         let s = check(&ring, &Declared::default());
         assert!(!s.fixed && !s.clock_undeclared.is_empty() && s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{} {:?}", s.fixed, s.fails(false));
         let cells = ["0,0,0", "1,0,0", "2,0,0", "3,0,0", "3,0,1", "3,0,2", "3,0,3", "2,0,3", "1,0,3", "0,0,3", "0,0,2", "0,0,1"];
-        let decl = declared(&format!("# clock: {} = the slow ring\n", cells.join("; "))).unwrap();
+        let decl = declared(&format!("# clock: {} = period=64; the slow ring\n", cells.join("; "))).unwrap();
         let s = check(&ring, &decl);
         assert!(s.clock_undeclared.is_empty() && s.fails(false).is_empty(), "{:?} {:?}", s.clock_undeclared, s.fails(false));
         assert!(s.clock_periods.iter().any(|(p, period)| *p == BlockPos::new(2, 0, 0) && *period == Some(64)), "{:?}", s.clock_periods);
@@ -1294,7 +1343,7 @@ mod tests {
             at(1, 0, 0, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
             at(2, 0, 0, "minecraft:redstone_lamp[lit=false]"),
         ]);
-        let s = check(&d, &declared("# clock: 1,0,0 = not a clock\n").unwrap());
+        let s = check(&d, &declared("# clock: 1,0,0 = period=4; not a clock\n").unwrap());
         assert!(s.fixed && s.clock_false == vec![BlockPos::new(1, 0, 0)] && s.fails(false).iter().any(|f| f.contains("false declarations")), "{} {:?} {:?}", s.fixed, s.clock_false, s.fails(false));
         assert!(s.redstone.iter().any(|c| c.pos == BlockPos::new(1, 0, 0)), "its difference judged as any cell's: {:?}", s.redstone);
     }
