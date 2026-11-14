@@ -15,9 +15,9 @@
 7,-12,-2 minecraft:glass
 7,-11,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
 7,-12,-1 minecraft:glass
-7,-11,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+7,-11,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
 7,-11,0 minecraft:glass
-7,-10,0 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+7,-10,0 minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
 8,-10,0 minecraft:glass
 8,-9,0 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
 8,-10,-1 minecraft:glass
@@ -109,13 +109,13 @@
 8,22,4 minecraft:glass
 8,23,4 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
 8,22,3 minecraft:glass
-8,23,3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,23,3 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
 ## the read carried up (up-only, glass steps) to the logic plane y 26: (8,24,2) on glass (8,23,2) (a NON-conductor:
 ## booster 2's torch (8,22,2) strongly powers only a conductor there), (7,25,2), then E0_b (7,26,1)
 8,23,2 minecraft:glass
-8,24,2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+8,24,2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
 7,24,2 minecraft:glass
-7,25,2 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+7,25,2 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
 7,25,1 minecraft:glass
 7,26,1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
 ## the read's rising edge (a 4-gt pulse): comparator (7,26,0) subtract, rear E0_b, side E0_b through a delay-2 repeater
@@ -126,7 +126,7 @@
 5,25,1 minecraft:glass
 5,26,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
 5,25,0 minecraft:glass
-5,26,0 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+5,26,0 minecraft:redstone_wire[east=side,north=up,power=0,south=side,west=none]
 6,25,0 minecraft:glass
 6,26,0 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
 ## (B)'s latch (P1 OCCUPIED before D), a torch NOR-NOR latch, reset-dominant: N1_b (7,26,-1) set by the edge, t1_b = NOT Q;
@@ -165,21 +165,21 @@
 9,19,1 minecraft:glass
 9,20,1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
 9,19,0 minecraft:glass
-9,20,0 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+9,20,0 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
 8,20,0 minecraft:glass
-8,21,0 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+8,21,0 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
 8,21,-1 minecraft:glass
-8,22,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,22,-1 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
 8,22,-2 minecraft:glass
-8,23,-2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+8,23,-2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
 7,23,-2 minecraft:glass
-7,24,-2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+7,24,-2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
 6,24,-2 minecraft:glass
-6,25,-2 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+6,25,-2 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
 6,25,-3 minecraft:glass
 6,26,-3 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
 5,25,-3 minecraft:glass
-5,26,-3 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+5,26,-3 minecraft:redstone_wire[east=side,north=side,power=0,south=up,west=none]
 5,25,-4 minecraft:glass
 5,26,-4 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
 ## the latch's RESET: the repeater (6,26,-4) facing west, output into N2_b's west face
@@ -213,9 +213,9 @@
 9,26,3 minecraft:stone
 9,27,3 minecraft:redstone_wire[east=none,north=side,power=12,south=none,west=side]
 8,25,3 minecraft:stone
-8,26,3 minecraft:redstone_wire[east=side,north=none,power=11,south=side,west=none]
+8,26,3 minecraft:redstone_wire[east=up,north=none,power=11,south=side,west=none]
 8,24,4 minecraft:glass
-8,25,4 minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=none]
+8,25,4 minecraft:redstone_wire[east=none,north=up,power=10,south=side,west=none]
 8,24,5 minecraft:glass
 8,25,5 minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
 8,24,6 minecraft:glass
@@ -237,52 +237,52 @@
 6,26,-6 minecraft:stone
 6,27,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
 5,25,-6 minecraft:stone
-5,26,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+5,26,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
 4,24,-6 minecraft:stone
-4,25,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+4,25,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
 3,23,-6 minecraft:stone
-3,24,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+3,24,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
 3,22,-5 minecraft:stone
-3,23,-5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+3,23,-5 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
 3,21,-4 minecraft:stone
-3,22,-4 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+3,22,-4 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
 3,20,-3 minecraft:stone
-3,21,-3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+3,21,-3 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
 #
 ## ---- level B (y 20): the token, the P1 trigger, the P1 pulse ----
 ## FRONT CLEAR's line (the FC tower's T13 = NOT front clear, up-steps on glass, then flat along z -6 and x 1) into the
 ## repeater (2,20,-2), one side of the trigger comparator
 8,16,-6 minecraft:glass
-8,17,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+8,17,-6 minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=up]
 7,17,-6 minecraft:glass
-7,18,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+7,18,-6 minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=up]
 6,18,-6 minecraft:glass
-6,19,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+6,19,-6 minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=up]
 5,19,-6 minecraft:glass
-5,20,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+5,20,-6 minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
 4,19,-6 minecraft:glass
-4,20,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+4,20,-6 minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
 3,19,-6 minecraft:glass
-3,20,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+3,20,-6 minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
 2,19,-6 minecraft:glass
-2,20,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+2,20,-6 minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
 1,19,-6 minecraft:glass
-1,20,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+1,20,-6 minecraft:redstone_wire[east=side,north=none,power=8,south=side,west=none]
 1,19,-5 minecraft:glass
-1,20,-5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+1,20,-5 minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
 1,19,-4 minecraft:glass
-1,20,-4 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+1,20,-4 minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
 1,19,-3 minecraft:glass
-1,20,-3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+1,20,-3 minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
 1,19,-2 minecraft:glass
-1,20,-2 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+1,20,-2 minecraft:redstone_wire[east=side,north=side,power=4,south=none,west=none]
 2,19,-2 minecraft:glass
 2,20,-2 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
 ## the departure detector's level (the DEP tower's T14), two up-steps to E0_t (7,20,-1)
 8,17,-2 minecraft:glass
-8,18,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,18,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
 8,18,-1 minecraft:glass
-8,19,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+8,19,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=up]
 7,19,-1 minecraft:glass
 7,20,-1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
 ## its rising edge (4 gt): comparator (6,20,-1) subtract, rear E0_t, side through the delay-2 repeater (7,20,-2)
@@ -318,9 +318,9 @@
 3,20,-2 minecraft:comparator[facing=north,mode=subtract,powered=false]
 3,20,-1 minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
 3,19,0 minecraft:glass
-3,20,0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+3,20,0 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=side]
 3,20,1 minecraft:glass
-3,21,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+3,21,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
 4,21,1 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
 ## the P1 pulse's line: west, south along x 2 (beside lane 3's ramp, no cell in its riders' space), a refresh repeater
 ## (2,20,4) on V's glass (2,19,4), east along z 7 at y 20, an up-step to (9,21,7), the repeater (9,21,6) into P1's
@@ -328,7 +328,7 @@
 2,19,0 minecraft:glass
 2,20,0 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
 2,19,1 minecraft:glass
-2,20,1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+2,20,1 minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
 2,19,2 minecraft:glass
 2,20,2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
 2,19,3 minecraft:glass
@@ -351,7 +351,7 @@
 7,19,7 minecraft:glass
 7,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
 8,19,7 minecraft:glass
-8,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+8,20,7 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
 9,20,7 minecraft:glass
 9,21,7 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
 9,20,6 minecraft:glass
