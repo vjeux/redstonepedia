@@ -959,6 +959,22 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let on = run(&design("normal, the room term on", 3, None));
         let w = v.bar("ctl-pick: THE WAY-IN ROOM TERM never defers a pick on the normal nights (the design unchanged: 24 distinct, every interval < 24,000 - margin) and the way-in holds at most 3", ok(&on) && on.wayin_deferred == 0 && on.max_wayin <= 3);
         lines.push(format!("  THE WAY-IN on the normal nights (the room term on): at most {} nappers in the way-in at once (margin {} vs its 3 dry places), the most dispatched-not-departed {}, picks deferred by it {}: {w}", on.max_wayin, 3i64 - on.max_wayin as i64, on.max_open, on.wayin_deferred));
+        // (PRICED, not judged (ironspec 09:34a (1)(e): a second hold upstream of P1, if the double-release row fails): a
+        // hold at the descent's top slope (9,24,7), separated from P1 by a non-powered rail, leaves 2 gravity-fed places
+        // (P1 + the hold; a third would rest on the flat top and never feed): the way-in cap becomes 2; its nap cost)
+        {
+            let o2 = run(&design("normal, the way-in cap 2 (a hold at (9,24,7))", 2, None));
+            let mut gaps = Vec::new();
+            for cyc in [197i64, 168] {
+                let mut c = design(&format!("the way-in cap 2, the no-hold cycle {cyc}"), 2, None);
+                c.bed_cycle = cyc;
+                c.rs_extra = 40;
+                let oc = run(&c);
+                gaps.push(format!("cycle {cyc} + (B) 40: worst interval {} gt{}", oc.max_gap.0, if ok(&oc) { "" } else { " MISSES the nap bars" }));
+            }
+            let sc = v.scope("ctl-pick: the way-in cap 2 (a second hold at (9,24,7))", "priced for ironspec's ruling on the double-release fix, not the design");
+            lines.push(format!("  PRICED: THE WAY-IN CAP 2 (a second hold at the descent's top): picks deferred {} (cap 3: {}), the worst interval {} gt{}; {}: {sc}", o2.wayin_deferred, on.wayin_deferred, o2.max_gap.0, if ok(&o2) { "" } else { " MISSES the nap bars" }, gaps.join("; ")));
+        }
         let night = 3 * DAY * 100;
         let (mut worst, mut worst_at, mut n, mut miss) = (0usize, String::new(), 0usize, Vec::new());
         let (mut worst_off, mut off_at) = (0usize, String::new());

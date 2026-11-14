@@ -34,25 +34,48 @@ code reads the release pulse FROM this file: one written number).
 - The ball-exit detector (7,-3,4) (bought: (B)): RS_ready, set on its RISING EDGE (a cart parked on it sets it once).
 - The S-bend seat detectors (x,24,8), x = -1 / 3 / 7: D(-1) / D(3) / D(7), the lanes' entry presses (the ring, the credit,
   SEEN3, the K masks, the item count). The lane-7 napper's press merges into its batch cart's under the 20-gt hold.
-- THE STATION's PER-LANE EXIT CELL (exit_cell, the same cells F′'s bench reads; dfb89499 08:47 (2), A2 / F′ build #4):
-  lanes -1 / 3: the detector on A's LANDING (x,-1,3) (pressed only after the drop; (x,0,2) a plain rail); lane 7: (7,0,2)
-  (until its raised-pocket car). The hold reopens on a RISING EDGE AFTER THE RELEASE; a cart pushed back off the landing
-  gives no rise and a cart stuck on it holds it pressed with no new rise: both safe stalls (in the one table); exactly ONE
-  edge on the restart after repair. The signal path from each landing detector to day-1's D input is laid with the
-  controller car (its cells, power-out, update set and readers listed there).
-- Vestigial on day-1's side: the stop's R detector (4,-1,5) (RS_ready no longer reads it) and the resync detector
-  (9,24,7) (no reader; harmless by power).
+- THE STATION's PER-LANE EXIT CELL (exit_cell, the same cells F′'s bench reads): lanes -1 / 3: the detector on the
+  LANDING (x,-1,4) (A4, accepted ironspec 09:41a (1)(d): D past the step, (x,0,2) a plain rail; the earlier landing
+  (x,-1,3) reshaped to ascending_north when placed and is withdrawn); D's tap repeater (x+1,-1,4) is F′'s, day-1's D line
+  starts at (x+2,-1,4). Lane 7: (7,0,2) (a KNOWN FAIL until its raised-pocket car). The station's timing is re-derived for
+  the new D position, and every K / token timing keyed on D re-keys with it. The hold reopens on a RISING EDGE AFTER THE
+  RELEASE; a cart pushed back off the landing gives no rise and a cart stuck on it holds it pressed with no new rise: both
+  safe stalls (in the one table); exactly ONE edge on the restart after repair. The signal path from each exit detector
+  to day-1's D input is laid with the controller car (its cells, power-out, update set and readers listed there).
+- Vestigial on day-1's side: the stop's R detector (4,-1,5) (RS_ready no longer reads it). The way-in's (9,24,7) is P1
+  OCCUPIED's cell under either form below.
 
 ## Release terms
 
 - P1 release (the next napper rolls to the front): ruled 09:18a, THE RISING EDGE of (TOKEN AND FRONT CLEAR AND P1
   OCCUPIED) fires one release pulse; the pulse CLEARS the token and resets A_SEEN (reset-dominant). A napper already
   waiting releases when the token sets; one arriving later releases when it comes to rest on P1; nose to tail, the token
-  is already consumed, so the second waits. P1 OCCUPIED is a SENSED LEVEL a RESTING napper keeps on (its sensor: a
-  detector along the track one level off P1's deterministic rest, diagonal, no face neighbour of P1 or its powered rails,
-  the second-in-queue outside its box: its cell named with P1's new rest by b8949c96 / vcompose). Failure directions:
-  stuck LOW = a stall; a false HIGH fires a pulse into an empty P1 = also a stall (no kill path: the token is consumed by
-  the release act). A retry-clock form is rejected.
+  is already consumed, so the second waits. Failure directions: stuck LOW = a stall; a false HIGH fires a pulse into an
+  empty P1 = also a stall (no kill path: the token is consumed by the release act). A retry-clock form is rejected.
+  START-UP: the token FREE, P1's count / latch 0: the first pulse waits for the first napper's rest + the counting delay.
+- P1 OCCUPIED (ruled 09:34a: a COUNT on today's leg, P1 staying at (9,22,5)): OCCUPIED = the count >= 1 AND no arrival
+  edge in the last D gt (D >= the longest measured arrival -> rest-on-P1 transit + margin, b8949c96 measuring); a
+  sensor never powers its own brake. Two forms, ironspec ruling:
+  - (A) THE COUNT, 3 places: arrivals at (9,24,7) swapped to a detector_rail[ascending_south], departures at P1's exit
+    detector (9,22,3); the counter is the credit store's cell (hopper + ballast + non-stackable items, the comparator's
+    read, +1 per arrival edge by the dropper, a one-transfer unlock per departure edge, the store guard's pattern): ONE
+    shared counter design. Open: merges (two picks in one REL send nappers 15-16 gt apart, inside the detector's 20-gt
+    hold) and the double release (the second napper rolls onto P1 inside the 12-gt pulse).
+  - (B) day-1's pick: A SECOND HOLD at (9,24,7) (powered_rail[ascending_south], braked), driven by vcompose's x-8 path
+    (09:52): a solid conductor (stone) at (8,24,7) with the drive's last dust on top at (8,25,7), the line a straight
+    north-south dust run along x 8 at y 25 ((8,25,6), (8,25,5), ... on glass (8,24,6), (8,24,5), ...); the conductor
+    activates the hold rail beside it; lane 7's plain track rail (7,24,7) takes no power (2 connections, no re-shape);
+    update-consumers: (9,24,7) intended; (7,24,7), (8,23,7), (8,24,6), (8,24,8), (8,25,8) by-code. The arrival detector
+    moved to (9,23,6) (detector_rail[ascending_south]), read by dust (8,23,6) on glass (8,22,6), a corner east + north,
+    its line north along x 8 at y 23 on glass (8,22,5..3), STOPPING at z 3 ((8,23,2) sits over booster 2's lit torch
+    (8,22,2)); the detector's update-consumers: (8,23,6) intended; (9,22,6), (9,23,7) glass; (9,23,5), (9,24,6) air (the
+    rider passage). The count becomes a 0/1 LATCH (SET on (9,23,6)'s rising edge, RESET on (9,22,3)'s, reset-dominant;
+    redstone block state, persisting across save / load); the hold OPEN while the latch is 0 AND (9,23,6) is UNPOWERED
+    (a resting P1 cart may press (9,23,6), and the detector's 20-gt recheck window after a departure must close before
+    the next napper arrives, so every SET is a fresh edge), shut on SET. One napper at most between the hold and P1's
+    exit: no merge, no double release. The non-powered (9,23,6) breaks the powered-rail chain between the hold and P1;
+    (9,23,6) is diagonal to both. Price: the way-in cap 3 -> 2 (14 picks deferred over 10 nights, the nap bar's worst
+    22,700 gt, margin 300). Drift: a missed SET / RESET = a stall; the guide's reset lever.
 - THE TOKEN (ironspec 07:38r / 08:41a, G1 07:39): set ONLY by evidence from the napper released LAST.
   - Each release pulse CLEARS the token and A_SEEN (ARRIVED).
   - The arrival detector's rising edge after the release SETS A_SEEN; a release and an arrival in the same tick resolve
@@ -72,9 +95,20 @@ code reads the release pulse FROM this file: one written number).
   (6,0,7), (5,0,7) and (4,0,7) (its contact with lane 3's departing cart declared, delaying no lane); NEVER the joins
   (3,0,7) / (-1,0,7) (a napper parked there jams that lane's departures).
 - THE NAPPER's ROW HOLD (9,0,8) (bought, ironspec 08:41a (2)): releases at REL + 67 (the join-merge window 37..97, its
-  centre) AND ONLY WHEN A NON-JOIN REST PLACE PAST (-1,0,7) IS FREE (the foot gate's evidence); day-1 lays the drive line
-  into (7,-1,8) (the actuator is LIFT's: the hold rail on slime (9,-1,8), the repeater (8,-1,8)); its cells, power-out
-  and update set come with the controller car; a planted row where the foot gate holds while a napper is due.
+  centre; judged AT THE HOLD RAIL (9,0,8), the controller's source time back-computed) AND THE SENSED FREE-PLACE TERM.
+  The stretch past lane -1's join has NO rest place (the slope (-2,0,7) -> (-3,1,7) up to the foot (-4,2,7)): a cart
+  held at gate G leaves any cart behind it rolling back onto (-1,0,7). Gate G is never inhibited (it guards the lift's
+  water). So the term is "no cart AHEAD of the napper can be held at G during its transit": gate G's foot detector
+  (-4,2,7) UNPOWERED (polarity: unpowered = free) AND no lane -1 / 3 exit-cell rising edge within the last X gt (X = the
+  longest exit-cell -> foot transit + margin, from F′'s re-derived station times): a cycle's batch carts are then past G,
+  and a G closure mid-transit can only hold the napper itself, at the foot. If F′'s rows show a late batch cart can still
+  be ahead, a second napper hold at (4,0,7) gated by the same term. Rows (owed): a gate-G hold starting at every phase
+  of the ~13-block transit (the planted one: G closing one tick after the release with a cart on the ramp), the napper
+  never resting at (3,0,7) / (-1,0,7); a double release at the hold (two queued, one pulse, one released).
+  THE DRIVE LINE (the controller part's cells; LIFT's (8,-1,8) the boundary): repeater[facing=west] (3,-1,8) (input
+  (2,-1,8); its north side the station's torch-driven slime (3,-1,7), which a repeater's side does not read), dust
+  (4,-1,8), (5,-1,8), (6,-1,8) (each east-west only: (x,-1,7) / (x,-1,9) hold nothing it connects to),
+  repeater[facing=west] (7,-1,8) (its sides diode-free), on glass (3..7,-2,8); the cells above (3..7,0,8) stay air.
 - A pick (G11) = the pointer AND the spacing AND HELD AND WAY-IN ROOM. The room count goes up per pick edge and down
   once per TOKEN SET (a napper's departure: the press while A_SEEN, or the recovery); no quiet-point resync (an
   over-count stalls, the safe direction).
