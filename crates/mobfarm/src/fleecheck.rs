@@ -6437,6 +6437,43 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
 ///   box, onto the golem guard) FAILS (H1).
 /// (b) in-wall damage is the eye check (`eye_check`). Returns the lines and the count of failures (an
 /// unallowed activator source or a stale allow, a strike, a portal met, a fatal or unpriced fall).
+/// (farmopt / G1 Nov 14 02:00, part 39) The design's own `# allow-powered:` declarations, merged with a
+/// command's explicit allow flags: each header entry `x,y,z[+x,y,z...]=REASON` names a power source cell
+/// the design means to power its consumer (an activator rail's designed source, ARM's detector beside
+/// E's activator); the file is the single source of what's allowed, the flag only an extra for a file
+/// that doesn't carry the line yet. Returns the merged cells and one line per allow naming its source
+/// (`header line N: REASON` or the flag); a cell allowed twice (header and flag, or two entries) refuses;
+/// a bad entry refuses.
+pub fn allows_with_header(text: &str, flags: &[BlockPos], flag: &str) -> Result<(Vec<BlockPos>, Vec<String>), String> {
+    let mut cells: Vec<BlockPos> = Vec::new();
+    let mut said = Vec::new();
+    for (k, l) in text.lines().enumerate() {
+        for e in crate::pushscan::header_entries(l, "allow-powered:") {
+            let (cs, why) = e.split_once('=').ok_or_else(|| format!("# allow-powered: {e} (line {}): x,y,z[+x,y,z...]=REASON", k + 1))?;
+            for c in cs.split('+') {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("# allow-powered: {e} (line {}): {c}: {err}", k + 1))?;
+                if v.len() != 3 {
+                    return Err(format!("# allow-powered: {e} (line {}): {c}: x,y,z", k + 1));
+                }
+                let p = BlockPos::new(v[0], v[1], v[2]);
+                if cells.contains(&p) {
+                    return Err(format!("allow {},{},{}: allowed more than once: NOT JUDGED", p.x, p.y, p.z));
+                }
+                cells.push(p);
+                said.push(format!("allow {},{},{} (header line {}: {})", p.x, p.y, p.z, k + 1, why.trim()));
+            }
+        }
+    }
+    for p in flags {
+        if cells.contains(p) {
+            return Err(format!("allow {},{},{}: allowed more than once (the header and {flag}): NOT JUDGED", p.x, p.y, p.z));
+        }
+        cells.push(*p);
+        said.push(format!("allow {},{},{} ({flag})", p.x, p.y, p.z));
+    }
+    Ok((cells, said))
+}
+
 pub fn riderless_statics(spec: &FarmSpec, allow_activators: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
@@ -7804,8 +7841,9 @@ pub fn golem_guards(blocks: &HashMap<BlockPos, redsim::block::Block>, w: Result<
                 Err(why) => lines.push(format!("{},{},{}: a lone rail on the cap {},{},{} over the track rail {},{},{}: no settled world to judge its cap ({why}): NOT JUDGED as a guard (read as track)", p.x, p.y, p.z, cap.x, cap.y, cap.z, track.x, track.y, track.z)),
                 Ok(w) => {
                     let closed = w.get(cap).to_string().contains("open=false");
+                    let iron = w.get(cap).to_string().starts_with("minecraft:iron_trapdoor");
                     let src = cap_sources(w, cap);
-                    if closed && src.is_empty() {
+                    if closed && iron && src.is_empty() {
                         set.insert(p);
                         lines.push(format!(
                             "{},{},{} is a golem guard over the track rail {},{},{} (ironspec Nov 14 01:51 (2): (i) no rail beside it at y-1..y+1, (ii) no track connects to it, (iii) its cap {},{},{} closed with no power source in reach): no track end, no fall",
@@ -7823,7 +7861,13 @@ pub fn golem_guards(blocks: &HashMap<BlockPos, redsim::block::Block>, w: Result<
                             track.x,
                             track.y,
                             track.z,
-                            if closed { "in reach of power" } else { "open in the settled world" },
+                            if !closed {
+                                "open in the settled world"
+                            } else if !iron {
+                                "not iron (G1 Nov 14 02:01: a hand opens a wooden trapdoor)"
+                            } else {
+                                "in reach of power"
+                            },
                             if src.is_empty() { "no source".to_string() } else { src.join("; ") }
                         ));
                     }
@@ -10352,9 +10396,10 @@ mod gate_tests {
         // the cap: a guard (i) alone (ii) unconnected (iii) its cap closed with no power in reach, never a
         // track end; a redstone torch beside the cap: its cap in reach of power, NOT a guard (read as track)
         let mut o = g.clone();
-        o.retain(|(q, _)| *q != b(0, 4, 1) && *q != b(0, 3, 1));
+        o.retain(|(q, _)| *q != b(0, 4, 1) && *q != b(0, 3, 1) && *q != b(0, 5, 1));
         o.push((b(0, 3, 1), p("minecraft:stone")));
         o.push((b(0, 4, 1), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        o.push((b(0, 5, 1), p("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
         let ospec = redsim::entity::mob::farm::FarmSpec { blocks: o.clone(), ..spec.clone() };
         let (_, ol) = super::auto_columns(&ospec, &[]);
         assert!(
@@ -10362,6 +10407,13 @@ mod gate_tests {
                 && !ol.iter().any(|l| l.contains("rail end 0,6,1")),
             "a guard over a track rail: {ol:?}"
         );
+        // (G1 Nov 14 02:01) a WOODEN cap over the track: a hand opens it: NOT a guard
+        let mut wd = o.clone();
+        wd.retain(|(q, _)| *q != b(0, 5, 1));
+        wd.push((b(0, 5, 1), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+        let wspec = redsim::entity::mob::farm::FarmSpec { blocks: wd, ..spec.clone() };
+        let (_, wl) = super::auto_columns(&wspec, &[]);
+        assert!(wl.iter().any(|l| l.contains("0,6,1: a lone rail on the cap 0,5,1 over the track rail 0,4,1: its cap not iron") && l.contains("NOT a guard (read as track)")), "a wooden cap: {wl:?}");
         let mut pw = o;
         pw.push((b(1, 4, 1), p("minecraft:stone")));
         pw.push((b(1, 5, 1), p("minecraft:lever[face=floor,facing=north,powered=false]")));
@@ -11211,6 +11263,31 @@ mod gate_tests {
         // (G1 21:38 H3) an allow with no activator rail in the design is stale
         let (l6, n6) = super::riderless_statics(&mk(base.clone(), Vec::new()), &[b(1, 1, 1)]).unwrap_or_else(|e| panic!("{e}"));
         assert!(n6 == 1 && l6.iter().any(|l| l.starts_with("(a) allow 1,1,1: the design has no activator rail: a stale allow (FAIL)")), "a stale allow: {l6:?}");
+        // (farmopt / G1 Nov 14 02:00 / 02:01, part 39) the design's own `# allow-powered:` line: an
+        // activator rail with a redstone torch beside it; allowed by the header line it passes (a), the
+        // line's source named; the same file without the line fails (a) by name; a header entry no cell's
+        // reach holds is stale (FAIL); the header and a flag on one cell, or a bad cell, refuse
+        let mut ab = Vec::new();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                ab.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        ab.push((b(2, 1, 2), p("minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]")));
+        ab.push((b(3, 1, 2), p("minecraft:redstone_torch[lit=true]")));
+        let aspec = mk(ab, Vec::new());
+        let text = "name: x\n# allow-powered: 3,1,2=the activator's torch (always on)\norigin: 0 0 0\n";
+        let (al, said) = super::allows_with_header(text, &[], "--allow-activator").unwrap_or_else(|e| panic!("{e}"));
+        assert!(al == vec![b(3, 1, 2)] && said == vec!["allow 3,1,2 (header line 2: the activator's torch (always on))".to_string()], "the header's allow: {said:?}");
+        let (la, _) = super::riderless_statics(&aspec, &al).unwrap_or_else(|e| panic!("{e}"));
+        assert!(la.iter().any(|l| l == "(a) activator rails: 1 (0 source(s) outside the allowed)"), "allowed by the header line: {la:?}");
+        let (lb, _) = super::riderless_statics(&aspec, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lb.iter().any(|l| l == "(a) activator rails: 1 (1 source(s) outside the allowed)") && lb.iter().any(|l| l.contains("redstone_torch[lit=true] at 3,1,2 beside 2,1,2 (FAIL)")), "without the header line: {lb:?}");
+        let (st, _) = super::allows_with_header("# allow-powered: 3,1,2=the torch; 1,1,1=nothing there\n", &[], "--allow-activator").unwrap_or_else(|e| panic!("{e}"));
+        let (ls, _) = super::riderless_statics(&aspec, &st).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ls.iter().any(|l| l.contains("allow 1,1,1") && l.ends_with("a stale allow (FAIL)")), "a stale header entry: {ls:?}");
+        assert!(super::allows_with_header(text, &[b(3, 1, 2)], "--allow-activator").is_err(), "the header and the flag on one cell");
+        assert!(super::allows_with_header("# allow-powered: 3,1=x\n", &[], "--allow-activator").is_err(), "a bad cell");
         // (G1 21:38 H1) a rail end over the void: the fall leaves the design's box: FAIL, never a pass
         let mut vb = base.clone();
         vb.push((b(7, 4, 3), p("minecraft:stone")));

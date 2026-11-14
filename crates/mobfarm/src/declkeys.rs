@@ -30,6 +30,7 @@ pub const COMMENT_KEYS: &[&str] = &[
     // (vcompose: the flee static's stand-up cells, `column --verify`)
     "a6-pickup",
     "string-class",
+    "allow-powered",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
