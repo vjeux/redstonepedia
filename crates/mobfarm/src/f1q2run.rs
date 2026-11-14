@@ -743,6 +743,12 @@ struct Ctl {
     /// last raw press (its ~10-gt release lag), each visit's gap from P_STRING's last release to SO's
     /// set (G1 15:40, >= 2), the taps' scheduled writes
     a_obs_due: Vec<(i64, bool)>,
+    a_stale: bool,
+    a_stale_log: Vec<String>,
+    a_pstring_hist: std::collections::VecDeque<bool>,
+    a_press_start: Option<i64>,
+    a_bed_change_at: Option<i64>,
+    tail_worst: [f64; 3],
     rs_reset_due: Option<i64>,
     a_open_cond_prev: bool,
     a_rls_prev: bool,
@@ -2557,6 +2563,7 @@ impl Ctl {
         // SLEPT_ONCE set 2 gt after it (G17: + 4), both only after ARM (day-1's propagation delays rev
         // 15:42, DESIGNED)
         if bed != self.bed_prev {
+            self.a_bed_change_at = Some(now);
             if self.a_arm_at.is_some() {
                 self.a_obs_due.push((now + 6, true));
                 self.a_obs_due.push((now + 4, false));
@@ -2601,13 +2608,31 @@ impl Ctl {
             }
         });
         if p_raw {
+            // (ironspec 15:54) the press's start: a raw press after none in the string's ~10-gt lag
+            if !self.a_pstring_last_raw.is_some_and(|t| now - t <= 10) {
+                self.a_press_start = Some(now);
+            }
             self.a_pstring_last_raw = Some(now);
         }
         let pstring = p_raw || self.a_pstring_last_raw.is_some_and(|t| now - t <= 10);
         // G21 the release: the EDGE of (P_STRING AND SLEPT_ONCE), one-shot, its pulse 6 gt later (the AND
         // 2 + the edge 2 + the one-shot 2); OPEN reset at it (G19); G20: close = the pulse + 2, the park's
         // release = the pulse + 6 (from the release pulse itself: G1 15:40); SLEPT reset
-        let rls = pstring && self.a_slept_once;
+        // (ironspec 15:56 platform (3), day-1's STALE sampler extended to every observer pulse, plus
+        // RECENT): RLS = the edge of (P_STRING AND RECENT AND NOT STALE AND A70); STALE = P_STRING read
+        // over [L - 2, L) at each observer pulse L (the bed change + 2), held to the next pulse; RECENT
+        // = a pulse within W 60 gt; SLEPT_ONCE stays for OPEN only
+        if self.a_bed_change_at == Some(now - 2) {
+            self.a_stale = self.a_pstring_hist.iter().any(|x| *x);
+            self.a_stale_log.push(format!("t {now}: an observer pulse: STALE {}", self.a_stale));
+        }
+        self.a_pstring_hist.push_back(pstring);
+        while self.a_pstring_hist.len() > 2 {
+            self.a_pstring_hist.pop_front();
+        }
+        let recent = self.a_bed_change_at.is_some_and(|b| now >= b + 2 && now - (b + 2) <= 60);
+        let rls = pstring && recent && !self.a_stale && armed70;
+        let _ = (self.a_press_start, self.a_slept_once);
         if rls && !self.a_rls_prev && !self.a_released {
             self.a_released = true;
             let pulse = now + 6;
@@ -2618,7 +2643,7 @@ impl Ctl {
                 self.a_shutter_writes.push((pulse + 2, true));
             }
             self.release_at = Some(pulse + 6);
-            self.nap_events.push(format!("t {now}: P_STRING AND SLEPT_ONCE: the release pulse at t {pulse}{}, the park's release at t {}", if was_open { format!(", OPEN reset, close at t {}", pulse + 2) } else { ", OPEN never set".to_string() }, pulse + 6));
+            self.nap_events.push(format!("t {now}: P_STRING AND RECENT AND NOT STALE AND A70: the release pulse at t {pulse}{}, the park's release at t {}", if was_open { format!(", OPEN reset, close at t {}", pulse + 2) } else { ", OPEN never set".to_string() }, pulse + 6));
         }
         self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
@@ -7388,6 +7413,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     e.passengers.first().map_or("none".to_string(), |r| format!("#{r}"))
                 ));
             }
+            // (G1 15:55) the queue tail's worst z on each lane's slope (x, 17..22, 1..6) over the night,
+            // against V (x,22,6)'s edge
+            if let Some(k) = LANES.iter().position(|&x| c[0] == x) && (17..=22).contains(&c[1]) && (1..=6).contains(&c[2]) {
+                let q = dpos(e.pos);
+                if q.z > ctl.tail_worst[k] {
+                    ctl.tail_worst[k] = q.z;
+                }
+            }
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
                 // (ironspec 12:58) the shared lift's mouth: a cart entering the lift column (-5,y,7)
                 // (y 1..3) from outside it, with its class (a returning napper, else batch)
@@ -10075,7 +10108,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
             g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
             g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
-            g(ds, "G21 the release: the edge of (P_STRING AND SLEPT_ONCE), parity-free, one-shot per visit"),
+            g(ds, "G21 the release (ironspec 15:56): the edge of (P_STRING AND RECENT (a pulse within 60) AND NOT STALE (P read over [L - 2, L) at each pulse) AND A70), one-shot per visit; SLEPT_ONCE for OPEN"),
             g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
         ];
         let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
@@ -10119,6 +10152,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     if !positions_log.is_empty() {
         s.push_str(&format!("the carts' positions at --positions-at (G1 15:37, the lane queues' packing; design frame, 6 dp): {}\n", positions_log.join("; ")));
     }
+    s.push_str(&format!(
+        "the queue tail's worst z (G1 15:55: the farthest-up z of any cart on each lane's slope cells (x, 17..22, 1..6) over the night, against V (x,22,6)'s far edge z 7.0): lane x -1 {:.4} (margin {:.4}), lane x 3 {:.4} (margin {:.4}), lane x 7 {:.4} (margin {:.4})\n",
+        ctl.tail_worst[0],
+        7.0 - ctl.tail_worst[0],
+        ctl.tail_worst[1],
+        7.0 - ctl.tail_worst[1],
+        ctl.tail_worst[2],
+        7.0 - ctl.tail_worst[2]
+    ));
     // (day-1 13:43, --ring-timed) the no-string ring's margins per pick: HOLD_3 (lane -1's pick: lane 3's
     // cart's first tick in J(3) - (reset + 4)), HOLD_7 (the next cart's first tick in J(7) - (reset +
     // 4)), lane 7's pick's re-arm (the next batch's first cart at J(-1) - (the timed D(7) + 4)); J(-1)
@@ -11291,7 +11333,10 @@ pub fn has_fail_verdict(l: &str) -> bool {
         let before_ok = i == 0 || !(b[i - 1] as char).is_ascii_alphanumeric();
         let after = &l[i + 4..];
         let after_ok = after.chars().next().is_none_or(|c| !c.is_ascii_alphabetic());
-        if before_ok && after_ok && !after.starts_with(" lines") {
+        // (onechunk 15:56, childA's finding) a bar's description "each writer justified or FAIL" is
+        // no verdict: a FAIL right after "or " describes the alternative
+        let described = l[..i].ends_with(" or ") || l[..i].ends_with(" else ");
+        if before_ok && after_ok && !after.starts_with(" lines") && !described {
             return true;
         }
         from = i + 4;
@@ -11422,6 +11467,7 @@ mod counter_tests {
             "the run log's FAIL lines over all its 0 lines (G1's P10: judged uncapped): 0 (PASS)",
             "the per-lane cart count (a 9th FAILS): lane x -1 the most 8 (PASS)",
             "a FAILED word and FAILURE are no verdicts: PASS",
+            "the emulation's no-op writes (G1 X16: a write of the cell's existing state; each writer justified or FAIL): 0 (PASS)",
         ] {
             assert!(!super::has_fail_verdict(pass), "{pass}");
         }
