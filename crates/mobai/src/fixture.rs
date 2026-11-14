@@ -675,6 +675,24 @@ const GATE_FROZEN_LANES: [(f64, bool, bool); 8] = [(0.06, false, true), (0.06, t
 
 /// A scene's scripted block changes: after N ticks, these blocks set like a player's (flags 3:
 /// neighbor and shape updates, `onPlace`), on both sides between the same two ticks.
+/// (tickexact 2026-11-14, cc767b78 01:06) the rows of scene `latch-aslisted`: (label, RLS width, branch kept, ARM width at
+/// RLS + 2 (0: none))
+const LATCH_ASLISTED_ROWS: &[(&str, u32, bool, u32)] = &[
+    ("RLS 1", 1, true, 0),
+    ("RLS 2", 2, true, 0),
+    ("RLS 3", 3, true, 0),
+    ("RLS 8", 8, true, 0),
+    ("RLS 20", 20, true, 0),
+    ("RLS 2, no branch", 2, false, 0),
+    ("RLS 2 + ARM 2 at +2", 2, true, 2),
+    ("RLS 2 + ARM 4 at +2", 2, true, 4),
+];
+
+/// Copy k of scene `latch-aslisted`: world = local + (16 k + 8, 75, 8).
+fn latch_aslisted_off(k: usize) -> [i32; 3] {
+    [16 * k as i32 + 8, 75, 8]
+}
+
 pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     let s = |p: [i32; 3], b: &str| (p, b.to_string());
     if name == "carousel-loop" {
@@ -687,7 +705,41 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
-        // (tickexact 2026-11-13, day-1 23:37) the form-(b) latch rows: RLS_IN (-3,0,0) from tick 20 for its width, ARM_IN
+        // (tickexact 2026-11-14, G1 01:04) rider (A)'s glass box opens at t200
+        "seated-stamp" => {
+            let mut cells = Vec::new();
+            for y in [64, 65] {
+                for c in [[3, y, 6], [5, y, 6], [4, y, 5], [4, y, 7]] {
+                    cells.push(s(c, "minecraft:air"));
+                }
+            }
+            cells.push(s([4, 66, 6], "minecraft:air"));
+            vec![(200, cells)]
+        }
+        // (tickexact 2026-11-14, cc767b78 01:06) the as-listed latch's rows: RLS from tick 20 for its width (the stand-in
+        // (0,-4,4) and the pair's input (-1,-2,2) as redstone blocks), ARM (4,-2,2) from tick 22 for its width
+        "latch-aslisted" => {
+            let mut acts: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+            let mut at = |t: u32, c: ([i32; 3], String)| match acts.iter_mut().find(|(u, _)| *u == t) {
+                Some((_, v)) => v.push(c),
+                None => acts.push((t, vec![c])),
+            };
+            for (k, (_, rls, branch, arm)) in LATCH_ASLISTED_ROWS.iter().enumerate() {
+                let o = latch_aslisted_off(k);
+                let at_o = |p: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
+                let stand_in = crate::latchrig::latch_aslisted_cells(*branch).into_iter().find(|(p, _)| *p == [0, -4, 4]).map(|(_, s)| s).unwrap_or_else(|| "minecraft:redstone_wire".into());
+                at(20, s(at_o([0, -4, 4]), "minecraft:redstone_block"));
+                at(20, s(at_o([-1, -2, 2]), "minecraft:redstone_block"));
+                at(20 + rls, s(at_o([0, -4, 4]), &stand_in));
+                at(20 + rls, s(at_o([-1, -2, 2]), "minecraft:air"));
+                if *arm > 0 {
+                    at(22, s(at_o([4, -2, 2]), "minecraft:redstone_block"));
+                    at(22 + arm, s(at_o([4, -2, 2]), "minecraft:air"));
+                }
+            }
+            acts.sort_by_key(|(t, _)| *t);
+            acts
+        }
         // (4,0,-3) from tick 28 for its width
         "latch-formb" => {
             let mut acts: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
@@ -5895,6 +5947,54 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-14, G1 01:04: does a SEATED rider's complete HOME path clear its stamp?) two riders seated in
+    // carts at rest on rails at day time 13000 (REST), each with HOME at its own bed 6 blocks east (by NBT: no ticket),
+    // each cart boxed in glass so the first HOME path is partial and arms CANT_REACH_WALK_TARGET_SINCE (a memory no load
+    // restores, so it can't be planted); at t200 rider (A)'s box (z 6) opens (open ground to its bed: a complete route);
+    // (B) (z 12) stays boxed
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 62, stone);
+        for x in 0..=15 {
+            for z in 0..=15 {
+                b.push(([x, 63, z], stone.to_string()));
+            }
+        }
+        for z in [6, 12] {
+            b.push(([4, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            b.push(([9, 64, z], "minecraft:red_bed[facing=east,occupied=false,part=foot]".to_string()));
+            b.push(([10, 64, z], "minecraft:red_bed[facing=east,occupied=false,part=head]".to_string()));
+        }
+        for y in [64, 65] {
+            for z in [6, 12] {
+                for c in [[3, y, z], [5, y, z], [4, y, z - 1], [4, y, z + 1]] {
+                    b.push((c, "minecraft:glass".to_string()));
+                }
+            }
+        }
+        b.push(([4, 66, 6], "minecraft:glass".to_string()));
+        b.push(([4, 66, 12], "minecraft:glass".to_string()));
+        let rider = |z: i32| {
+            (
+                "minecraft:minecart".to_string(),
+                [4.5, 64.0625, z as f64 + 0.5],
+                Some(format!("{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;10,64,{z}]}}}}}}}}}}]}}")),
+            )
+        };
+        v.push(Scene {
+            name: "seated-stamp".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: vec![rider(6), rider(12)],
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 67, 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-13, day-1 23:37 / ironspec 23:58 / cc767b78 23:50) day-1's P_HOLD latch form (b), one copy per
     // row (latchformbcells.rs: RLS 1 / 2 / 3 / 20, no branch, ARM 1..5 at RLS + 8), laid in its settled RESET states;
     // the actions set RLS_IN / ARM_IN to a redstone block for their widths (RLS from tick 20)
@@ -5924,6 +6024,32 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Peaceful,
             mob_griefing: true,
             watch: ([0, 68, 2], [175, 71, 14]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, cc767b78 01:06) the AS-LISTED latch (the control: latchrig.rs, 58f770cc's list), one copy
+    // per row (LATCH_ASLISTED_ROWS) at x 16 k + 8, y + 75, z + 8, in its settled RESET states; the actions drive RLS (a
+    // redstone block at the stand-in (0,-4,4) and at the pair's input (-1,-2,2)) from tick 20, ARM ((4,-2,2)) from tick 22
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 144, 0, 16, 62, stone);
+        for (k, (_, _, branch, _)) in LATCH_ASLISTED_ROWS.iter().enumerate() {
+            let o = latch_aslisted_off(k);
+            for (p, s) in crate::latchrig::latch_aslisted_cells(*branch) {
+                b.push(([p[0] + o[0], p[1] + o[1], p[2] + o[2]], s));
+            }
+        }
+        v.push(Scene {
+            name: "latch-aslisted".into(),
+            chunks: [0, 0, 8, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Peaceful,
+            mob_griefing: true,
+            watch: ([0, 68, 2], [143, 76, 14]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,

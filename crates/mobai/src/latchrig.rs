@@ -107,6 +107,52 @@ struct Opts {
     set_state: bool,
 }
 
+/// (tickexact 2026-11-14, cc767b78 01:06: the control's own recording) the as-listed latch's cells for scene
+/// `latch-aslisted`: 58f770cc's list (22:07) plus the park rail's support (1,-1,4), every listed state replaced by its
+/// settled RESET state where `LATCH_ASLISTED_SETTLED` names one; `branch` false: the branch (2,-4,2) glass
+pub(crate) fn latch_aslisted_cells(branch: bool) -> Vec<([i32; 3], String)> {
+    let mut v: Vec<([i32; 3], String)> = vec![([1, -1, 4], "minecraft:glass".to_string())];
+    for l in CELLS.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let Some((c, s)) = l.split_once('=') else { continue };
+        let p: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        let p = [p[0], p[1], p[2]];
+        let settled = LATCH_ASLISTED_SETTLED.iter().find(|(q, _)| *q == p).map(|(_, s)| s.to_string()).unwrap_or_else(|| s.to_string());
+        v.push((p, if !branch && p == [2, -4, 2] { "minecraft:glass".to_string() } else { settled }));
+    }
+    if !branch {
+        for (p, s) in LATCH_ASLISTED_NOBRANCH {
+            if let Some(c) = v.iter_mut().find(|(q, _)| q == p) {
+                c.1 = s.to_string();
+            }
+        }
+    }
+    v
+}
+
+/// The settled RESET states that differ from the list (from `mctas mobai scene-lint latch-aslisted --all`).
+pub(crate) const LATCH_ASLISTED_SETTLED: &[([i32; 3], &str)] = &[
+    ([0, -4, 1], "minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]"),
+    ([0, -4, 2], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]"),
+    ([0, -4, 3], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]"),
+    ([0, -4, 4], "minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]"),
+    ([1, -4, 1], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([1, -4, 4], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([2, -4, 1], "minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]"),
+    ([2, -4, 3], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]"),
+    ([2, -2, 2], "minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]"),
+    ([3, -4, 4], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([3, -1, 4], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([4, -4, 4], "minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]"),
+    ([4, -2, 4], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]"),
+    ([5, -3, 4], "minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=up]"),
+];
+
+/// The no-branch copy's other differences (the wires beside the branch's glass).
+pub(crate) const LATCH_ASLISTED_NOBRANCH: &[([i32; 3], &str)] = &[
+    ([2, -4, 1], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([2, -4, 3], "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"),
+];
+
 fn lay(srv: &mut VanillaServer, o: Opts) -> Result<()> {
     let a = w([-3, -7, -1]);
     let b = w([7, 2, 7]);
@@ -207,7 +253,6 @@ fn run(srv: &mut VanillaServer, label: &str, o: Opts, rls_w: Option<i64>, arm: O
     lay(srv, o)?;
     let mut rows = Vec::new();
     let mut rls = false;
-    let mut arm_on = false;
     for t in 0..ticks {
         let rel = t - RLS_AT;
         // commands go in before tick t (between t - 1 and t)
@@ -226,16 +271,13 @@ fn run(srv: &mut VanillaServer, label: &str, o: Opts, rls_w: Option<i64>, arm: O
         if let Some((at, aw)) = arm {
             if rel == at {
                 set(srv, [4, -2, 2], "minecraft:redstone_block")?;
-                arm_on = true;
             }
             if aw > 0 && rel == at + aw {
                 set(srv, [4, -2, 2], "minecraft:air")?;
-                arm_on = false;
             }
         }
         srv.step(1)?;
-        let mut r = read(srv, rls)?;
-        r.arm = r.arm || (arm_on && false);
+        let r = read(srv, rls)?;
         rows.push(r);
     }
     let run = Run { label: label.to_string(), rows };
