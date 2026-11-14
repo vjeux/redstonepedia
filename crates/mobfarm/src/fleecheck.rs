@@ -5690,7 +5690,7 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     }
     let total: usize = by.values().map(|v| v.1).sum();
     let mut lines = vec![format!(
-        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the bed head block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, the rider's exact FEET, a seated rider's at its cart's y + 0.0625; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
+        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the --cell block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, measured from the bed HEAD block when that is the --cell, to the rider's exact FEET, a seated rider's at its cart's y + 0.0625; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
         radius * radius,
         center.x,
         center.y,
@@ -5966,24 +5966,96 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     Ok((lines, off.len(), cells))
 }
 
-/// (ironspec Nov 13 19:11 / 19:13 / 19:45 (c), G1 20:02 E5 / E6) The components a cell's state change
-/// can trigger: every press or release of a string (a tripwire), a hook, a detector or a pressure plate
-/// updates the cells of its footprint, so an observer, a piston (sticky or not, or its head, which
-/// passes the update to its base), a dropper or a dispenser there (quasi-connected ones included: an
-/// update is what wakes them) would act. The footprint is the repo's own model for a signal source
-/// (`pushscan::update_reach`: a hook's six neighbours and its support's, a plate's or a detector's and
-/// the block under it's, an ascending detector's above too), a hookless string's its six faces. A cell
-/// holding none of those is NOT JUDGED. The bar: 0. Returns the lines and the count.
+/// (ironspec Nov 13 19:11 / 19:13 / 19:45 (c), G1 20:02 E5 / E6; G1 Nov 14 07:14 / 07:59b, parts 56 / 60) The blocks a
+/// cell's state change updates that would ACT on it: a string's (a tripwire's), a hook's, a detector's or a pressure
+/// plate's footprint (`pushscan::update_reach`: a hook's six neighbours and its support's, a plate's or a detector's
+/// and the block under it's, an ascending detector's above too; an attached string's six faces and its hooks'
+/// footprints, a loose string's six faces), and a diode's (a repeater's, comparator's or observer's) output cell and
+/// that cell's other five neighbours plus any observer watching the diode itself. DEFAULT-DENY: every block there that
+/// isn't inert to a neighbour update ([`update_inert`]) is a consumer and fails by name unless it is allowed, for the
+/// source the design declares it for (`# update-consumers:`) or for any source (`--allow`), each naming the block id
+/// it expects; the source's own structure (a string's line and its hooks) is no consumer; an allow nothing needs fails
+/// as stale, naming why. A cell holding none of those sources is NOT JUDGED. The bar: 0. Returns the lines and the
+/// count.
 pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     update_reach_components_allow(spec, cells, &[])
 }
 
-/// [`update_reach_components`] with the consumer cells the design means its updates to reach (`allow`; part 56).
+/// [`update_reach_components`] with the consumer cells the design means its updates to reach (`allow`; part 56), any
+/// block allowed.
 pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let allow: Vec<UpdateAllow> = allow.iter().map(|p| UpdateAllow { source: None, cell: *p, id: None, why: String::new() }).collect();
+    update_reach_components_decl(spec, cells, &allow)
+}
+
+/// (G1 Nov 14 07:59b, part 60) One allowed consumer of an update: for one source (`source`, a design's
+/// `# update-consumers:` declaration) or any (`--allow`), the block id it expects (`id`: a cell holding another block
+/// fails), and the declaration's reason.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateAllow {
+    pub source: Option<BlockPos>,
+    pub cell: BlockPos,
+    pub id: Option<String>,
+    pub why: String,
+}
+
+/// (G1 Nov 14 07:59b / 08:10, part 60) A design's `# update-consumers: CLASS SX,SY,SZ=CX,CY,CZ ID+CX,CY,CZ ID (why)`
+/// lines, strictly parsed (a line that doesn't parse fails naming it): each source cell's consumers, one state source
+/// for update-reach. A declaration is a design CLAIM the review reads, never a waiver: CLASS is `intended` (the design
+/// means the update to reach it: its reason says how) or `by-code` (the block's reaction is harmless by game code: its
+/// reason cites the 26.3 code, "26.3" named); a real interaction is fixed, never declared. The reason is required.
+pub fn update_consumer_decls(text: &str) -> Result<Vec<UpdateAllow>, String> {
+    let mut out = Vec::new();
+    let cell = |s: &str, line: &str| -> Result<BlockPos, String> {
+        let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("`# update-consumers:` line {line:?}: {s:?} is no x,y,z ({e})"))?;
+        if v.len() != 3 {
+            return Err(format!("`# update-consumers:` line {line:?}: {s:?} is no x,y,z"));
+        }
+        Ok(BlockPos::new(v[0], v[1], v[2]))
+    };
+    for l in text.lines() {
+        let Some(rest) = l.strip_prefix("# update-consumers:") else { continue };
+        let rest = rest.trim();
+        let form = || format!("`# update-consumers:` line {l:?}: CLASS SOURCE=CELL ID[+CELL ID...] (why), CLASS intended or by-code");
+        let (class, rest) = rest.split_once(' ').ok_or_else(form)?;
+        if class != "intended" && class != "by-code" {
+            return Err(form());
+        }
+        let (body, why) = match rest.find(" (") {
+            Some(i) if rest.ends_with(')') => (&rest[..i], rest[i + 2..rest.len() - 1].trim().to_string()),
+            _ => return Err(format!("`# update-consumers:` line {l:?}: no reason in parentheses (a declaration is a claim the review reads)")),
+        };
+        if why.is_empty() {
+            return Err(format!("`# update-consumers:` line {l:?}: an empty reason"));
+        }
+        if class == "by-code" && !why.contains("26.3") {
+            return Err(format!("`# update-consumers:` line {l:?}: a by-code declaration cites the 26.3 code (\"26.3 Class.method: ...\")"));
+        }
+        let (s, list) = body.split_once('=').ok_or_else(form)?;
+        let source = cell(s.trim(), l)?;
+        for item in list.split('+') {
+            let mut it = item.split_whitespace();
+            let (Some(c), Some(id), None) = (it.next(), it.next(), it.next()) else {
+                return Err(format!("`# update-consumers:` line {l:?}: {item:?} is no \"x,y,z id\""));
+            };
+            let id = id.trim_start_matches("minecraft:").to_string();
+            out.push(UpdateAllow { source: Some(source), cell: cell(c, l)?, id: Some(id), why: format!("{class}: {why}") });
+        }
+    }
+    Ok(out)
+}
+
+/// [`update_reach_components`] with the allowed consumers ([`UpdateAllow`]: declared per source, or `--allow`ed for
+/// any), each read back: an allow whose cell holds another block than it names fails; one no queried source's update
+/// needs fails as stale, saying why (the block is inert, the cell is the source's own structure, or no update reaches
+/// it); a declaration for a source not queried is listed as not read.
+pub fn update_reach_components_decl(spec: &FarmSpec, cells: &[BlockPos], allow: &[UpdateAllow]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
     let mut n = 0usize;
-    let mut matched: Vec<BlockPos> = Vec::new();
+    let mut matched: Vec<usize> = Vec::new();
+    let mut inert_seen: Vec<BlockPos> = Vec::new();
+    let mut own_seen: Vec<BlockPos> = Vec::new();
     let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).to_vec();
     for c in cells {
         let b = w.get(*c);
@@ -6061,18 +6133,26 @@ pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow:
         let mut hits = Vec::new();
         let mut allowed_here = Vec::new();
         // (G1 Nov 14 07:14, part 56) the source's own structure is no consumer of its update: an attached string's
-        // line (its strings and both hooks), a hook's own line likewise
+        // line (its strings and both hooks), a hook's own line likewise; (G1 07:59b, part 60) a hook ends the line only
+        // when it faces back along it (a hook facing east holds a string running east), and a hook source walks only
+        // the way it faces
         let mut own: Vec<BlockPos> = vec![*c];
         if id == "tripwire" || id == "tripwire_hook" {
-            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let hook_facing = |st: &str| st.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+            for (dx, dz, toward, back) in [(1, 0, "east", "west"), (-1, 0, "west", "east"), (0, 1, "south", "north"), (0, -1, "north", "south")] {
+                if id == "tripwire_hook" && hook_facing(&here) != toward {
+                    continue;
+                }
                 let mut q = *c;
                 let mut line = Vec::new();
                 for _ in 0..41 {
                     q = BlockPos::new(q.x + dx, q.y, q.z + dz);
                     let st = w.get(q).to_string();
                     if st.contains("tripwire_hook[") {
-                        line.push(q);
-                        own.extend(line.iter().copied());
+                        if hook_facing(&st) == back {
+                            line.push(q);
+                            own.extend(line.iter().copied());
+                        }
                         break;
                     }
                     if !st.contains("tripwire[") {
@@ -6082,6 +6162,7 @@ pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow:
                 }
             }
         }
+        own_seen.extend(own.iter().copied());
         // (G1 07:14 (2)) a diode sets its own state with flag 2, so the neighbours' shapes update: an observer
         // WATCHING the diode (facing it) fires on every toggle: the diode's own six neighbours read for that
         let mut fp: Vec<BlockPos> = footprint;
@@ -6090,13 +6171,15 @@ pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow:
                 let s = w.get(q).to_string();
                 if s.starts_with("minecraft:observer[") {
                     let f = s.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+                    // (G1 07:59b non-blocking, part 60) an unreadable facing is NOT JUDGED, never read as "down"
                     let watched = match f.as_str() {
                         "north" => BlockPos::new(q.x, q.y, q.z - 1),
                         "south" => BlockPos::new(q.x, q.y, q.z + 1),
                         "east" => BlockPos::new(q.x + 1, q.y, q.z),
                         "west" => BlockPos::new(q.x - 1, q.y, q.z),
                         "up" => BlockPos::new(q.x, q.y + 1, q.z),
-                        _ => BlockPos::new(q.x, q.y - 1, q.z),
+                        "down" => BlockPos::new(q.x, q.y - 1, q.z),
+                        other => return Err(format!("update reach: NOT JUDGED: the observer at {},{},{} beside {},{},{} has a facing \"{other}\" read as no direction", q.x, q.y, q.z, c.x, c.y, c.z)),
                     };
                     if watched == *c && !fp.contains(&q) {
                         fp.push(q);
@@ -6109,19 +6192,39 @@ pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow:
             let qid = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
             // (G1 Nov 14 07:14 (1), part 56: DEFAULT-DENY) every block the update reaches that isn't inert to
             // neighbour updates (doors, trapdoors, fence gates, hoppers, note blocks, bells, lamps, TNT, copper
-            // bulbs, crafters, rails of every kind, diodes, observers, pistons, droppers, dispensers, dust, any
-            // unknown id) is a consumer, failing by name unless its cell is allowed (`--allow`, read back)
+            // bulbs, crafters, rails of every kind, diodes, observers, pistons, droppers, dispensers, dust, fluids,
+            // any unknown id) is a consumer, failing by name unless allowed: declared for this source
+            // (`# update-consumers:`) or `--allow`ed for any, the block id each names read back (part 60)
             if update_inert(&qid) {
+                inert_seen.push(q);
                 continue;
             }
             let hit = format!("{} at {},{},{}", s.trim_start_matches("minecraft:"), q.x, q.y, q.z);
-            if allow.contains(&q) {
+            let fits = allow.iter().enumerate().filter(|(_, a)| a.cell == q && a.source.is_none_or(|src| src == *c)).map(|(i, a)| (i, a.id.as_deref().is_none_or(|id| id == qid))).collect::<Vec<_>>();
+            if let Some((i, _)) = fits.iter().find(|(_, ok)| *ok) {
+                let a = &allow[*i];
+                let tag = match (a.source, a.why.is_empty()) {
+                    (Some(_), false) => format!(" (declared: {})", a.why),
+                    (Some(_), true) => " (declared)".to_string(),
+                    (None, _) => if a.id.is_some() { String::new() } else { " (no id named)".to_string() },
+                };
+                let hit = format!("{hit}{tag}");
                 if !allowed_here.contains(&hit) {
                     allowed_here.push(hit);
                 }
-                matched.push(q);
-            } else if !hits.contains(&hit) {
-                hits.push(hit);
+                for (j, _) in fits.iter().filter(|(_, ok)| *ok) {
+                    matched.push(*j);
+                }
+            } else {
+                // an allow naming another block than the cell holds is no allow: the hit fails, named with it
+                let wrong: Vec<String> = fits.iter().map(|(i, _)| format!("allowed as {}", allow[*i].id.clone().unwrap_or_default())).collect();
+                let hit = if wrong.is_empty() { hit } else { format!("{hit} ({})", wrong.join(", ")) };
+                for (j, _) in &fits {
+                    matched.push(*j);
+                }
+                if !hits.contains(&hit) {
+                    hits.push(hit);
+                }
             }
         }
         n += hits.len();
@@ -6136,10 +6239,32 @@ pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow:
             if allowed_here.is_empty() { String::new() } else { format!("; allowed: {}", allowed_here.join("; ")) }
         ));
     }
-    // (G1 07:14 (1): an allow no cell's update reaches is stale and fails)
-    for a in allow.iter().filter(|a| !matched.contains(a)) {
+    // (G1 07:14 (1) / 07:59b (2), parts 56 / 60) an allow nothing needs is stale and fails, saying why; a declaration
+    // for a source not queried isn't read (listed)
+    let mut unread: Vec<String> = Vec::new();
+    for (_, a) in allow.iter().enumerate().filter(|(i, _)| !matched.contains(i)) {
+        if let Some(src) = a.source
+            && !cells.contains(&src)
+        {
+            unread.push(format!("{},{},{}->{},{},{}", src.x, src.y, src.z, a.cell.x, a.cell.y, a.cell.z));
+            continue;
+        }
         n += 1;
-        lines.push(format!("allow {},{},{} ({}): no cell's update reaches it: a stale allow (FAIL)", a.x, a.y, a.z, w.get(*a).to_string().trim_start_matches("minecraft:")));
+        let why = if own_seen.contains(&a.cell) {
+            "the source's own structure (its string line or hooks), no consumer"
+        } else if inert_seen.contains(&a.cell) {
+            "an inert block (no allow needed)"
+        } else {
+            "no queried cell's update reaches it"
+        };
+        let whose = match a.source {
+            Some(s) => format!("declared for {},{},{} ", s.x, s.y, s.z),
+            None => String::new(),
+        };
+        lines.push(format!("allow {}{},{},{} ({}): {why}: a stale allow (FAIL)", whose, a.cell.x, a.cell.y, a.cell.z, w.get(a.cell).to_string().trim_start_matches("minecraft:")));
+    }
+    if !unread.is_empty() {
+        lines.push(format!("declared consumers of sources not queried (not read): {}", unread.join(" ")));
     }
     Ok((lines, n))
 }
@@ -11401,7 +11526,63 @@ mod gate_tests {
         // an observer as the source: its output (behind it) faces a hopper: the hopper fails by name
         let obs_src = p("minecraft:observer[facing=north,powered=false]");
         let (o1, no1) = super::update_reach_components(&mk(vec![(b(2, 1, 2), obs_src), (b(2, 1, 3), p("minecraft:hopper[enabled=true,facing=down]"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(no1 == 1 && o1[0].contains("a diode: the cell its output faces 2,1,3") && o1[0].contains("hopper[") && o1[0].ends_with("(FAIL)"), "a hopper behind an observer: {o1:?}");
+        assert!(no1 == 1 && o1[0].contains("a diode: the cell its output faces 2,1,3") && o1[0].contains("1 consumer(s) outside the allowed: hopper[enabled=true,facing=down] at 2,1,3 (FAIL)"), "a hopper behind an observer: {o1:?}");
+        // (G1 07:59b non-blocking, part 60) its passing twin: the observer's output into glass, nothing else in reach
+        let (o2, no2) = super::update_reach_components(&mk(vec![(b(2, 1, 2), obs_src), (b(2, 1, 3), p("minecraft:glass"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(no2 == 0 && o2[0].ends_with("0 consumer(s) outside the allowed (PASS)"), "an observer into glass: {o2:?}");
+        // (G1 07:59b (1), part 60) E′'s shape: a repeater facing north (input north, output south) into slime, an iron
+        // trapdoor beside the slime: FAIL bare; PASS with the trapdoor declared for the repeater in the design's header
+        // (named "declared"); a declaration naming another block fails; one for a cell no update reaches is stale; one
+        // for a source not queried is listed as not read; a `--allow` with its id passes too
+        let e2 = mk(vec![(b(2, 1, 2), p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]")), (b(2, 1, 3), p("minecraft:slime_block")), (b(2, 1, 4), p("minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"))]);
+        let (e0, ne0) = super::update_reach_components(&e2, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ne0 == 1 && e0[0].contains("1 consumer(s) outside the allowed: iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false] at 2,1,4 (FAIL)"), "E′ bare: {e0:?}");
+        let decl = super::update_consumer_decls("name: x\n# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor (the slime powers the hatch)\n").unwrap();
+        let (e1, ne1) = super::update_reach_components_decl(&e2, &[b(2, 1, 2)], &decl).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ne1 == 0 && e1[0].contains("(PASS); allowed: iron_trapdoor[") && e1[0].contains("at 2,1,4 (declared: intended: the slime powers the hatch)"), "E′ declared: {e1:?}");
+        let wrong = super::update_consumer_decls("# update-consumers: intended 2,1,2=2,1,4 oak_trapdoor (wrong id)\n").unwrap();
+        let (ew, new) = super::update_reach_components_decl(&e2, &[b(2, 1, 2)], &wrong).unwrap_or_else(|e| panic!("{e}"));
+        assert!(new == 1 && ew[0].contains("at 2,1,4 (allowed as oak_trapdoor) (FAIL)"), "a declaration naming another block: {ew:?}");
+        let stale = super::update_consumer_decls("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor+2,1,3 slime_block+5,5,5 hopper (why)\n# update-consumers: by-code 9,9,9=9,9,8 hopper (26.3 HopperBlock.neighborChanged: re-reads its lock)\n").unwrap();
+        let (es, nes) = super::update_reach_components_decl(&e2, &[b(2, 1, 2)], &stale).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            nes == 2
+                && es.iter().any(|l| l.starts_with("allow declared for 2,1,2 2,1,3 (slime_block): an inert block (no allow needed): a stale allow (FAIL)"))
+                && es.iter().any(|l| l.starts_with("allow declared for 2,1,2 5,5,5 (air): no queried cell's update reaches it: a stale allow (FAIL)"))
+                && es.iter().any(|l| l == "declared consumers of sources not queried (not read): 9,9,9->9,9,8"),
+            "stale and unread declarations: {es:?}"
+        );
+        let cli = vec![super::UpdateAllow { source: None, cell: b(2, 1, 4), id: Some("iron_trapdoor".into()), why: String::new() }];
+        let (ec, nec) = super::update_reach_components_decl(&e2, &[b(2, 1, 2)], &cli).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nec == 0 && ec[0].contains("(PASS); allowed: iron_trapdoor[") && !ec[0].contains("no id named"), "an --allow with its id: {ec:?}");
+        // (G1 08:10 (1)) a declaration is a claim the review reads: its class (intended / by-code) and reason are
+        // required, a by-code one cites 26.3, a consumer names its id; each mis-form is refused naming the line
+        for bad in [
+            "# update-consumers: intended 2,1,2=2,1,4\n",
+            "# update-consumers: 2,1,2=2,1,4 iron_trapdoor (no class)\n",
+            "# update-consumers: waived 2,1,2=2,1,4 iron_trapdoor (an unknown class)\n",
+            "# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor\n",
+            "# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (it is fine)\n",
+        ] {
+            let r = super::update_consumer_decls(bad);
+            assert!(r.as_ref().is_err_and(|e| e.contains("`# update-consumers:` line")), "{bad:?} refused: {r:?}");
+        }
+        // (G1 07:59b non-blocking, part 60) a hook ends a string's line only when it faces back along it: a string
+        // (2,1,2) with a west hook facing east (its own) and, at its east end, a hook facing south (on a stone at its
+        // north; not facing back along the line) reads that far hook as a consumer
+        let line = mk(vec![
+            (b(1, 1, 2), p("minecraft:tripwire_hook[attached=true,facing=east,powered=false]")),
+            (b(2, 1, 2), p("minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")),
+            (b(3, 1, 2), p("minecraft:tripwire_hook[attached=false,facing=south,powered=false]")),
+            (b(0, 1, 2), p("minecraft:stone")),
+            (b(3, 1, 1), p("minecraft:stone")),
+        ]);
+        let (lh, _) = super::update_reach_components(&line, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lh[0].contains("tripwire_hook[attached=false,facing=south,powered=false] at 3,1,2") && !lh[0].contains("at 1,1,2"), "the hook facing away is no part of the line: {lh:?}");
+        // (G1 07:59b non-blocking, part 60) no block is both inert and a power consumer
+        for id in ["air", "glass", "stone", "smooth_stone", "glowstone", "slime_block", "honey_block", "obsidian", "iron_block", "quartz_block", "sea_lantern", "dirt", "oak_slab", "smooth_stone_slab", "oak_planks", "oak_log", "white_wool", "red_concrete", "terracotta", "bricks", "stone_bricks", "white_stained_glass", "glass_pane"] {
+            assert!(super::update_inert(id) && !super::power_consumer(id), "{id}: inert and a power consumer at once");
+        }
         // (ironspec 07:25r, part 56; feet = the cart's y + 0.0625, part 57) the ball metric: distToCenterSqr(feet) <
         // radius², strict, from the bed head block's centre: a cart at 16.1875 (feet 16.25, exactly 16 off once the
         // centre's 0.5 is taken) is outside, one at 15.9375 (feet 15.75 off) inside
