@@ -18605,6 +18605,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let contact_decls = crate::bedtier::bounded_decls(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's B3: the contacts decided by the entry speed)
             let contact_speeds = crate::bedtier::parse_contact_speeds(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (vcompose 03:19: the header's declared stand-up feet, checked against the measured ones)
+            let stand_up_decl = crate::bedtier::parse_stand_up(&std::fs::read_to_string(&design)?);
             // (G1's Q15: the stranded bound read from the design's key)
             let stranded_bound = crate::bedtier::parse_stranded_bound(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's Q14: no negative delays)
@@ -18712,10 +18714,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(w)
             };
             anyhow::ensure!(!light_q_at_rs || park_width.is_some(), "--light-q-at-rs needs PARK's stretch (--park-width N): the drive must be off when the hand lights Q");
-            // (ironspec 21:20: the world open keyed on RLS)
+            // (ironspec 21:20: the world open keyed on RLS; ironspec 01:50b / 02:33 (2): `A..B,HOW`
+            // one row per phase, the timing row)
+            let mut restart_at_rls_phases: Vec<i64> = Vec::new();
             let restart_at_rls = match restart_at_rls.as_deref() {
                 None => None,
-                Some(s) => Some(crate::liveness::parse_restart(s).map_err(|e| anyhow::anyhow!("--restart-at-rls: {e}"))?),
+                Some(s) => {
+                    let (k, how) = s.split_once(',').ok_or_else(|| anyhow::anyhow!("--restart-at-rls: K,ORDER or A..B,ORDER"))?;
+                    if let Some((a, b)) = k.split_once("..") {
+                        let a: i64 = a.trim().parse().map_err(|e| anyhow::anyhow!("--restart-at-rls {s}: {e}"))?;
+                        let b: i64 = b.trim().parse().map_err(|e| anyhow::anyhow!("--restart-at-rls {s}: {e}"))?;
+                        anyhow::ensure!(a <= b, "--restart-at-rls {s}: A..B with A <= B");
+                        restart_at_rls_phases = (a..=b).collect();
+                        Some(crate::liveness::parse_restart(&format!("{a},{how}")).map_err(|e| anyhow::anyhow!("--restart-at-rls: {e}"))?)
+                    } else {
+                        Some(crate::liveness::parse_restart(s).map_err(|e| anyhow::anyhow!("--restart-at-rls: {e}"))?)
+                    }
+                }
             };
             anyhow::ensure!((restart_at_rls.is_none() && step_off_at_rls.is_none() && hurt_at_arm.is_none()) || adopted.is_some(), "--restart-at-rls, --step-off-at-rls and --hurt-at-arm need the adopted controller (RLS, ARM's edge)");
             anyhow::ensure!(erase_home_ticket == "free" || erase_home_ticket == "taken", "--erase-home-ticket takes free or taken, not {erase_home_ticket:?}");
@@ -18747,7 +18762,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if adopted.is_some() {
                 anyhow::ensure!(release_after_arm.is_none() && !early_release && !no_presence_gate, "--release-after-arm, --early-release and --no-presence-gate are the stand-in controller's terms: add --controller stand-in (the adopted controller releases by RLS)");
             }
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty: plant_empty.map(|v| [v[0], v[1], v[2]]) };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty: plant_empty.map(|v| [v[0], v[1], v[2]]), stand_up_decl, restart_at_rls_phases };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {

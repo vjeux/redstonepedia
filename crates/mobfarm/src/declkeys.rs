@@ -31,10 +31,11 @@ pub const COMMENT_KEYS: &[&str] = &[
     "a6-pickup",
     "string-class",
     "allow-powered",
-    // (58f770cc's bed stop: the declared rail shapes, judged every tick by bedtier-bench (G1's Q13))
-    "integrity",
     // (58f770cc's bed stop: a contact decided by the entry speed, judged per speed (G1's B3))
     "contact-speeds",
+    // (58f770cc's bed stop: the exact stand-up feet, checked by bedtier-bench and read by vcompose's
+    // flee static (vcompose 03:19))
+    "stand-up",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
