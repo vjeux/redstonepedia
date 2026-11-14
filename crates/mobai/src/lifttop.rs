@@ -28,7 +28,10 @@
 //! stops rail-bound on (-4,2,7), or is thrown back east onto the T): the first run's 0.48 / 3 gt and 0.30 / 8 gt stall.
 //! (1- and 2-gt foot gaps are unreachable: two carts are 0.98 long.) A cart stays rail-bound while its POSITION's block
 //! is the rail (OldMinecartBehavior.tick 50-65; moveAlongTrack's move has no vertical part, 199-201), so the column only
-//! lifts it once its centre is past x -4.0.
+//! lifts it once its centre is past x -4.0. (7) (ironspec 03:07) every OPEN-EXIT pair (the exit open, N 0; the follower
+//! G = 1..14 gt behind) exits, both risers: the brief's normal-running evidence (the 1-gt pair rises 0.695 b apart, 0.005
+//! under the 0.70 jam band; printed). (cc767b78 02:47) MCTAS_LIFT_TOP_FULL_A=1 prints every tick of (A)'s rise from its
+//! summon (y, z, vy, vz), not only the top.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -276,9 +279,11 @@ pub fn lift_top(version: &str, design: &std::path::Path) -> Result<()> {
                 srv.step(1)?;
                 let Some((p, m)) = read(&mut srv, &tag)? else { anyhow::bail!("{tag}: the riser vanished at t{t}") };
                 last = p;
-                if p[1] >= 21.5 {
+                // (cc767b78 02:47) MCTAS_LIFT_TOP_FULL_A=1: every tick of the rise from the summon, with its vertical speed
+                let full_a = std::env::var("MCTAS_LIFT_TOP_FULL_A").is_ok();
+                if p[1] >= 21.5 || full_a {
                     zmin = zmin.min(p[2]);
-                    top.push(format!("t{t} y {:.3} z {:.4} vz {:+.4}", p[1], p[2], m[2]));
+                    top.push(if full_a { format!("t{t} y {:.4} z {:.4} vy {:+.4} vz {:+.4}", p[1], p[2], m[1], m[2]) } else { format!("t{t} y {:.3} z {:.4} vz {:+.4}", p[1], p[2], m[2]) });
                 }
                 if top_t.is_none() && surfaced(p) {
                     top_t = Some(t);
@@ -503,6 +508,11 @@ pub fn lift_top(version: &str, design: &std::path::Path) -> Result<()> {
     let clean_from = |v: f64| if v < 0.315 { 9 } else if v < 0.345 { 8 } else if v < 0.4 { 7 } else { 6 };
     let clean_above = foot.iter().filter(|f| f.1 >= clean_from(f.0)).all(|f| !f.5 && f.3.is_some_and(|s| s >= 1.0));
     pin(6, clean_above && foot_jam(0.48, 3, 0.0) == Some(true) && foot_jam(0.30, 8, 0.0) == Some(true), format!("(6) the first run's foot pairs: every pair at >= 9 gt (0.30) / 8 (0.33) / 7 (0.36) / 6 (0.48) exits with >= 1.0 b at the leader's SURFACING; 0.48 at 3 gt and 0.30 at 8 gt stall the follower at the foot: {:?}", foot.iter().map(|f| (f.0, f.1, f.2, f.5)).collect::<Vec<_>>()))?;
-    println!("  every known answer held (asserts 1..6)");
+    // (ironspec 03:07) the brief's evidence that normal running is jam-free: every open-exit pair exits; the 1-gt pair
+    // rises 0.695 b apart (0.005 under the 0.70 jam band), printed as information
+    let open: Vec<(u32, bool, Vec<(usize, Fate)>)> = ctl.iter().filter(|c| c.1 == 0 && (1..=14).contains(&c.0)).map(|c| (c.0, c.2, c.3.clone())).collect();
+    println!("  the open-exit pairs (N 0): {:?}; the 1-gt pair rises 0.695 b apart (summoned 1 gt apart at 0.695 b/t), 0.005 under the 0.70 jam band", open.iter().map(|(g, j, f)| (*g, *j, f.len())).collect::<Vec<_>>());
+    pin(7, open.len() == 14 && open.iter().all(|(_, jam, fates)| !*jam && fates.len() == 2 && fates.iter().all(|(_, f)| matches!(f, Fate::Exit(_)))), format!("(7) every open-exit pair (follower G = 1..14 gt, N 0) exits, both risers: {open:?}"))?;
+    println!("  every known answer held (asserts 1..7)");
     Ok(())
 }
