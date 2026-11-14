@@ -4599,6 +4599,22 @@ pub fn post_drift(spec: &FarmSpec, cell: BlockPos, ticks: u32) -> Result<Vec<Str
     )])
 }
 
+/// (G1 Nov 13 22:10) A place's stroll candidates, every cell listed: its calm stroll (IDLE's 10 / 7)
+/// and its panic stroll (2 / 2), each cell with the chance one event picks it and whether a complete
+/// path reaches it, sorted by cell.
+pub fn stroll_cell_lines(p: &Place) -> Vec<String> {
+    let list = |s: &Source| {
+        let mut v: Vec<(BlockPos, f64, bool)> = s.reached.iter().map(|(c, sh)| (*c, *sh, true)).chain(s.unreached.iter().map(|(c, sh)| (*c, *sh, false))).collect();
+        v.sort_by_key(|(c, _, _)| (c.y, c.z, c.x));
+        v.iter().map(|(c, sh, r)| format!("{},{},{} ({:.2}%, {})", c.x, c.y, c.z, sh * 100.0, if *r { "reached" } else { "unreached" })).collect::<Vec<_>>()
+    };
+    let (calm, panic) = (list(&p.stroll), list(&p.panic_stroll));
+    vec![
+        format!("  STROLL CELLS {},{},{} calm stroll: {} candidate(s) (counted {}): {}", p.cell.x, p.cell.y, p.cell.z, calm.len(), p.stroll.cells, if calm.is_empty() { "none".to_string() } else { calm.join(" ") }),
+        format!("  STROLL CELLS {},{},{} panic stroll: {} candidate(s) (counted {}): {}", p.cell.x, p.cell.y, p.cell.z, panic.len(), p.panic_stroll.cells, if panic.is_empty() { "none".to_string() } else { panic.join(" ") }),
+    ]
+}
+
 pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
     let mut rows = Vec::new();
     let (mut ac, mut an, mut na) = (0usize, 0usize, 0usize);

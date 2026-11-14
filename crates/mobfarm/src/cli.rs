@@ -1576,6 +1576,11 @@ pub enum MobfarmCmd {
         /// arms), not only the "arms, never clears" places.
         #[arg(long)]
         classes: bool,
+        /// (G1 Nov 13 22:10) A place's stroll candidates (`x,y,z`, repeatable): every cell its calm
+        /// stroll (IDLE's 10 / 7) and its panic stroll (2 / 2) can draw, each with its share and whether
+        /// a complete path reaches it.
+        #[arg(long, allow_hyphen_values = true)]
+        stroll_cells: Vec<String>,
         /// The golem-proof clearing cells for a place (`x,y,z`, repeatable): every glass floor
         /// within 2 sideways and 2 up or down that turns its class from "arms, never clears".
         #[arg(long, allow_hyphen_values = true)]
@@ -15283,7 +15288,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, start_state, surround, late_exempt, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, stroll_cells, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, start_state, surround, late_exempt, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             // (ironspec Nov 13 06:00 real, RANGES / WEAKENERS: the windows ranged; a weakening flag
             // announces itself (a run with one is never cited))
             anyhow::ensure!((0.0..=250.0).contains(&clear_tail), "--clear-tail {clear_tail}: 0..=250 gt");
@@ -15558,6 +15563,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for l in crate::fleecheck::stamp_classes(&places, classes) {
                 println!("{l}");
+            }
+            // (G1 Nov 13 22:10: a stroll claim cites the candidate list, never an inference)
+            for s in &stroll_cells {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--stroll-cells {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--stroll-cells {s}: x,y,z");
+                let c = redsim::pos::BlockPos::new(v[0], v[1], v[2]);
+                let Some(p) = places.iter().find(|p| p.cell == c) else {
+                    anyhow::bail!("--stroll-cells {s}: NOT JUDGED: no place of the check at that cell");
+                };
+                for l in crate::fleecheck::stroll_cell_lines(p) {
+                    println!("{l}");
+                }
             }
             if let Some(pw) = &path_watch {
                 let path = crate::fleecheck::read_watch_path(&std::fs::read_to_string(pw)?);
