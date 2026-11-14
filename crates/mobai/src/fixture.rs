@@ -5758,6 +5758,45 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-13, ironspec 21:12: (E)'s empty press, recorded for redsim to replay exactly) two copies of the
+    // rev 3 record's napper lift top (estringcells.rs, record frame + (dx, 80, 0), dx 0 and 16) with soul sand under
+    // each column's lowest cell and (E)'s string over E: the string (7,-2,4), hooks (7,-2,3) facing south / (7,-2,5)
+    // facing north on glass (7,-2,2) / (7,-2,6), all written attached; an EMPTY minecart in each column with no
+    // motion, at record y -8 (copy 0) and -11 (copy 16). The game (`mobai e-string`, 21:10, the record's blocks placed
+    // with their fluid ticks): E powered t15 / t20, the string first powered at E + 13 by the within-tick sweep (its
+    // end-of-tick box top 0.172 under the band)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 62, stone);
+        for dx in [0, 16] {
+            for (p, s) in crate::estringcells::E_STRING_RECORD_CELLS {
+                b.push(([p[0] + dx, p[1] + 80, p[2]], s.to_string()));
+            }
+            b.push(([6 + dx, 65, 4], "minecraft:soul_sand".to_string()));
+            b.push(([7 + dx, 78, 2], "minecraft:glass".to_string()));
+            b.push(([7 + dx, 78, 6], "minecraft:glass".to_string()));
+            b.push(([7 + dx, 78, 3], "minecraft:tripwire_hook[attached=true,facing=south,powered=false]".to_string()));
+            b.push(([7 + dx, 78, 5], "minecraft:tripwire_hook[attached=true,facing=north,powered=false]".to_string()));
+            b.push(([7 + dx, 78, 4], "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]".to_string()));
+        }
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), [6.5, 72.0, 4.5], Some("{Motion:[0.0d,0.0d,0.0d]}".to_string())),
+            ("minecraft:minecart".to_string(), [22.5, 69.0, 4.5], Some("{Motion:[0.0d,0.0d,0.0d]}".to_string())),
+        ];
+        v.push(Scene {
+            name: "e-string-empty".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([2, 64, 0], [28, 81, 9]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) an IDLE
     // rider (day time 1000) in a cart on a rail at (4,64,4), a second villager free on the walled
     // stone floor (x 2..11, z 2..11) at (6.5,64,4.5), a zombie in a boat at (10.5,64,8.5) closed in

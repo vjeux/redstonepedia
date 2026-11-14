@@ -926,6 +926,14 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, ironspec 20:41) An empty cart from the napper lift over E under (E)'s string
+    EString {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// the rev 3 record (record7f13b)
+        #[arg(long)]
+        record: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-13, ironspec 20:31) An empty cart at rest on R_1's slope under the slot-1 string
     SlopeString {
         #[arg(long, default_value = "26.3")]
@@ -2258,6 +2266,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::EString { version, record } => crate::estring::e_string(&version, &record),
         MobaiCmd::SlopeString { version } => crate::slopestring::slope_string(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {
