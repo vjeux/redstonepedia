@@ -715,4 +715,17 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   the string releases one tick every 11 gt (its 10-gt re-check finds the end box under the band); the
   rests aren't monotonic in speed, so it is normal operation. Every consumer reads SENSED's latch (the
   visit's first press): the bench's K reset and PARKED do; the bench prints the re-check releases per
-  rest position and the consumers per visit (one K reset, PARKED set, one park lighting).
+  rest position and the consumers per visit (one K reset, PARKED set, one park lighting). Redsim
+  reproduces the game's edge and cadence: rests 1.15..1.30 flicker (a released tick every 11 gt),
+  1.30..1.65 steady, 408 visits.
+- **Car 3 (Nov 14)**: glass at (2,2,3) over the park slime's top, which was a golem floor off the pad
+  (9fc3155f 03:34): one block of room left, glass no golem floor itself, clear of the parked cart's
+  box (top y 1.41 at the highest rest) and of a seated rider's (x <= 1.95); the build's temporary rail
+  at (2,1,3) and the park rail's ascent unchanged under it (main's build-order, the sequence read back
+  ascending_east). The bed column's keep-clear starts at (-3,2,4): the hook at (-3,1,4) is P_STRING's,
+  by design (no collision box, the riders' HOME route completes onto it), the fold's old keep-clear
+  was wrong (vcompose 03:28). `stand-up:` names the two places the stop leaves a villager on foot, as
+  the bench measures them: the eject's landing (-2.4986,0.5625,4.4868; the band's -2.4974..-2.4988 /
+  4.4867..4.4884) and the wake's stand-up (-1.5,0,4.5) exact; the bench fails on any measured
+  position more than 0.01 from a declared one (the box stays in its cell, getStart's start node the
+  same).
