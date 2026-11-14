@@ -190,11 +190,16 @@ pub struct Cfg {
     pub grant_form: u8,
     /// The three rings' T tokens' starting slots (the build guide places them: the zero-cell cold-start fix).
     pub t_start: [usize; 3],
+    /// THE POSITIONAL RELEASE (the simpler ring hardware): the rejoin read from the ring itself at the entry (an X two
+    /// droppers downstream of the tap) instead of a mark FIFO, the X lifted out at the release (one X type, no flags).
+    pub positional_release: bool,
+    /// Every lane's leg (the pick -> the second hold) shifted by these gt (the +-2 gt corners on the pops / REL).
+    pub leg_shift: [i64; 3],
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6] }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6], positional_release: false, leg_shift: [0; 3] }
     }
 }
 
@@ -275,6 +280,8 @@ pub struct Out {
     pub max_grant_wait: [i64; 3],
     /// The most nappers picked and not yet back at their siding at once (the sensed ring's record-depth bound).
     pub max_nappers_out: i64,
+    /// The most nappers picked and not yet ARM3'd at once (the record's stage count: cc767b78's (a') registers).
+    pub max_not_arm3: usize,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
@@ -396,6 +403,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut prev2_clear: i64 = i64::MIN / 4;
     let mut prev_pass: i64 = i64::MIN / 4;
     let mut nappers_out: i64 = 0;
+    // (the record's entries for the ARM3 stamp: (napper, its ARM3 REL once known))
+    let mut open_nappers: Vec<(usize, Option<i64>)> = Vec::new();
     let mut prev_arr: i64 = i64::MIN / 4;
     // (each processed napper's SENSED windows: (its SET, its latch's RESET + 1), (its front arrival press, the front's
     // arrival detector falling), (its bed start, RS_ready's set after its visit): the record's resync reads the levels)
@@ -661,6 +670,12 @@ pub fn run(cfg: &Cfg) -> Out {
                         },
                     }
                 }
+                // (THE ARM3 STAMP (cc767b78 12:21 / ironspec 12:30p (2)): the napper is taken at the station row's hold one REL
+                // before its siding arrival at the latest (the hold at REL' + 67, the S-bend at REL' + 165..200): the
+                // record's entry lives from the pick to here (the judge's bookkeeping by cart, not a controller read))
+                for e in open_nappers.iter_mut().filter(|e| e.0 == c && e.1.is_none()) {
+                    e.1 = Some(tp + v - 1);
+                }
                 if send == l {
                     transit.push((tp + v, l, c, match cfg.merge {
                         Merge::Order => pred,
@@ -717,8 +732,23 @@ pub fn run(cfg: &Cfg) -> Out {
                 // siding's FRONT napper is released behind it, and the mark's X type is flagged for extraction at its
                 // next tap arrival; the identity rule (`ready`) is kept as the reference, its disagreements counted)
                 let rel: Option<(usize, usize)> = if cfg.sensed {
-                    let mk = sensed_arr.iter().position(|e| e.0 == l && e.1 == c).and_then(|i| sensed_arr.remove(i).2);
-                    let sx = mk.and_then(|ty| siding.iter().position(|s| s.0 == l).map(|i| (siding[i].1, ty)));
+                    let circ = sensed_arr.iter().position(|e| e.0 == l && e.1 == c).map(|i| sensed_arr.remove(i));
+                    let sx = if cfg.positional_release {
+                        // (THE POSITIONAL RELEASE (the simpler hardware: no mark FIFO, no X types, no extract flags): at a
+                        // circuit entry, an X in the dropper 2 steps DOWNSTREAM of the tap (the entering cart's successor
+                        // slot: popped 2 RELs ago, its successor skipped) AND a napper in the siding: the siding's front
+                        // napper released, that X lifted out at once by the extractor under that dropper)
+                        let s2 = (ring_next[l] + N0 - 2) % N0;
+                        match (circ, x_set[l].iter().position(|x| x.0 == s2), siding.iter().position(|s| s.0 == l)) {
+                            (Some(_), Some(xi), Some(si)) => {
+                                x_set[l].remove(xi);
+                                Some((siding[si].1, 2))
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        circ.and_then(|e| e.2).and_then(|ty| siding.iter().position(|s| s.0 == l).map(|i| (siding[i].1, ty)))
+                    };
                     if ready.map(|j| away[j].1) != sx.map(|x| x.0) {
                         o.rejoin_vs_ref += 1;
                     }
@@ -768,6 +798,8 @@ pub fn run(cfg: &Cfg) -> Out {
             }
             let picks_before = picks_today;
             let room_before = room;
+            open_nappers.retain(|e| e.1.is_none_or(|a| a > t));
+            o.max_not_arm3 = o.max_not_arm3.max(open_nappers.len());
             // (THE WAY-IN's OCCUPANCY at this REL: arrived at the leg and not yet in the bed; the room count: dispatched
             // and not yet departed from the front)
             assigned.retain(|a| a.1 + 1_000 > gt);
@@ -873,6 +905,7 @@ pub fn run(cfg: &Cfg) -> Out {
                         // upper bound on picked-but-not-ARM3'd (ARM3 comes before the siding))
                         nappers_out += 1;
                         o.max_nappers_out = o.max_nappers_out.max(nappers_out);
+                        open_nappers.push((c, None));
                         o.max_x = o.max_x.max(x_set[l].len());
                         t_slot[l] = (popped_slot + delta) % N0;
                         spacing_latch[l] = true;
@@ -968,7 +1001,7 @@ pub fn run(cfg: &Cfg) -> Out {
                         // the merge) holds the same batch's later nappers behind it: carts never overtake)
                         let dly = cfg.ride_delay.iter().find(|r| r.0 == day && r.1 == l && r.2 == pick_no[l]).copied();
                         let leg_t = cfg.leg_override.unwrap_or(LEG);
-                        let mut leg = gt + leg_t[l] + dly.map_or(0, |r| r.3);
+                        let mut leg = gt + leg_t[l] + dly.map_or(0, |r| r.3) + cfg.leg_shift[l];
                         if let Some((fl, fl_l)) = shared_floor {
                             leg = leg.max(fl + leg_t[l] - leg_t[fl_l]);
                         }
@@ -1424,19 +1457,30 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let hold_cycle = d_occ() + 25;
             let mut form_rows = Vec::new();
             let mut a_ok = false;
+            let mut b_extra = String::new();
             let mut a_worst = 0i64;
             for (form, fname) in [(0u8, "(a) NONE"), (2, "(b) ROTATION"), (3, "(b') STATIC PRIORITY")] {
                 let (mut multi, mut least_gap, mut wait, mut worst, mut rows, mut all, mut lost, mut out_max) = (0usize, i64::MAX, [0i64; 3], 0i64, 0usize, true, 0i64, 0i64);
+                let (mut arm3_max, mut worst_at, mut corner_gap, mut corner_worst, mut vs_ref) = (0usize, String::new(), i64::MAX, 0i64, 0usize);
                 let mut first_bad = String::new();
-                let mut eval = |o: &Out, what: &str| {
+                let mut eval = |o: &Out, what: &str, corner: bool| {
                     rows += 1;
                     multi += o.multi_pick.len();
                     least_gap = least_gap.min(o.min_hold_gap);
                     for l in 0..3 {
                         wait[l] = wait[l].max(o.max_grant_wait[l]);
                     }
-                    worst = worst.max(o.max_gap.0);
+                    if o.max_gap.0 > worst {
+                        worst = o.max_gap.0;
+                        worst_at = what.to_string();
+                    }
+                    if corner {
+                        corner_gap = corner_gap.min(o.min_hold_gap);
+                        corner_worst = corner_worst.max(o.max_gap.0);
+                    }
                     out_max = out_max.max(o.max_nappers_out);
+                    arm3_max = arm3_max.max(o.max_not_arm3);
+                    vs_ref += o.rejoin_vs_ref;
                     lost += past(o);
                     let good = ok(o) && o.ring_mismatch == 0 && o.x_conflict == 0 && past(o) == 0 && o.min_hold_gap > hold_cycle;
                     if !good && first_bad.is_empty() {
@@ -1444,34 +1488,64 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     }
                     all &= good;
                 };
-                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
-                    let mut c = sensed_cfg("a one-pick-per-REL form", false, cyc, extra);
-                    c.grant_form = form;
-                    eval(&run(&c), &format!("cycle {cyc} + {extra}"));
-                }
-                for &fz in &freeze_rows {
-                    let mut c = sensed_cfg("a one-pick-per-REL form, a true freeze", false, 333, 0);
-                    c.grant_form = form;
-                    c.freeze = vec![fz];
-                    eval(&run(&c), &format!("a {}-REL freeze at farm REL {} of night {}", fz.2, fz.1, fz.0));
-                }
-                for o3 in 0..N0 {
-                    for o7 in 0..N0 {
-                        let mut c = sensed_cfg("a one-pick-per-REL form, the T offsets swept", false, 197, 40);
-                        c.grant_form = form;
-                        c.t_start = [0, o3, o7];
-                        eval(&run(&c), &format!("T at 0 / {o3} / {o7}"));
+                // ((b') also runs the POSITIONAL RELEASE on every row (the simpler ring hardware) and the +-2 gt corners on
+                // EVERY row (every lane's pick -> hold leg shifted -2 / 0 / +2 gt: all 27 combinations))
+                let variants: &[bool] = if form == 3 { &[false, true] } else { &[false] };
+                let corners: Vec<[i64; 3]> = if form == 3 {
+                    let mut v = Vec::new();
+                    for s0 in [-2i64, 0, 2] {
+                        for s1 in [-2i64, 0, 2] {
+                            for s2 in [-2i64, 0, 2] {
+                                v.push([s0, s1, s2]);
+                            }
+                        }
+                    }
+                    v
+                } else {
+                    vec![[0, 0, 0]]
+                };
+                for &pos in variants {
+                    let tag = if pos { ", the positional release" } else { "" };
+                    for &sh in &corners {
+                        let corner = sh != [0, 0, 0];
+                        let ctag = if corner { format!(", legs {:+} / {:+} / {:+} gt", sh[0], sh[1], sh[2]) } else { String::new() };
+                        for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                            let mut c = sensed_cfg("a one-pick-per-REL form", false, cyc, extra);
+                            c.grant_form = form;
+                            c.positional_release = pos;
+                            c.leg_shift = sh;
+                            eval(&run(&c), &format!("cycle {cyc} + {extra}{ctag}{tag}"), corner);
+                        }
+                        for &fz in &freeze_rows {
+                            let mut c = sensed_cfg("a one-pick-per-REL form, a true freeze", false, 333, 0);
+                            c.grant_form = form;
+                            c.positional_release = pos;
+                            c.leg_shift = sh;
+                            c.freeze = vec![fz];
+                            eval(&run(&c), &format!("a {}-REL freeze at farm REL {} of night {}{ctag}{tag}", fz.2, fz.1, fz.0), corner);
+                        }
+                        for o3 in 0..N0 {
+                            for o7 in 0..N0 {
+                                let mut c = sensed_cfg("a one-pick-per-REL form, the T offsets swept", false, 197, 40);
+                                c.grant_form = form;
+                                c.positional_release = pos;
+                                c.leg_shift = sh;
+                                c.t_start = [0, o3, o7];
+                                eval(&run(&c), &format!("T at 0 / {o3} / {o7}{ctag}{tag}"), corner);
+                            }
+                        }
                     }
                 }
                 if form == 3 {
                     a_ok = all;
                     a_worst = worst;
+                    b_extra = format!("; (b') at the +-2 gt corners: the least H2 gap {corner_gap} gt (margin {} over the {hold_cycle}-gt cycle), the worst interval {corner_worst} gt (margin {} under 23,000); the worst interval's row: {worst_at}; the most nappers picked and not yet ARM3'd {arm3_max} (the record's stage count); the positional release's rejoins unlike the identity rule's (with the FIFO's): {vs_ref}", corner_gap - hold_cycle, 24_000 - MARGIN - corner_worst);
                 }
-                form_rows.push(format!("{fname} ({rows} rows): RELs carrying two grants {multi}, the least arrival gap at the second hold {least_gap} gt (its cycle {hold_cycle} gt), the longest wait per lane from a refused REQ to its grant {:?} RELs ({:?} gt; lane 7's {} RELs), the worst interval {worst} gt, villager-gt past 24,000 {lost} (golems lost per day {}), the most nappers picked and not back at their siding {out_max} (the record's depth bound), every row passing: {all}{}", wait, wait.map(|w| w * 100), wait[2], if lost == 0 { "0" } else { "> 0" }, if first_bad.is_empty() { String::new() } else { format!(" (first miss: {first_bad})") }));
+                form_rows.push(format!("{fname} ({rows} rows): RELs carrying two grants {multi}, the least arrival gap at the second hold {least_gap} gt (its cycle {hold_cycle} gt), the longest wait per lane from a refused REQ to its grant {:?} RELs ({:?} gt; lane 7's {} RELs: a refused T waits a ring revolution, 8 pops), the worst interval {worst} gt, villager-gt past 24,000 {lost} (golems lost per day {}), the most nappers picked and not back at their siding {out_max}, every row passing: {all}{}", wait, wait.map(|w| w * 100), wait[2], if lost == 0 { "0" } else { "> 0" }, if first_bad.is_empty() { String::new() } else { format!(" (first miss: {first_bad})") }));
             }
-            let n_rows = 7 + freeze_rows.len() + (N0 * N0) as usize;
+            let n_rows = 27 * 2 * (7 + freeze_rows.len() + (N0 * N0) as usize);
             let w = v.bar_n("ctl-pick: THE SENSED POINTER under (b') STATIC PRIORITY (lane -1 over 3 over 7, stateless: the smallest passing one-pick-per-REL form) over the sweep, true whole-farm freezes at every 3rd REL of a night and every T starting offset: the nap bars, the ring in sync, 0 golems lost, never two nappers inside one second-hold cycle", n_rows, a_ok);
-            lines.push(format!("  THE ONE-PICK-PER-REL FORMS (the sensed ring; the same nap model, the same {n_rows} rows each): {}: (b')'s worst interval {a_worst} gt: {w}", form_rows.join("; ")));
+            lines.push(format!("  THE ONE-PICK-PER-REL FORMS (the sensed ring; the same nap model; (b') with the positional release and the +-2 gt corners too, {n_rows} rows): {}: (b')'s worst interval {a_worst} gt{b_extra}: {w}", form_rows.join("; ")));
             let n_pts = freeze_rows.len();
             // (THE TIMING CORNER (ironspec 12:02p (1)): every circuit entry processed after the same REL's pops (any shift of
             // an entry past a pop, 2 gt included), at every point of the sweep: the results and the ring's sync)

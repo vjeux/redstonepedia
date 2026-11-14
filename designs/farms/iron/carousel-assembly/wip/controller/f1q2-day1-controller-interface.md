@@ -28,7 +28,19 @@ station generator and F′'s benches read them from here, and F′'s test links 
   the redstone-timed D run up to 3 gt ahead of the entity transit: 2 gt physical slack left, to be shown in the swept
   redsim runs); in hardware a repeater chain from the latch into the trigger's AND. The second hold's cycle (a napper's
   pass -> the hold open again) = the SET 2 + D + P1 -> its exit 3 + the exit detector's 20-gt recheck = 41 gt.
-- The napper's row hold (9,0,8) releases at REL + 67 gt (judged at the hold rail).
+- The napper's row hold (9,0,8) releases at REL + 67 gt (judged at the hold rail); line A's input (2,-1,8) (`napper-hold`)
+  is thrown at REL + 61 (loaderlay's line-bench: 6 gt from the port to the hold rail, every phase).
+- Line C's ports (x+2,17,-1) (the station's slot releases, `r-line:<lane>`) rise at REL + 0 / 17 / 27 - 4 (4 gt port ->
+  R_1, loaderlay's line-bench, every lane).
+- THE PICKS (the (i-b) per-lane item ring, ironspec 11:56a / 12:02p): each lane's ring steps on the lane's SENSED pop (the
+  station's D (x,0,2) press, A6 stripped) and reads its circuit entries at the S-bend seat detector D(x) (x,24,8) and the
+  siding's presence; REQ_l is a level from the pop's step until the lane's next pop; the one-pick-per-REL form is STATIC
+  PRIORITY (ironspec 12:30p: lane -1 over 3 over 7, stateless), G captured at REL + 92 and cleared at REL + 33
+  (cc767b78); the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
+- THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 only in a REL whose
+  ARM3 fired (the napper being taken; RLS is not read); HOME_l = its head (S1), read (latched) by the core at REL' + 57.
+  Its depth: at most 4 nappers picked and not yet ARM3'd over ctl-pick's (b') rows (ARM3 stamped in the REL that takes
+  the napper, conservatively).
 - R6 = 14 gt (ADOPTED ironspec 11:24a, the >= 2-gt form; R6 = 15 withdrawn 10:52a; 12 / 8 superseded), with K's late half
   10: each lane's napper
   leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' + 165 + 4 - travel(x), REL' the release cycle that TAKES the

@@ -48,21 +48,34 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-core.tx
   R6's physical constraints over the swept train-16 runs: (i) 5, (ii) 3, (iii) 25 (minimums 0 / 0 / 1); the store's read
   per count; the planted ballast rows. Wired vs bench: the REL ticks, the credit ticks and the hopper's count per batch.
 
-## Subsystem 2: THE PICKS (pointers x3, spacing, HELD, the pick-rate arbiter, the record) -> day-1
+## Subsystem 2: THE PICKS (the (i-b) per-lane item rings; static priority and the record -> cc767b78) -> day-1
 
-File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-picks.txt`.
+Files: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-picks.txt` (the three rings, day-1, in vcompose's
+BOX B: x -3..8, y 5..12, z -6..-3, the rings at x -3..-1 / 1..3 / 5..7); cc767b78's arbiter + record file in BOX A
+(x -3..8, y -3..4, z -6..-3), its overflow in BOX B's columns x 0 / 4 / 8 (agreed with cc767b78 and vcompose).
 
-- Per lane: a POINTER (a ring counter over the lane's 8 positions, stepping D = 5 positions per pick: 5 is coprime with 7 /
-  8 / 9), the SPACING (>= 11 REAL RELs since the lane's last pick: a counter clocked by REL), HELD (the station's napper in
-  flight: <= 3, a per-lane timer).
-- THE PICK-RATE ARBITER (bought ironspec 11:05a): at most ONE pick per REL; a lane deferred by it goes first at the next
-  REL (fair); the pointer keeps its target (remembered).
-- THE ROOM TERM (cap 3: the front + P1 + the second hold, part of (B)'s design): a pick only while dispatched - emptied <
-  3; up per PICK, down per FRONT EMPTIED.
-- THE RECORD: a 3-deep FIFO of lane codes, written per pick, its head read as HOME at the napper's release from the stop.
-- Normal rows (ctl-pick, the reference): the normal nights (24 distinct per night, every nap interval < 24,000 - 1,000);
-  the no-hold sweep (the bed cycle 197 / 168 gt x (B)'s travel 0..120: 12 points); bunched picks (three planted in each of
-  the first 10 RELs, the model's legs and the measured 16-gt spacing): 0 nappers behind the second hold; the cold start.
+- Per lane, AN ITEM RING (ironspec 11:56a / 12:02p; ctl-pick's sensed model): 8 droppers in a dropper -> hopper cycle (the
+  counter-ring generator's form; hopper tops sealed, tokens resting in droppers), holding the target token T (unstackable:
+  the tap reads 2) and the absent markers X (stackable: 1). The ring STEPS on the lane's SENSED POP (the station's D
+  (x,0,2) press); an X at the tap steps it once more (the away slot skipped). REQ_l = the tap reads T AND NOT the spacing
+  latch (set at the grant, cleared by T's first pass: the >= 11-pop spacing). On a GRANT: a T-filter hopper under the tap
+  lifts T into the dropper 5 steps upstream (TARGET + 5), and an X goes into the tap slot from the X stock dropper.
+- THE REJOIN (the positional release, ctl-pick's `positional_release`: 0 differences from the identity rule): at a circuit
+  ENTRY (the S-bend seat detector D(x) (x,24,8)), an X in the dropper 2 steps downstream of the tap AND the siding's
+  presence (a napper at its R hold) -> the R release for that lane (line B), and the X-filter hopper under that dropper
+  lifts the X back to the stock. (No mark FIFO, one X type, no flags.)
+- ONE PICK PER REL = STATIC PRIORITY (ironspec 12:30p): g_-1 = REQ_-1, g_3 = REQ_3 AND NOT REQ_-1, g_7 = REQ_7 AND NOT
+  REQ_-1 AND NOT REQ_3 -> G captured at REL + 92 (gated by WIN = REST AND NOT DAY), cleared at REL + 33: cc767b78's. GRANT_l
+  goes to the lane's pick drive (line `pocket:<lane>`) and back to its ring.
+- THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 in a REL whose ARM3
+  fired (RLS not read); HOME_l = its head, latched by the core at REL' + 57. Depth: at most 4 nappers picked and not yet
+  ARM3'd over ctl-pick's (b') rows (conservative ARM3 stamp).
+- OUT / superseded: HELD, the room count, the pointer's spacing counter (the latch replaces it), the record's resync.
+- Normal rows (ctl-pick, the reference; 10,800 rows under (b'): the seven sweep points with the cold start, 129 true
+  whole-farm freezes, all 64 T starting offsets, each at all 27 +-2 gt leg corners, with the FIFO and the positional
+  release): 24 distinct every night, the worst interval 22,400 gt (margin 600 under 23,000, at T 0 / 5 / 0, legs -2 gt),
+  the least H2 arrival gap 42 gt at the corners (margin 1 over the 41-gt cycle), lane 7's longest wait 16 RELs (two ring
+  revolutions), golems lost per day 0; the forced id-permutation test unchanged.
 
 ## Subsystem 3: THE WAY-IN ((B)'s latch, hold and read, the token, the P1 trigger, the front's release) -> b8949c96
 
@@ -89,27 +102,31 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-wayin.t
   P1 (9,22,5) (braked; powered = released).
 - THE FRONT's RELEASE (the queue front (9,-10,-4), braked): RS_ready AND the queue hold (80 gt from the front's arrival
   press) AND REST AND NOT DAY.
-- FRONT EMPTIED (to the picks' room count): the front's arrival detector falling after its recheck.
-- Normal rows: ctl-pick's (B) rows (the RESET -> SET lag >= 22 gt, no napper behind H2), b8949c96's redsim way-in bench
-  on these cells (3 nappers 20 gt apart, a slow 0.1 b/t arrival; the measured (9,23,6) -> P1 transit 9..11 gt), world
-  reloads and unloads at every phase.
+- FRONT EMPTIED: DROPPED (the room count is superseded; nothing reads it).
+- Normal rows: ctl-pick's (B) rows (the lag from the RESET level's fall to the next SET > 0 over the normal rows and the
+  planted three-in-one-REL rows, its control the hold without its (9,22,3) term; no napper behind H2), b8949c96's redsim
+  way-in bench on these cells (3 nappers 20 gt apart, a slow 0.1 b/t arrival; the measured (9,23,6) -> P1 transit 9..11
+  gt), world reloads and unloads at every phase.
 
 ## Subsystem 4: THE DRIVE LINES -> loaderlay
 
 File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.txt`.
 
-- THE (9,0,8) NAPPER HOLD's line (REL + 67, judged at the hold rail): `repeater[facing=west]` (3,-1,8) (input (2,-1,8)),
-  dust (4,-1,8), (5,-1,8), (6,-1,8) (east-west only), `repeater[facing=west]` (7,-1,8) into LIFT's (8,-1,8); glass
-  (3..7,-2,8); the cells above (3..7,0,8) air. (Gate G's free-place term: OUT.)
-- THE R-HOLD RELEASES (the S-bend's napper holds R(x-2,24,7)): delay(x) = REL' + 165 + 4 - travel(x) (REL' the cycle that
-  takes the napper; travel from ironfarm's trace); the line ends per the lanes file: lane -1 a delay-3 repeater (-4,22,9)
-  outputting east into the slime (-3,22,9); lane 3 a repeater (2,22,9) outputting west into the slime (1,22,9); lane 7
-  the feed path's input (7,23,9).
-- THE STATION's SLOT RELEASES (R_1 at (x,17,1), the station's R lines) at REL + 0 / 17 / 27, the line ends (x+2,17,1) on
-  day-1's glass supports (x+2,16,1).
-- THE STATION's D LINES: lanes -1 / 3 from F′'s taps into (1,-1,5) / (5,-1,5) (a solid conductor read from below by dust,
-  the line going north at y -2, off A4's glass and torch faces and the napper lift's water glass); lane 7 from (7,0,2).
-  Pending dfb89499's original-station run (if A6 is stripped, the D lines read the original station's D).
+- LINE A, THE (9,0,8) NAPPER HOLD's line (the hold rail rises at REL + 67; its input (2,-1,8) thrown at REL + 61, 6 gt
+  measured): `repeater[facing=west]` (3,-1,8) (input (2,-1,8)), dust (4,-1,8), (5,-1,8), (6,-1,8) (east-west only),
+  `repeater[facing=west]` (7,-1,8) into LIFT's (8,-1,8); glass (3..7,-2,8); the cells above (3..7,0,8) air. (Gate G's
+  free-place term: OUT.)
+- LINE B, THE R-HOLD RELEASES (the S-bend's napper holds R(x-2,24,7)): the ring's positional release (subsystem 2) at the
+  napper's predecessor's entry; the line ends per the lanes file: lane -1 a delay-3 repeater (-4,22,9) outputting east
+  into the slime (-3,22,9); lane 3 a repeater (2,22,9) outputting west into the slime (1,22,9); lane 7 the feed path's
+  input (7,23,9).
+- LINE C, THE STATION's SLOT RELEASES (R_1 at (x,17,1)) at REL + 0 / 17 / 27 (loaderlay's car): the drivers
+  `repeater[delay=1,facing=east]` (x+1,17,1) (day-1's, with their 6 `# update-consumers:` declarations), the end dust
+  (x+2,17,1) (west + north, on the keep-block glass (x+2,16,1)), the arrival `repeater[facing=north,delay=1]` (x+2,17,0)
+  on glass (x+2,16,0), the PORT (x+2,17,-1) rising at REL + k - 4 (4 gt to R_1, every lane).
+- LINE D, THE STATION's D (A6 stripped, dfb89499 12:30): every lane's D is (x,0,2) (`detector_rail[north_south]` on glass
+  (x,-1,2)); F′ lays no tap; the old tap cells (x+1,-1,5) / (x+2,-1,5) and (1,-1,5) / (5,-1,5) are VOID. D is the ring's
+  POP input (its press) and the core's: each reader reads D from its own cell's neighbours (power-out listed).
 - THE STOP's INPUT CELLS (58f770cc 11:42 / 12:06, the re-lay car's latch-form stop, V = stop-local + (0,-20,-1); NO slope
   hold (the exit hold removed 05:33 / 06:11): NO tap line into (1,-21..-23,3..4); NO PARK line (PARK is made inside the
   stop file: the latch's Q -> the OR line -> its repeater -> the park slime): K's drive under K's slime V (-2,-22,2); the
@@ -119,7 +136,8 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.t
 - Normal rows: each line's delay from its tap to its target printed against the interface's timing; world reloads at
   every phase of each pulse.
 
-## Subsystem 5: THE STOP's LOGIC (ctl-shutter's form of record) -> 58f770cc (the parent 11:45)
+## Subsystem 5: THE STOP's LOGIC (ctl-shutter's form of record) -> mobviewer (the parent 12:33; 58f770cc keeps the stop file
+## and reviews the interface)
 
 File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-stop.txt` (or inside 58f770cc's stop file).
 
@@ -133,8 +151,15 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-stop.tx
   (the latch form: [RLS + 2, RLS + 26)).
 - Inputs (V's frame, 58f770cc 11:55): the bed-head observer pulse V (-3,-21,3); P_STRING V (-2,-19,3) through its east
   hook V (-1,-19,3); the park string V (1,-19,2).
-- Outputs: the shutter's drive V (-5,-21,6); K's drive V (-2,-22,2); RLS_IN V (-1,-22,-3); ARM_IN V (6,-22,-6). RLS also
-  feeds cc767b78's record (its FIFO shift).
+- Outputs: the shutter's drive V (-5,-21,6); K's drive V (-2,-22,2); RLS_IN V (-1,-22,-3); ARM_IN V (6,-22,-6). (The record
+  no longer reads RLS: its shift is keyed on ARM3.)
+- The interface hazards (58f770cc 12:35): RLS_IN V (-1,-22,-3) is a HUB of three latch dusts: driven as a SOLID block,
+  strongly powered by a repeater from V (-2,-22,-3), never dust; K's drive powers the slime V (-2,-21,2) STRONGLY (a torch
+  at V (-2,-22,2) or a repeater into the slime); P_STRING is read from the WEST hook's support, glass V (-4,-19,3), never
+  the east hook's V (0,-19,3) (beside the iron trapdoor V (0,-19,4) carrying a guard rail); no reader dust beside the park
+  rail V (1,-20,2); the bed-head observer V (-3,-21,3) outputs down into the free V (-3,-22,3); ARM's detector rail
+  V (-2,-20,0) on glass V (-2,-21,0); keep-free V (1,-21,-1) / V (0,-21,0). K's SET: 58f770cc's RLS + ~30 form allowed
+  (ARM's edge only as the power-up set); ironspec rules.
 - Normal rows: ctl-shutter's normal rows (every phase of a visit, world opens), wired vs bench.
 
 ## ETAs (as each owner states them)
