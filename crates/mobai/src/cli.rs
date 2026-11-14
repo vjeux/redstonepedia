@@ -990,6 +990,61 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-14, ironspec 03:10, b8949c96 03:12) The y-22 line's end on a design: carts into the booster
+    /// (9,22,-4) at every entry speed and phase, the speed past the rail end and the fall into the column
+    Y22End {
+        design: std::path::PathBuf,
+        /// (ironspec 03:34 (2)) the empty-cart fault's consequence: an empty cart parked on the line, a ridden napper
+        /// released behind it
+        #[arg(long)]
+        follow_on: bool,
+        /// (b8949c96 04:15) a second always-powered booster at (9,22,2) on a redstone block (9,21,2)
+        #[arg(long)]
+        booster2: bool,
+        /// (ironspec 04:32 (2) / 04:37 (3)) BOTH boosters in the TORCH form: booster 2 added at (9,22,2) on glass with a lit
+        /// torch at (8,22,2) on glass (8,21,2); booster 1's rail (9,22,-4) on glass (9,21,-4) with a lit torch at (8,22,-4)
+        /// on glass (8,21,-4)
+        #[arg(long)]
+        torch_boosters: bool,
+        /// (b8949c96 04:28) the rest point in P1 per arrival: carts rolled in from (x0, 25.0625, 9.5) heading east at
+        /// 0.10..0.46 b/t, four entry phases, ridden and empty
+        #[arg(long)]
+        roll_in: bool,
+        /// (b8949c96 04:44 (a)) P1 POWERED: carts rolled in straight through P1, the line and the boosters
+        #[arg(long)]
+        unheld: bool,
+        /// (b8949c96 04:44 (b)) a ridden cart planted at rest on the landing slope at this z, napper released onto it
+        #[arg(long, allow_hyphen_values = true)]
+        front_at: Option<f64>,
+        /// (b8949c96 05:03) the follow-on rows' token as a latch: P1 re-braked the tick after the napper enters (9,22,4)
+        #[arg(long)]
+        token_latch: bool,
+        /// (ironspec 05:03 (4)(ii)) the boosters' torches stand on glass PANES at (8,21,z) (implies --torch-boosters)
+        #[arg(long)]
+        pane: bool,
+        /// (ironspec 05:57) with --front-at: the planted front cart is EMPTY (no rider)
+        #[arg(long)]
+        front_empty: bool,
+        /// (9fc3155f 06:19) a hooked tripwire string at (9,-9,-4) over the front slope: carts braked at rest under it
+        #[arg(long)]
+        front_string: bool,
+        /// (G1 06:31 (2)) with --front-string: every rest position (-3.887 / -3.8048 / -3.5 / -3.35 / -3.2197), empty and
+        /// ridden, 1,200 gt each, printing each one's longest unpowered run
+        #[arg(long)]
+        long_rest: bool,
+        /// (ironspec 06:48 (2)(ii), G1 07:10 (2)(b)/(e)) a RIDDEN cart at rest at the front (z -3.887 / -3.8048 / -3.69, each
+        /// from an even and an odd start tick) for 1,200 gt, the arrival detector (9,-9,-5) every tick
+        #[arg(long)]
+        front_hold: bool,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-14, ironfarm 07:47) Carts at rest flush against glass walls (flat, braked slope, plain slope;
+    /// empty and ridden) through a real world open (save, stop, start): every cart's position and Motion every tick after
+    LoginWall {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-14, ironspec 05:03 (9)(ii) / G1 05:05 (1)(a)) A gadget drive script replayed on the official
     /// server with its expects checked against the game; `--cart` presses detector rails with a real minecart
     GameDrive {
@@ -2371,6 +2426,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RailEndDrop { version } => crate::railenddrop::rail_end_drop(&version),
         MobaiCmd::RiderString { version } => crate::riderstring::rider_string(&version),
         MobaiCmd::GameDrive { design, drive, cart, version } => crate::gamedrive::game_drive(&version, &design, &drive, cart),
+        MobaiCmd::Y22End { design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, version } => crate::y22end::y22_end(&version, &design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold),
+        MobaiCmd::LoginWall { version } => crate::loginwall::login_wall(&version),
         MobaiCmd::RailEndThreshold { version } => crate::railenddrop::rail_end_threshold(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {

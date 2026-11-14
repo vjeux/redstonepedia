@@ -1091,6 +1091,18 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         Err(_) => None,
     };
     let mut trace_rows: Vec<String> = Vec::new();
+    // (ironspec 07:36 (1), cc767b78 07:19 (2): the ball bar is the trajectory) MCTAS_REPLAY_FALL=x0,y0,z0,x1,y1,z1 (the
+    // scene's frame): every tick, every minecart whose box meets that box, its position and motion, and its rider's
+    // position with its distance to the bed head's centre (ValidateNearbyPoi's own test: Vec3i.closerToCenterThan, < 16)
+    let fall_box: Option<[i32; 6]> = match std::env::var("MCTAS_REPLAY_FALL") {
+        Ok(s) => {
+            let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("MCTAS_REPLAY_FALL={s}: {e}"))?;
+            anyhow::ensure!(v.len() == 6, "MCTAS_REPLAY_FALL=x0,y0,z0,x1,y1,z1, got {s}");
+            Some([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5]), v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])])
+        }
+        Err(_) => None,
+    };
+    let mut fall_rows: Vec<String> = Vec::new();
     let cell3 = |s: &str| -> Result<[i32; 3]> {
         let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
         anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
@@ -1921,6 +1933,26 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 ));
             }
         }
+        if let Some(fb) = fall_box {
+            let sel = format!("@e[type=minecraft:minecart,x={},y={},z={},dx={},dy={},dz={}]", fb[0], fb[1] + DY, fb[2], fb[3] - fb[0], fb[4] - fb[1], fb[5] - fb[2]);
+            let tags_out = srv.cmd_long(&format!("execute as {sel} run data get entity @s Tags"))?;
+            let mut tags: Vec<String> = tags_out.split('"').filter(|s| s.len() > 1 && s.starts_with('e') && s[1..].chars().all(|c| c.is_ascii_digit())).map(str::to_string).collect();
+            tags.dedup();
+            for tag in tags {
+                let p = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                let m = srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Motion"))?;
+                let rp = srv.cmd_long(&format!("execute as @e[tag={tag},limit=1] on passengers run data get entity @s Pos"))?;
+                let r: Vec<f64> = rp.split('[').nth(1).unwrap_or("").split(',').filter_map(|s| s.trim().trim_end_matches(|c: char| c == ']' || c == 'd' || c.is_whitespace()).parse().ok()).collect();
+                let rider = if r.len() == 3 {
+                    let q = [r[0], r[1] - DY as f64, r[2]];
+                    let d2 = (bed[0] as f64 + 0.5 - q[0]).powi(2) + (bed[1] as f64 + 0.5 - q[1]).powi(2) + (bed[2] as f64 + 0.5 - q[2]).powi(2);
+                    format!("rider ({:.6},{:.6},{:.6}) d {:.4} to the bed's centre{}", q[0], q[1], q[2], d2.sqrt(), if d2 < 256.0 { " INSIDE 16" } else { "" })
+                } else {
+                    "no rider".to_string()
+                };
+                fall_rows.push(format!("t{t}: {tag} cart {} motion {} {rider}", p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()), m.split("data: ").nth(1).unwrap_or("?").trim()));
+            }
+        }
         // (cc767b78's divergence trace) MCTAS_REPLAY_TRACE=<eN>:<from>-<to>: that cart's position,
         // motion, rider and the rail block under it every tick in the window
         if let Some((whos, from, to)) = trace_spec.as_ref()
@@ -2280,6 +2312,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
     }
     let judged = night_ticks as u64 * vs.len() as u64;
+    if let Some(fb) = fall_box {
+        println!("  MCTAS_REPLAY_FALL ({},{},{})..({},{},{}): every minecart meeting the box, every tick (game side, after each tick; the scene's frame):", fb[0], fb[1], fb[2], fb[3], fb[4], fb[5]);
+        for r in &fall_rows {
+            println!("    {r}");
+        }
+    }
     if let Some((who, from, to)) = trace_spec.as_ref() {
         println!("  {who}'s trace t{from}..t{to} (game side; position after each tick, the block at its feet):");
         for r in &trace_rows {

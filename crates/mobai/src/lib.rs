@@ -55,6 +55,8 @@ pub mod parkstring;
 pub mod railenddrop;
 pub mod riderstring;
 pub mod gamedrive;
+pub mod y22end;
+pub mod loginwall;
 pub mod latchformb;
 pub(crate) mod latchformbcells;
 pub mod latchrig;
