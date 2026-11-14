@@ -5634,9 +5634,10 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     let d2 = |p: &Vec3| (p.x - c.x).powi(2) + (p.y - c.y).powi(2) + (p.z - c.z).powi(2);
     let inside = |p: &Vec3| d2(p) < radius * radius;
     let mut by: std::collections::BTreeMap<(i32, i32, i32), (String, usize, f64, f64)> = std::collections::BTreeMap::new();
-    // (ironspec 07:26r / G1: the entity's FEET as it reports them: a seated rider at its cart's y + 0.0625; the rail
-    // and column samples are cart positions)
-    let feet = |p: Vec3| Vec3::new(p.x, p.y + 0.0625, p.z);
+    // (ironspec 07:26r / G1, part 57; ironspec 08:56a (2) / 09:01a, part 67) the entity's FEET as it reports them: a
+    // seated villager's at its cart's y + redsim's SEATED_VILLAGER_FEET_OFFSET (0: 26.3's LOWERED_PASSENGER_ATTACHMENT,
+    // tick-exact's print a/1992055485533408); the rail and column samples are cart positions
+    let feet = |p: Vec3| Vec3::new(p.x, p.y + redsim::entity::mob::SEATED_VILLAGER_FEET_OFFSET, p.z);
     for (cell, _, p) in rider_positions(spec) {
         let p = feet(p);
         let dd = d2(&p).sqrt();
@@ -5664,7 +5665,7 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     }
     let total: usize = by.values().map(|v| v.1).sum();
     let mut lines = vec![format!(
-        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the --cell block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, measured from the bed HEAD block when that is the --cell, to the rider's exact FEET, a seated rider's at its cart's y + 0.0625; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
+        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the --cell block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, measured from the bed HEAD block when that is the --cell, to the rider's exact FEET, a seated villager's at its cart's y + SEATED_VILLAGER_FEET_OFFSET {}; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
         radius * radius,
         center.x,
         center.y,
@@ -5672,6 +5673,7 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
         c.x,
         c.y,
         c.z,
+        redsim::entity::mob::SEATED_VILLAGER_FEET_OFFSET,
         by.len()
     )];
     for ((x, y, z), (kind, n, lo, hi)) in &by {
@@ -11846,11 +11848,12 @@ mod gate_tests {
         for id in ["air", "glass", "stone", "smooth_stone", "glowstone", "slime_block", "honey_block", "obsidian", "iron_block", "quartz_block", "sea_lantern", "dirt", "oak_slab", "smooth_stone_slab", "oak_planks", "oak_log", "white_wool", "red_concrete", "terracotta", "bricks", "stone_bricks", "white_stained_glass", "glass_pane"] {
             assert!(super::update_inert(id) && !super::power_consumer(id), "{id}: inert and a power consumer at once");
         }
-        // (ironspec 07:25r, part 56; feet = the cart's y + 0.0625, part 57) the ball metric: distToCenterSqr(feet) <
-        // radius², strict, from the bed head block's centre: a cart at 16.1875 (feet 16.25, exactly 16 off once the
-        // centre's 0.5 is taken) is outside, one at 15.9375 (feet 15.75 off) inside
-        let np = super::near_positions(&mk(Vec::new()), &[[0.5, 16.1875, 0.5, 16.4375]], b(0, 0, 0), 16.0);
-        assert!(np[0].contains("distToCenterSqr(feet) < 256 (strict") && np[0].ends_with("1 positions in 1 cells") && np.iter().any(|l| l.contains("column 0,16,0: 1 positions, 15.75..15.75")), "the strict ball: {np:?}");
+        // (ironspec 07:25r, part 56; feet = the cart's y + redsim's SEATED_VILLAGER_FEET_OFFSET (0), part 67) the ball
+        // metric: distToCenterSqr(feet) < radius², strict, from the bed head block's centre: a cart (and its seated
+        // villager's feet) at 16.5 is exactly 16 off the centre's 0.5 and outside, one at 16.25 (15.75 off) inside
+        let np = super::near_positions(&mk(Vec::new()), &[[0.5, 16.25, 0.5, 16.5]], b(0, 0, 0), 16.0);
+        assert!(np[0].contains("distToCenterSqr(feet) < 256 (strict") && np[0].contains("SEATED_VILLAGER_FEET_OFFSET 0;") && np[0].ends_with("1 positions in 1 cells") && np.iter().any(|l| l.contains("column 0,16,0: 1 positions, 15.75..15.75")), "the strict ball: {np:?}");
+        assert_eq!(redsim::entity::mob::SEATED_VILLAGER_FEET_OFFSET, 0.0, "the shared seat constant");
     }
 
     /// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager standing on a rail paths onto
