@@ -4948,9 +4948,6 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
         }
     }
     let cells: Vec<BlockPos> = by.keys().map(|(y, z, x)| BlockPos::new(*x, *y, *z)).collect();
-    if cells.is_empty() {
-        return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
-    }
     let off: Vec<BlockPos> = cells.iter().copied().filter(|c| !golem_box_meets_portal(&w, *c)).collect();
     let mut lines = vec![format!(
         "GOLEM FLOORS from every route rider's cell as a caller ({} caller cell(s) on {} rail cell(s), {guards} golem guard(s) excluded, {nv} villager cell(s) of the design added; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
@@ -5007,6 +5004,12 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
                 }
             }
         }
+    }
+    // (G1 18:37 B3, refined Nov 13 20:52: zero samples pass nothing: NOT JUDGED only when the callers'
+    // searches examined no floor at all, neither a golem cell nor a refused one; a route whose every
+    // examined floor is refused is judged: 0 golem cells, each refusal listed with its terms)
+    if cells.is_empty() && refused.is_empty() {
+        return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
     }
     // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the blocks' kinds, never by a term's wording)
     let mut by_term: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
@@ -10046,12 +10049,25 @@ mod gate_tests {
             let tw = super::settled_world_void(&tspec).unwrap_or_else(|e| panic!("{e}"));
             let r = super::route_golem_floors(&tspec, "minecraft:plains");
             assert!(r.as_ref().is_err_and(|e| e.contains("NOT JUDGED: no caller (1 rail cell(s), 1 golem guard(s) excluded)")), "a lone guard ({} on {}): {r:?}", tw.get(b(2, 1, 2)), tw.get(b(2, 0, 2)));
+            // (B3 refined 20:52) a glass pillar: no floor examined at all: NOT JUDGED; the stone pillar
+            // twin: its one floor examined and refused (the rail in its feet cell): judged, 0 golem
+            // cells, the refusal listed FRAGILE (the output chest far below, out of every search)
             let pillar = redsim::entity::mob::farm::FarmSpec {
-                blocks: vec![(b(2, 0, 2), p("minecraft:stone")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
-                ..spec
+                blocks: vec![(b(2, 0, 2), p("minecraft:glass")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
+                output: b(2, -8, 2),
+                lo: b(0, -8, 0),
+                ..spec.clone()
             };
             let r2 = super::route_golem_floors(&pillar, "minecraft:plains");
-            assert!(r2.as_ref().is_err_and(|e| e.contains("NOT JUDGED: the 1 caller cell(s)' golem searches reach no floor")), "a pillar: {r2:?}");
+            assert!(r2.as_ref().is_err_and(|e| e.contains("NOT JUDGED: the 1 caller cell(s)' golem searches reach no floor")), "a glass pillar: {r2:?}");
+            let stone = redsim::entity::mob::farm::FarmSpec {
+                blocks: vec![(b(2, 0, 2), p("minecraft:stone")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
+                output: b(2, -8, 2),
+                lo: b(0, -8, 0),
+                ..spec
+            };
+            let (sl, soff, scells) = super::route_golem_floors(&stone, "minecraft:plains").unwrap_or_else(|e| panic!("the stone pillar is judged: {e}"));
+            assert!(soff == 0 && scells.is_empty() && sl.iter().any(|l| l.contains("refused stop cells: 1 ") && l.contains("2,1,2 (feet not air or liquid (rail[")), "the stone pillar: {sl:?}");
         }
         // (G1 18:37, B2 / B7: the pad test controlled) a framed, lit portal the settle keeps (its portal
         // blocks asserted after the settle); a golem one cell beside the portal meets it, one further
