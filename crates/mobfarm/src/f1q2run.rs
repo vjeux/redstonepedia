@@ -2229,6 +2229,18 @@ impl Ctl {
                     self.q_released.push(now);
                     if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q).and_then(|e| e.passengers.first().copied()) {
                         self.release_log.push((now, v));
+                        // (day-1's G3, the built gate too) IN-STOP_l set at a lane-l queue release
+                        if self.a_stop
+                            && let Some(&k) = self.nap_lane_of.get(&v)
+                        {
+                            self.in_stop[k] = true;
+                            self.in_stop_rider[k] = Some(v);
+                            self.nap_events.push(format!("t {now}: IN-STOP set, lane x {} (#{v} released into the stop)", LANES[k]));
+                        }
+                    }
+                    // (day-1's G1, the built gate too) RS_ready reset 2 gt after the queue release
+                    if self.a_stop {
+                        self.rs_reset_due = Some(now + 2);
                     }
                     self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
                 }
@@ -2576,7 +2588,25 @@ impl Ctl {
             if !s.contains("lever") {
                 return Err(format!("(A)'s stand-in cell ({},{},{}) holds {s}, not a lever", c[0], c[1], c[2]));
             }
-            set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)
+            set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)?;
+            // (onechunk 16:15: a lever's toggle also updates its ATTACHED block's neighbours, as
+            // LeverBlock.updateNeighbours does; a raw set notified only the lever's own neighbours,
+            // so the park rail beside the conductor never saw the conductor's power)
+            let att = if s.contains("face=floor") {
+                [c[0], c[1] - 1, c[2]]
+            } else if s.contains("face=ceiling") {
+                [c[0], c[1] + 1, c[2]]
+            } else if s.contains("facing=east") {
+                [c[0] - 1, c[1], c[2]]
+            } else if s.contains("facing=west") {
+                [c[0] + 1, c[1], c[2]]
+            } else if s.contains("facing=south") {
+                [c[0], c[1], c[2] - 1]
+            } else {
+                [c[0], c[1], c[2] + 1]
+            };
+            w.update_neighbors_at(dbp(att[0], att[1], att[2]), redsim::block::Kind::Lever);
+            Ok(())
         };
         // ARM's edge: SLEPT_ONCE reset (G17), the one-shot cleared (G21), ARMED70's hopper started (G18)
         let arm = powered(w, ARM);
