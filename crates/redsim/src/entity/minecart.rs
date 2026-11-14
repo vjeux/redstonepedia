@@ -674,3 +674,131 @@ pub fn log_cart_cart_pushes(w: &mut World) {
 pub fn take_cart_cart_pushes(w: &mut World) -> Vec<crate::entity::mob::CartCartPush> {
     w.mob.cart_cart_pushes.as_mut().map(std::mem::take).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod slope_rest_tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    /// One row of tick-exact's AH slope-string rig (crates/mobai/src/slopestring.rs, Nov 13, the official 26.3 server):
+    /// R_1's geometry, the slot cell (0,17,1) ascending south on stone (an unpowered powered rail, or a plain rail when
+    /// `slot_plain`), a flat rail north of it, the next ascending rail south (likewise `upper_plain`), the slot-1 string
+    /// one cell above (0,18,1) between attached hooks on glass; an empty cart summoned at `cart` (position, motion), and
+    /// optionally the hold full (a ridden cart north of the slot at z `hold`). Per tick for `ticks`: the string powered,
+    /// the cart's y and z.
+    fn rig_row(slot_plain: bool, upper_plain: bool, cart: Option<([f64; 3], [f64; 3])>, hold: Option<f64>, ticks: usize) -> Vec<(bool, f64, f64)> {
+        let mut w = World::new(BlockPos::new(-4, 14, -3), [9, 8, 9]);
+        let b = |s: &str| Block::parse(s).unwrap();
+        let raw = crate::world::flags::RAW;
+        let rail = |plain: bool| if plain { "minecraft:rail[shape=ascending_south,waterlogged=false]" } else { "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]" };
+        for (p, s) in [
+            ([0, 16, -1], "minecraft:stone"),
+            ([0, 16, 0], "minecraft:stone"),
+            ([0, 16, 1], "minecraft:stone"),
+            ([0, 17, 2], "minecraft:stone"),
+            ([0, 18, 3], "minecraft:stone"),
+            ([0, 17, -1], "minecraft:rail[shape=north_south,waterlogged=false]"),
+            ([0, 17, 0], "minecraft:rail[shape=north_south,waterlogged=false]"),
+            ([0, 17, 1], rail(slot_plain)),
+            ([0, 18, 2], rail(upper_plain)),
+            ([0, 19, 3], "minecraft:rail[shape=north_south,waterlogged=false]"),
+            ([-2, 18, 1], "minecraft:glass"),
+            ([2, 18, 1], "minecraft:glass"),
+            ([-1, 18, 1], "minecraft:tripwire_hook[attached=true,facing=east,powered=false]"),
+            ([1, 18, 1], "minecraft:tripwire_hook[attached=true,facing=west,powered=false]"),
+            ([0, 18, 1], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]"),
+        ] {
+            w.set_block(BlockPos::new(p[0], p[1], p[2]), b(s), raw);
+        }
+        let id = cart.map(|(pos, m)| {
+            let nbt = format!("{{Motion:[{:?}d,{:?}d,{:?}d]}}", m[0], m[1], m[2]);
+            crate::entity::spawn(&mut w, "minecraft:minecart", pos, Some(&nbt)).unwrap()
+        });
+        if let Some(hz) = hold {
+            crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 17.0625, hz], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b}]}")).unwrap();
+            super::log_cart_pushes(&mut w);
+        }
+        let mut out = Vec::new();
+        for t in 0..ticks {
+            w.tick();
+            if hold.is_some() && t < 2 {
+                for p in super::take_cart_pushes(&mut w) {
+                    println!("  tick {}: mob push {p:?}", t + 1);
+                }
+            }
+            let (y, z) = id.and_then(|id| crate::entity::index_of(&w, id)).map_or((0.0, 0.0), |i| (w.entities.list[i].pos.y, w.entities.list[i].pos.z));
+            let on = w.get(BlockPos::new(0, 18, 1)).to_string().contains("powered=true");
+            out.push((on, y, z));
+        }
+        out
+    }
+
+    /// The game's summon at rest on the slot cell: the rail's own slope y (cell y + (z - 1) + 0.0625), no motion.
+    fn rest(z: f64) -> Option<([f64; 3], [f64; 3])> {
+        Some(([0.5, 17.0 + (z - 1.0) + 0.0625, z], [0.0; 3]))
+    }
+
+    /// The pressed ticks (1-based) of a row.
+    fn pressed(rows: &[(bool, f64, f64)]) -> Vec<usize> {
+        rows.iter().enumerate().filter(|(_, r)| r.0).map(|(t, _)| t + 1).collect()
+    }
+
+    /// tick-exact's AH game rows (Nov 13, `mctas mobai slope-string`, its asserts 1..9), replayed in redsim:
+    /// - (ii) at rest: the cart stays where it was summoned; the string pressed from t1 and released only at its 10-gt
+    ///   re-checks t11 / t22 / t33 at the drawn rest z 1.28 (its end box 0.02 under the band: pressed by
+    ///   AbstractMinecart.move's applyEffectsFromBlocks at moveAlongTrack's RAISED position, y + 1 before the slope snap;
+    ///   the re-check reads the end box), every tick at the measured rests 1.79 / 1.856 / 1.89;
+    /// - (i) moving through on plain rails: one press held to its re-check, t5..t14 up at 0.4 and 0.6 b/t, t2..t11 down
+    ///   at 0.2 b/t;
+    /// - (iii) rolling in from rest at z 2.6 on the plain rail above R_1: it comes to rest on R_1 at the game's z
+    ///   1.8629868310341902 (tick-exact's raw double, the same bits in 5 runs: the row has no game spread; redsim rests it at
+    ///   1.8629868310341855, a 5e-15 float-ordering difference, so the tolerance 1e-9 is the comparison's precision: the
+    ///   old band z 1.6..2.0 was wider than any game spread, G1's banked miss Nov 14 04:24) and, once
+    ///   pressed, the string never releases;
+    /// - the control (no cart): never pressed.
+    #[test]
+    fn the_ah_slope_string_rows_match_the_game() {
+        let at_rest = rig_row(false, false, rest(1.28), None, 40);
+        assert_eq!(pressed(&at_rest).len(), 37, "(ii) z 1.28: 37 of 40");
+        assert!(!at_rest[10].0 && !at_rest[21].0 && !at_rest[32].0 && at_rest[0].0, "(ii) z 1.28: pressed from t1, released at t11 / t22 / t33");
+        assert!(at_rest.iter().all(|r| r.2 == 1.28), "(ii) z 1.28: the cart stays");
+        for z in [1.79, 1.856, 1.89] {
+            let rows = rig_row(false, false, rest(z), None, 40);
+            assert_eq!(pressed(&rows).len(), 40, "(ii) z {z}: every tick");
+            assert!(rows.iter().all(|r| r.2 == z), "(ii) z {z}: the cart stays");
+        }
+        for v in [0.4, 0.6] {
+            let rows = rig_row(true, true, Some(([0.5, 17.0625, -0.5], [0.0, 0.0, v])), None, 40);
+            assert_eq!(pressed(&rows), (5..=14).collect::<Vec<_>>(), "(i) up at {v}: one press t5..t14");
+        }
+        let down = rig_row(true, true, Some(([0.5, 18.5625, 2.5], [0.0, 0.0, -0.2])), None, 40);
+        assert_eq!(pressed(&down), (2..=11).collect::<Vec<_>>(), "(i) down at 0.2: one press t2..t11");
+        let roll = rig_row(false, true, Some(([0.5, 18.6625, 2.6], [0.0; 3])), None, 40);
+        let p = pressed(&roll);
+        let first = *p.first().expect("(iii) pressed");
+        assert!(p == (first..=40).collect::<Vec<_>>(), "(iii) once pressed, never released: {p:?}");
+        let rz = roll.last().unwrap().2;
+        assert!((rz - 1.862_986_831_034_190_2).abs() <= 1e-9, "(iii) rests on R_1 at the game's z 1.8629868310341902: z {rz}");
+        assert!(pressed(&rig_row(false, false, None, None, 40)).is_empty(), "the control: never pressed");
+    }
+
+    /// Prints the rows, and the rest at z 1.28 with the hold full (a ridden cart north of the slot): the push question
+    /// tick-exact's recording (ii) decides.
+    #[test]
+    #[ignore]
+    fn slope_rest_rig_rows() {
+        for z in [1.28, 1.79, 1.856, 1.89] {
+            let rows = rig_row(false, false, rest(z), None, 40);
+            let last = rows.last().copied().unwrap();
+            println!("z {z}: pressed {}/40; the cart at the end y {:.4} z {:.4}", pressed(&rows).len(), last.1, last.2);
+        }
+        for hz in [0.49, 0.50, 0.30] {
+            let rows = rig_row(false, false, rest(1.28), Some(hz), 40);
+            let last = rows.last().copied().unwrap();
+            println!("z 1.28 with the hold's ridden cart at z {hz}: pressed {}/40; the slot cart at the end y {:.4} z {:.4}", pressed(&rows).len(), last.1, last.2);
+        }
+        let roll = rig_row(false, true, Some(([0.5, 18.6625, 2.6], [0.0; 3])), None, 40);
+        println!("(iii) rolling in: pressed {:?}; rests at z {:.4}", pressed(&roll), roll.last().unwrap().2);
+    }
+}
