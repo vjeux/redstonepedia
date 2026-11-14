@@ -22,9 +22,11 @@ station generator and F′'s benches read them from here, and F′'s test links 
   detector going UNPOWERED (after its 20-gt recheck hold); N >= a departing napper's clear time (its box out of the
   landing footprint, z > -4.01, from its last rest tick; b8949c96 09:43: 5 gt) + margin: ironspec re-rules only if that
   clear time exceeds 10 gt.
-- P1 OCCUPIED's delay D = 8 gt (ironspec 09:50a (d)): OCCUPIED = the latch AND D elapsed since its SET; D >= the longest
-  measured (9,23,6) -> rest-on-P1 transit + margin (b8949c96 measuring; provisional); in hardware a repeater chain from
-  the latch into the trigger's AND.
+- P1 OCCUPIED's delay D = 16 gt (ironspec 09:50a (d)): OCCUPIED = the latch AND D elapsed since its SET; D = the longest
+  measured (9,23,6) -> rest-on-P1 transit (b8949c96 10:57: 9..11 gt, its bench on (B)'s cells) + 5 gt (a world open lets
+  the redstone-timed D run up to 3 gt ahead of the entity transit: 2 gt physical slack left, to be shown in the swept
+  redsim runs); in hardware a repeater chain from the latch into the trigger's AND. The second hold's cycle (a napper's
+  pass -> the hold open again) = the SET 2 + D + P1 -> its exit 3 + the exit detector's 20-gt recheck = 41 gt.
 - The napper's row hold (9,0,8) releases at REL + 67 gt (judged at the hold rail).
 - R6 = 15 (bought, ironspec 09:00a (3)): each lane's napper leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' +
   165 + 5 - travel(x), REL' the release cycle that TAKES the napper (it reaches its R brake after its own batch's R
@@ -132,8 +134,11 @@ station generator and F′'s benches read them from here, and F′'s test links 
 - A pick (G11) = the pointer AND the spacing AND HELD AND WAY-IN ROOM. The room count goes up per pick edge and down
   once per TOKEN SET (a napper's departure: the press while A_SEEN, or the recovery); no quiet-point resync (an
   over-count stalls, the safe direction).
-- A held exit_cell (a cart parked on a lane's exit detector) gives no rising edge: the token / room count / hold STALL
-  (the safe direction) and no other lane's release reads the stuck-high cell as anything.
+- A held exit_cell (a cart parked on a lane's exit detector) gives no rising edge: that lane's station hold STALLS (the
+  safe direction); the exit cell's only reader is that hold (the token reads (9,-11,-3), the room the front's arrival
+  detector, the credit the S-bend seat detectors). A SECOND edge in the same cycle finds the hold's latch already set
+  (armed by the release, set by the first edge, reset by the next release): no effect, and no credit is made from it;
+  a second edge in the NEXT cycle before that cart's departure would re-open the hold early (its row owed).
 - REL (G8) = the store armed (the read at the last of 4 dust lit) AND THE STORE GUARD (the controller's logic count of
   stored credits, the credits in flight included, >= 1; bought ironspec 08:23a (1)) AND the holds AND (if bought) LIFT
   CLEAR (ironfarm's foot-gate evidence).

@@ -4116,7 +4116,7 @@ mod tests {
         let f = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
         assert_eq!(release_pulse(), 12, "the interface file's release pulse reads as 12 gt (the limiter's laid value is dfb89499's to link)");
         assert_eq!(crate::ctlpick::n_rec(), 30, "the interface file's recovery delay N reads as 30 gt (ironspec 09:00a (1))");
-        assert_eq!(crate::ctlpick::d_occ(), 8, "the interface file's P1 OCCUPIED delay D reads as 8 gt");
+        assert_eq!(crate::ctlpick::d_occ(), 16, "the interface file's P1 OCCUPIED delay D reads as 16 gt (b8949c96's 9..11-gt transit + 5)");
         for (what, needle) in [
             ("the release offsets", format!("- **release offsets = {} / {} / {} gt**", RELEASE_OFFSETS[0], RELEASE_OFFSETS[1], RELEASE_OFFSETS[2])),
             ("the guard", format!("- DM1_BLOCK7 = {DM1_BLOCK7} gt")),
