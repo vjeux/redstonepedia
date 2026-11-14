@@ -6087,6 +6087,29 @@ pub fn assert_blocks(spec: &FarmSpec, expect: &[(BlockPos, String)]) -> Result<(
 /// none in reach says so). The bar (G1 21:38 H9): each string's class equals its DECLARED class
 /// (`expect`: rider-keyed, cart-keyed or never-pressed); a mismatch or an undeclared string fails by
 /// name. Returns the lines, the count of CART-KEYED strings and the failures.
+/// (dfb89499 Nov 14 01:21, part 35) The design's own string-class declarations, `# string-class:` comment
+/// lines: each entry `x,y,z[+x,y,z...]=CLASS (REASON)` (entries `;`-separated, `pushscan::header_entries`),
+/// CLASS rider-keyed | cart-keyed | never-pressed; every cell with its class, for string-audit's bar
+/// beside any `--expect` (a cell declared twice is NOT JUDGED there).
+pub fn string_classes_from_header(text: &str) -> Result<Vec<(BlockPos, String)>, String> {
+    let mut out = Vec::new();
+    for e in crate::pushscan::header_entries(text, "string-class:") {
+        let (cells, rest) = e.split_once('=').ok_or_else(|| format!("# string-class: {e}: x,y,z[+x,y,z...]=CLASS (REASON)"))?;
+        let class = rest.split_whitespace().next().unwrap_or("").to_string();
+        if !["rider-keyed", "cart-keyed", "never-pressed"].contains(&class.as_str()) {
+            return Err(format!("# string-class: {e}: a class is rider-keyed, cart-keyed or never-pressed, not {class:?}"));
+        }
+        for c in cells.split('+') {
+            let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("# string-class: {e}: {c}: {err}"))?;
+            if v.len() != 3 {
+                return Err(format!("# string-class: {e}: {c}: x,y,z"));
+            }
+            out.push((BlockPos::new(v[0], v[1], v[2]), class.clone()));
+        }
+    }
+    Ok(out)
+}
+
 pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[(BlockPos, String)], allow_empty: bool) -> Result<(Vec<String>, usize, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
@@ -10734,6 +10757,18 @@ mod gate_tests {
         // (G1 Nov 14 00:17 (3)) a range that drops no sample (the whole cell, declared) is a no-op override
         let (sl4, _, sbad4) = super::string_audit(&slot, &[(b(2, 1, 1), 0.0, 0.999)], &[(b(2, 2, 1), "cart-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
         assert!(sbad4 == 1 && sl4.iter().any(|x| x.starts_with("rail range 2,1,1 t 0.00..1.00: applied to 1 string(s)' samples and dropped none: a no-op override (FAIL)")), "a no-op range: {sl4:?}");
+        // (part 35) the design's own `# string-class:` line declares the slot string: the same verdict as
+        // --expect; a bad class or cell refuses; header + --expect on the same cell is NOT JUDGED
+        let hdr = super::string_classes_from_header("name: x\n# string-class: 2,2,1=cart-keyed (a cart on the slot presses it); 9,9,9+8,8,8=never-pressed (x)\norigin: 0 0 0\n").unwrap_or_else(|e| panic!("{e}"));
+        assert!(hdr == vec![(b(2, 2, 1), "cart-keyed".to_string()), (b(9, 9, 9), "never-pressed".to_string()), (b(8, 8, 8), "never-pressed".to_string())], "{hdr:?}");
+        assert!(super::string_classes_from_header("# string-class: 2,2,1=pressed (x)\n").is_err(), "a bad class refuses");
+        assert!(super::string_classes_from_header("# string-class: 2,2=cart-keyed (x)\n").is_err(), "a bad cell refuses");
+        let h1 = super::string_classes_from_header("# string-class: 2,2,1=cart-keyed (the slot)\n").unwrap_or_else(|e| panic!("{e}"));
+        let (sh, _, shb) = super::string_audit(&slot, &[(b(2, 1, 1), 0.0, 0.28)], &h1, false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(shb == 0 && sh[0].contains(": CART-KEYED ("), "the header's class: {sh:?}");
+        let mut both = h1.clone();
+        both.push((b(2, 2, 1), "cart-keyed".to_string()));
+        assert!(super::string_audit(&slot, &[], &both, false).err().unwrap_or_default().contains("declared more than once"), "header + --expect on one cell");
         // (G1 Nov 14 00:17) --allow-empty on a design with strings is a stale flag
         let (sl5, _, sbad5) = super::string_audit(&slot, &[], &[(b(2, 2, 1), "cart-keyed".to_string())], true).unwrap_or_else(|e| panic!("{e}"));
         assert!(sbad5 == 1 && sl5.iter().any(|x| x == "--allow-empty on a design with 1 string(s): a stale flag (FAIL)"), "a stale --allow-empty: {sl5:?}");
