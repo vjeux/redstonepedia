@@ -124,6 +124,7 @@ vjeux's stage correction (Space board README, Nov 12 04:48Z): the carousel is th
 - **Row 39,** closed as player-only (ironspec 02:16: a reload can't dismount a rider).
 - **Row 37's bounce fix** (ironspec 02:18 / 02:28: the string-AND adopted, trigger-only; if the bounce sweep
   requires departure evidence, it is per lane, taken at a point of no return).
+  SUPERSEDED Nov 14 by 'Scope and critical path'
 - **The credit resync's trigger** (ironspec 02:40 / 02:46: it must see a reduced-rate store, not only a starved
   one) **and the K-mask rule** (ironspec 02:43: every K(l) masks all of D(l)'s outputs).
 - **P's dawn case,** now a fault outcome (ironspec 02:28: a missed last pickup costs that napper's naps for the
