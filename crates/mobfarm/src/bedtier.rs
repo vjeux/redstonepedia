@@ -118,6 +118,11 @@ pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
 /// (A)'s wake sensor (G1 12:04 / day-1 12:03): an observer under the bed head, facing up at it;
 /// its output face down into (-3,-2,4).
 pub const WAKE_SENSOR: [i32; 3] = [-3, -1, 4];
+/// (G1's Q15) The wake sensor's window: a lie-down or wake edge with no rise within it is a missed
+/// edge, a rise with no edge within it before is spurious: the observer's pulse rises 2 gt after the
+/// bed head's change (tick-exact 26.3), is 2 wide, and the bench stamps edges at the tick boundary:
+/// 10 leaves 6 gt over that.
+pub const SENSOR_WINDOW: i64 = 10;
 /// (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready) A tripwire string one cell over R's rail
 /// (4,-1,5): a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band;
 /// its hooks N-S off the rail line on glass backings; DAY-1 reads the north hook by a repeater at
@@ -1036,13 +1041,17 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     #[allow(unused_mut)]
     let mut lines: Vec<String> = vec![
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
-        "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
-        if waker_south && bench { "The bench file lays the stand-in levers (bench overrides, never in the record): (-5,1,8) the shutter's drive (F unpowers it, the wake edge powers it again) and (3,0,4) the park's drive (a wall lever on the conductor (2,0,4)); the record holds a redstone block at (-5,1,8) and nothing at (3,0,4).".to_string() } else if waker_south { "The drives, no lever and no stand-in in this file (G1 C13 / 11:52 / Q16; ironspec 09:57) -- (-5,1,8) is F's built line's output cell, EMPTY in this file (DAY-1's cells; a bench lays its stand-in lever there as a declared override); the shutter (-5,1,9) is stored UNPOWERED (its one stable state with no drive: the plate in the cell's top half, the window OPEN); F's built line holds it POWERED at night (the plate standing open across the window's face: the window SHUT, no line from the zombie to anyone) except during the open window: OPEN unpowers it (the sleeper's line passes under the plate), the wake edge powers it again (the window SHUTS: the 'close' of the clear - close figures); (3,0,4) the park drive's input, empty (DAY-1's tap cells drive the conductor (2,0,4)); until those lines are built, rows on this file name the bench's stand-ins.".to_string() } else { "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string() },
+        if waker_south {
+            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its list of record, rev 15:42 + the 16:00 form) opens it once the napper sleeps (OPEN on A70 and SO and not P_STRING), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); after its sustained presence with the cart parked, RLS releases the park (RLS + 8) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string()
+        } else {
+            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string()
+        },
+        if waker_south && bench { format!("The bench file lays the stand-in levers (bench overrides, never in the record): (-5,1,8) the shutter's drive (the controller unpowers it to open the window and powers it to shut it) and (3,0,4) the park's drive (a wall lever on the conductor (2,0,4)){}; the record leaves (-5,1,8) and (3,0,4) empty for DAY-1's cells.", if hold_slope { ", and the slope tap's input lever (1,-2,3) into DAY-1's repeater (1,-2,4) (facing north, into the slime support (1,-2,5); the record leaves the repeater's cell to DAY-1)" } else { "" }) } else if waker_south { "The drives, no lever and no stand-in in this file (G1 C13 / 11:52 / Q16; ironspec 09:57) -- (-5,1,8) is F's built line's output cell, EMPTY in this file (DAY-1's cells; a bench lays its stand-in lever there as a declared override); the shutter (-5,1,9) is stored UNPOWERED (its one stable state with no drive: the plate in the cell's top half, the window OPEN); F's built line holds it POWERED at night (the plate standing open across the window's face: the window SHUT, no line from the zombie to anyone) except during the open window: OPEN unpowers it (the sleeper's line passes under the plate), the woken napper's P_STRING press resets OPEN and powers it again (the window SHUTS: the 'close' of the clear - close figures); (3,0,4) the park drive's input, empty (DAY-1's tap cells drive the conductor (2,0,4)); until those lines are built, rows on this file name the bench's stand-ins.".to_string() } else { "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string() },
         format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}{}", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }, if exit_south { "-1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles" } else { "-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles" }) + if exit_boost { "; -2,-2,5=the hand-off booster's redstone torch, on glass (-2,-3,5), under its slime support (-2,-1,5): it never toggles" } else { "" },
-        "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
+        "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the longest wake -> boarding on DAY-1's adopted controller is 51 gt over 408 visits: 60 leaves 9; LAST_WOKEN's 100 keeps the cooldown bar's >= 10 beside it)".to_string(),
     ];
     if wake_sensor {
-        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
+        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO: the first pulse after ARM opens the window's path) and its release (RLS on P_STRING's sustained presence after the latest pulse; the park at RLS + 8: the first (-2,0,5) entry clears the close + 27 by >= 13 gt, ironspec 16:09) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if rs_ready {
         lines.push("The rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire string at (4,0,5), one cell over R's detector (4,-1,5), its hooks at (4,0,4) facing south and (4,0,6) facing north on glass (4,0,3) / (4,0,7), off the rail line: a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band (y 0.0625..0.156); hooks and string have no collision and block no sight line; DAY-1 reads the north hook by a repeater at (5,0,4) on (5,-1,4) (its cells, not laid here)".to_string());
@@ -1108,7 +1117,9 @@ pub fn boost_probe(spec: &FarmSpec, speeds: &[f64]) -> Result<Vec<String>, Strin
             }
         }
         // (carried: the next booster (-1,0,6) within 60 gt, so the probe judges the exit boost alone,
-        // with or without the slope hold downstream; a stalled cart creeps there after 200 gt or never)
+        // with or without the slope hold downstream; a stalled cart creeps there after 200 gt or never;
+        // G1's Q15: the carried runs reach it at 8..9 gt and the stalled ones after 220 (2af606b9d's
+        // probe), so 60 separates them with room both sides)
         let ok = at_booster.is_some_and(|tb| tb <= 60);
         if ok {
             least_ok = Some(least_ok.map_or(v, |m: f64| m.min(v)));
@@ -1118,6 +1129,11 @@ pub fn boost_probe(spec: &FarmSpec, speeds: &[f64]) -> Result<Vec<String>, Strin
         out.push(format!("boost probe: a loaded cart set on (-2,0,5) moving south at {v:.4} b/t: the next booster (-1,0,6) at t {at_booster:?}, R at t {at_r:?}, its least speed before the booster {least:.4}: {}", if ok { "carried" } else { "STALLED" }));
     }
     out.push(format!("boost probe: the least speed that carries {least_ok:?}; the greatest that stalls {most_fail:?}{}", if most_fail.is_none() { " (no stall in the sweep: extend it down)" } else { "" }));
+    // (G1's N14: a sweep that brackets no threshold (no stall, or no carry) fails: it measured
+    // nothing)
+    if most_fail.is_none() || least_ok.is_none() {
+        return Err(format!("{}\nboost probe: no threshold bracketed (a carried and a stalled speed are both needed)", out.join("\n")));
+    }
     Ok(out)
 }
 
@@ -1642,6 +1658,8 @@ pub struct Faults {
     /// (G1's B3) the contacts decided by the entry speed: (cells, the meeting speeds, the reference
     /// band), from the design's `# contact-speeds:` lines.
     pub contact_speeds: Vec<(Vec<BlockPos>, Vec<f64>, Vec<f64>)>,
+    /// (G1's Q15) the design's `# a6-pickup:` stranded bound (gt after the wake), read from the key.
+    pub stranded_bound: Option<i64>,
     /// Fail when a declaration's stated bounds don't equal this run's measured extremes (the
     /// reference re-run check, `contacts::reference_check`: for the declaration's own `ref=` run).
     pub reference_check: bool,
@@ -1972,6 +1990,20 @@ impl Default for Adopted {
     fn default() -> Self {
         Adopted { a70: 70, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 10, park: 8, lag: 10 }
     }
+}
+
+/// (G1's Q15 on 1662bed98) The design's `# a6-pickup:` stranded bound: "... by the wake edge + N gt
+/// fails"; None when the key is absent; an `a6-pickup:` line with no readable bound is an error.
+pub fn parse_stranded_bound(text: &str) -> Result<Option<i64>, String> {
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix("a6-pickup:")) else { continue };
+        let n = body.split_once("by the wake edge + ").and_then(|(_, r)| r.split_once(" gt")).and_then(|(n, _)| n.trim().parse::<i64>().ok());
+        return match n {
+            Some(n) if n > 0 => Ok(Some(n)),
+            _ => Err(format!("a6-pickup {body:?}: its stranded bound reads \"by the wake edge + N gt\"")),
+        };
+    }
+    Ok(None)
 }
 
 /// (G1's B3 on 1662bed98) A contact decided by the cart's entry speed, not by chance: the design's
@@ -2357,6 +2389,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         return Err("--hide-after-wake on Z1's design is a no-op (Z1 shuts the window on the wake edge as its normal operation; G1's Q12)".into());
     }
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
+    // (G1's N9: natural spawning OFF by construction: the bench never sets it)
+    if run.world.mob.natural.is_some() {
+        return Err("natural spawning is on in the bench's world: the bench's scope says off (ironspec 14:57)".into());
+    }
     row.sensor_present = format!("{}", run.world.get(wc(WAKE_SENSOR))).contains("observer");
     if f.latch.is_some() && !row.sensor_present {
         return Err("--latch runs on the real wake sensor: a design with the observer (bedtier --wake-sensor)".into());
@@ -2444,6 +2480,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 dmax = dmax.max(d);
                 let ho = redsim::entity::mob::los::first_hit(&open_w, ve, ze);
                 let hs = redsim::entity::mob::los::first_hit(&shut_w, ve, ze);
+                // (G1's Q15: 8 = VillagerHostilesSensor's zombie distance, the range NEAREST_HOSTILE
+                // is set within, with a clear eye-to-eye line)
                 if ho.is_none() && d <= 8.0 {
                     clear_open += 1;
                 }
@@ -2455,6 +2493,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     *blocked_open.entry(format!("({},{},{}) {}", q.x, q.y, q.z, open_w.get(p))).or_default() += 1;
                 }
             }
+        }
+        // (G1's N4: the P-eye static is a bar: Z1 in view from P in either window state fails)
+        if clear_open > 0 || clear_shut > 0 {
+            row.problems.push(format!("the P-eye static: Z1 in view (within 8, a clear eye-to-eye line) from {clear_open} of {n} eye positions on P with the window open, {clear_shut} with it shut (bar 0)"));
         }
         row.p_eye_lines.push(format!("the P-eye static (G1 13:02: a napper standing awake on P (-2,0,4), its eye {eh:.2} over P's floor, {n} positions over the cell; Z1's eye ({:.2},{:.2},{:.2})): {dmin:.2}..{dmax:.2} away; Z1 in view (within 8, eye to eye) with the window OPEN from {clear_open} of {n}, with it SHUT from {clear_shut} of {n}; the open window's blocking cells (positions): {blocked_open:?}", ze.x - ox, ze.y - oy, ze.z - oz));
     }
@@ -2625,6 +2667,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut hurt_done = false;
     // (G1's Q8: each planted fault's application, checked at the visit's end)
     let (mut restart_done, mut erase_done, mut inject_done) = (false, false, false);
+    let mut panic_done = false;
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -3118,6 +3161,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         } else if f.early_release {
             row.slept_at.is_some_and(|s| t >= s + release_after)
         } else if f.no_presence_gate {
+            // (G1's Q15: the no-presence-gate fault row's own bound, 300 gt: past every normal wake
+            // (the arming edge at entry + 24, the wake by ARM + 90))
             (f_fired && f_live.is_some_and(|x| live >= x + release_after)) || t >= 300
         } else {
             row.woke_at.is_some_and(|wk| t >= wk + release_after)
@@ -3192,6 +3237,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && let (Some(vi), Some(z)) = (vill.and_then(|v| idx(&run.world, v)), zid)
         {
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).nearest_hostile = Some(z);
+            panic_done = true;
         }
         // (G1's Q2: the slope hold's tap on its built path: the stand-in input lever into DAY-1's
         // repeater, on for W gt at T and, with a PERIOD, at every T + k PERIOD (k of either sign:
@@ -3371,6 +3417,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             let sp = (c.delta_movement.x.powi(2) + c.delta_movement.y.powi(2) + c.delta_movement.z.powi(2)).sqrt();
+            // (G1's Q15: at rest under 1e-4 b/t: the unpowered slope zeroes a speed below 0.03, so a
+            // braked cart reads 0; 1e-4 only absorbs float noise)
             if in_hold && row.hold_rest_at.is_none() && sp < 1e-4 && !c.passengers.is_empty() {
                 row.hold_rest_at = Some(t);
                 row.hold_rest_pos = Some([cpos.x, cpos.y, cpos.z]);
@@ -3400,6 +3448,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             if let (Some(_), None, Some(p0)) = (row.hold_rest_at, row.hold_depart_at, row.hold_rest_pos) {
                 let d = ((cpos.x - p0[0]).powi(2) + (cpos.y - p0[1]).powi(2) + (cpos.z - p0[2]).powi(2)).sqrt();
+                // (G1's Q3 / Q15: a departure is a move over 0.01 from the rest position, above the
+                // held rest's largest creep, 0.0083 in every reference band)
                 if d > 0.01 || !in_hold {
                     row.hold_depart_at = Some(t);
                     // (day-1 10:38: which tap launched it: the last stand-in write powering the
@@ -3450,7 +3500,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let q = dbp(p);
                 let declared = f.declared_contacts.contains(&cell);
                 if !declared && !row.contacts.iter().any(|x| x.2 == k && x.3 == cell) {
-                    row.problems.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25; main's shared contacts::cart_contacts)", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z));
+                    // (G1's N7: main's ONE judge is the contacts' one verdict; this reader only prints)
+                    row.declared_contact_lines.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (a print: main's ONE judge fails it)", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z));
                 }
                 row.contacts.push((t, [cpos.x, cpos.y, cpos.z], k, cell));
                 // (ironspec 07:03 (2): a DECLARED contact printed per visit: its tick, its depth (the
@@ -4014,6 +4065,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
         // the cart: parked (still for 10 gt before the release), its speed over the swept cells
+        // (G1's Q15: "still" = under 1e-4 moved in a tick (float noise on a braked cart); 10 gt of it
+        // marks the park's rest, the braked rail having zeroed the speed several ticks before)
         let cp = [c.pos.x, c.pos.y, c.pos.z];
         let moved = (cp[0] - last_cart[0]).abs() + (cp[2] - last_cart[2]).abs() + (cp[1] - last_cart[1]).abs();
         still = if moved < 1e-4 { still + 1 } else { 0 };
@@ -4104,6 +4157,19 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
         if f.release_home_at.is_some() && row.release_home.is_none() {
             unapplied.push("--release-home-at".into());
+        }
+        // (G1's N6: the faults the check missed)
+        if f.arrival_hold.is_some() && !hold_set {
+            unapplied.push("--arrival-hold (no running sink to hold)".into());
+        }
+        if f.panic_entry.is_some() && !panic_done {
+            unapplied.push("--panic-entry (no napper and waker to hold NEAREST_HOSTILE on)".into());
+        }
+        if f.forced_stamp && !entry_seen {
+            unapplied.push("--forced-stamp (the cart never reached the entry cell)".into());
+        }
+        if f.hide_after_wake && !z1_design && row.close_at.is_none() {
+            unapplied.push("--hide-after-wake (the hatch never shut after a wake)".into());
         }
         if f.pickup_inject.is_some() && !inject_done {
             unapplied.push("the pickup inject (no release)".into());
@@ -4748,7 +4814,9 @@ pub fn trapdoor_signal_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
     for (p, _) in &spec.blocks {
         if let Block::Trapdoor { iron: true, top, open, powered, .. } = run.world.get(*p) {
             let sig = run.world.has_neighbor_signal(*p);
-            out.push(format!("iron trapdoor ({},{},{}) {}: open {open}, powered {powered}; hasNeighborSignal {sig}{}", p.x, p.y, p.z, if top { "top half" } else { "bottom half" }, if sig != open { " (MISMATCH: it changes at its next update)" } else { "" }));
+            // (G1's N8: a trapdoor's update sets both `open` and `powered` to the signal: either
+            // unlike it is a change at its next update)
+            out.push(format!("iron trapdoor ({},{},{}) {}: open {open}, powered {powered}; hasNeighborSignal {sig}{}", p.x, p.y, p.z, if top { "top half" } else { "bottom half" }, if sig != open || sig != powered { " (MISMATCH: it changes at its next update)" } else { "" }));
         }
     }
     Ok(out)
@@ -4981,7 +5049,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1's CHANGES C7: --scope-excludes names only bars that can be out of a run's scope; the
     // every-visit bars ("visits") never are; an unknown name is refused, not ignored; the contacts'
     // STALE is the ONE judge's, judged on the run's visits, never excluded)
-    const SCOPE_BARS: [&str; 5] = ["pickups", "riderless", "stand", "head", "waker"];
+    // (G1's N12: "riderless" is for the empty-cart control (--empty: its carts leave riderless by
+    // design), "head" for designs without the head-space cells; "integrity" for designs that declare
+    // no rail shapes; each prints EXCLUDED with its n)
+    const SCOPE_BARS: [&str; 6] = ["pickups", "riderless", "stand", "head", "waker", "integrity"];
     for b in &base.scope_excludes {
         anyhow::ensure!(SCOPE_BARS.contains(&b.as_str()), "--scope-excludes {b}: not a bar a run can exclude (allowed: {}; the every-visit bars never are)", SCOPE_BARS.join(", "));
     }
@@ -5548,14 +5619,14 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             sk.sensor_seen = true;
                             let edges: Vec<(i64, bool)> = r.sleeps.iter().map(|&s| (s, true)).chain(r.wakes.iter().map(|&w| (w, false))).collect();
                             for &(e, lie) in &edges {
-                                match r.sensor_rises.iter().find(|&&x| x >= e && x <= e + 10) {
+                                match r.sensor_rises.iter().find(|&&x| x >= e && x <= e + SENSOR_WINDOW) {
                                     Some(&x) if lie => sk.sensor_after_sleep.push(x - e),
                                     Some(&x) => sk.sensor_after_wake.push(x - e),
                                     None => sk.sensor_missed += 1,
                                 }
                             }
                             for &x in &r.sensor_rises {
-                                if !edges.iter().any(|&(e, _)| x >= e && x <= e + 10) {
+                                if !edges.iter().any(|&(e, _)| x >= e && x <= e + SENSOR_WINDOW) {
                                     sk.sensor_spurious += 1;
                                 }
                             }
@@ -5903,7 +5974,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     }
     // (G1's Q13: the integrity shapes, judged every tick in every visit)
     if base.integrity.is_empty() {
+        // (G1's N1: no declared shapes is NOT JUDGED, and fails unless the run excludes it)
         println!("the design's `# integrity:` shapes: none declared (NOT JUDGED)");
+        if !excluded("integrity") {
+            failed.push("the `# integrity:` shapes: NOT JUDGED (none declared); --scope-excludes integrity declares them out of this run's scope".into());
+        }
     } else {
         println!("the design's `# integrity:` shapes judged every tick: {} cells ({}); ticks off their declared shape over every visit: {}", base.integrity.len(), base.integrity.iter().map(|(c, s)| format!("({},{},{})={s}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "), sk.integrity_breaks);
         if sk.integrity_breaks > 0 {
@@ -5934,7 +6009,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             "the wake sensor (the observer at (-3,-1,4) facing up at the bed head): its first rise after a lie-down at +{:?}..{:?} gt over {} lie-downs, after a wake at +{:?}..{:?} gt over {} wakes; edges it missed (no rise within 10 gt: the observer's 2-gt pulse (tick-exact 26.3) + 8 for its 2-wide pulse and the bench's tick-boundary stamp): {}; rises with no edge in the 10 gt before: {}",
             mm(&sk.sensor_after_sleep).0, mm(&sk.sensor_after_sleep).1, sk.sensor_after_sleep.len(), mm(&sk.sensor_after_wake).0, mm(&sk.sensor_after_wake).1, sk.sensor_after_wake.len(), sk.sensor_missed, sk.sensor_spurious
         );
-        if sk.sensor_missed > 0 || sk.sensor_spurious > 0 || sk.sensor_after_wake.is_empty() {
+        // (G1's N5: a run with lie-downs must see their wakes; a run with none (the by-day negative)
+        // judges only missed and spurious edges)
+        if sk.sensor_missed > 0 || sk.sensor_spurious > 0 || (!sk.sensor_after_sleep.is_empty() && sk.sensor_after_wake.is_empty()) {
             failed.push(format!("the wake sensor: {} missed edges, {} rises with no edge, {} wakes seen", sk.sensor_missed, sk.sensor_spurious, sk.sensor_after_wake.len()));
         }
     }
@@ -5996,6 +6073,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             if -delta_ruled < 13 {
                 failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (ironspec 16:09's bar: >= 13; the park releases at RLS + 8, about the wake + 20..28)", -delta_ruled));
             }
+        } else if waker_wakes > 0 {
+            // (G1's N2: wakes with no (-2,0,5) entry after a close: the hold delta NOT JUDGED fails)
+            failed.push("the hold delta: NOT JUDGED (no wake with a close and a first (-2,0,5) entry)".to_string());
         }
         {
             println!("the re-sleep lock (G1 09:12 / ironspec 09:13): P's feet ~(-1.5, 0.06, 4.5) to HOME's centre (-2.5, 0.5, 4.5): {:.2} (SleepInBed's 2.0: within, so the lock is live); lie-downs after the wake before the pickup (bar 0): {resleeps}; the longest wake -> boarding {} (stated margin < 80 under LAST_WOKEN's 100)", ((1.0f64).powi(2) + (0.44f64).powi(2)).sqrt(), if board_wait_max > i64::MIN { format!("{board_wait_max} gt") } else { "- (no boarding)".to_string() });
@@ -6008,8 +6088,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             if board_wait_max > 90 {
                 failed.push(format!("a boarding {board_wait_max} gt after the wake: LAST_WOKEN's 100-gt cooldown keeps under 10 gt of margin (ironspec 16:09's bar: >= 10)"));
             }
-            if board_wait_max > 60 {
-                failed.push(format!("a boarding {board_wait_max} gt after the wake: over the `a6-pickup:` stranded bound (60: the design's declared bound, about 1.3x the longest wake -> boarding measured at the slowest park release, 47 gt at wake + 28)"));
+            if let Some(sb) = base.stranded_bound
+                && board_wait_max > sb
+            {
+                failed.push(format!("a boarding {board_wait_max} gt after the wake: over the design's `a6-pickup:` stranded bound ({sb}, read from the key)"));
             }
             for l in &resleep_lines {
                 println!("  re-sleep {l}");
@@ -6038,7 +6120,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         println!("the park position at the release (the cart's x, at rest 10 gt; the stall's upstream cause): over {} visits, least {:.3} ({}), greatest {:.3}; the greatest x that stalled {}; the least x that seated {}", xs.len(), xs[0].0, xs[0].2, xs[xs.len() - 1].0, if fails.is_empty() { "none".to_string() } else { format!("{x_fail:.3}") }, if passing_least == f64::MAX { "-".to_string() } else { format!("{passing_least:.3}") });
     }
     if exit_booster {
-        println!("the declared contact (ironspec 07:03 (3)): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
+        println!("the declared contact (ironspec 07:03 (3); G1's N7: the old after-tick speed, a print beside main's judge, whose speed_out is the contact tick's returned move): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
         if missed_booster > 0 {
             failed.push(format!("{missed_booster} picked-up carts never reached the exit booster (-1,0,6) (ironspec 07:03 (3))"));
         }
@@ -6276,10 +6358,15 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             failed.push(format!("NOT JUDGED: 0 {k} ({what}); --scope-excludes {k} declares it out of this run's scope"));
         }
     }
-    // (ironspec 22:56/22:58: benches print riderless carts out = 0; any other count fails, unless
-    // the scope excludes it (the empty-cart control))
-    if sk.riderless > 0 && !excluded("riderless") {
-        failed.push(format!("{} riderless carts out", sk.riderless));
+    // (ironspec 22:56/22:58: benches print riderless carts out = 0; any other count fails; G1's N12 /
+    // Q7: the exclusion waives it only in the empty-cart control (--empty), whose carts leave
+    // riderless by design)
+    if sk.riderless > 0 {
+        if excluded("riderless") && base.empty {
+            println!("--scope-excludes riderless: EXCLUDED (n={}): the empty-cart control's carts leave riderless by design", sk.riderless);
+        } else {
+            failed.push(format!("{} riderless carts out", sk.riderless));
+        }
     }
     // (ironspec 00:03 / 00:07 (3): no stand-still after the eject over 20 gt)
     println!("the stand-still after the eject (gt awake on foot, unmoved, from the dismount to the first lie-down or the pickup; bar 20, ironspec 00:03 / 00:07 (3)): the longest {} gt; visits over 20: {}", sk.stand_max, sk.stand_over_20);
@@ -6292,7 +6379,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     }
     if !base.head_cells.is_empty() {
         println!("the head-space check (ironspec 03:30: every villager's box and eye box against the new solid cells {:?}, every tick): box overlaps {} tick-villagers, eye overlaps {} (bar 0)", base.head_cells, sk.head_box_hits, sk.head_eye_hits);
-        if sk.head_eye_hits > 0 && !excluded("head") {
+        // (G1's N12 / Q7: an exclusion never waives a counted overlap)
+        if sk.head_eye_hits > 0 {
+            if excluded("head") {
+                println!("--scope-excludes head: EXCLUDED (n={}) but not waived", sk.head_eye_hits);
+            }
             failed.push(format!("{} eye overlaps with a new solid cell", sk.head_eye_hits));
         }
     }

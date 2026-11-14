@@ -16565,10 +16565,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, hurt_after_lie, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
+            // (G1's N15: no negative --release-after-arm)
+            anyhow::ensure!(release_after_arm.is_none_or(|n| n >= 0), "--release-after-arm can't be negative");
             // (ironspec 06:14: the strand's dusk, the re-claim row)
             // (ironspec 11:37 (3): the exit boost's carry threshold, a forced row)
             if let Some(s) = &boost_probe {
                 let vs: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--boost-probe {s}: {e}"))?;
+                // (G1's N15: no negative or zero speeds)
+                anyhow::ensure!(vs.iter().all(|&v| v > 0.0), "--boost-probe {s}: speeds above 0");
                 for l in crate::bedtier::boost_probe(&spec, &vs).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
@@ -16753,6 +16757,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let contact_decls = crate::bedtier::bounded_decls(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's B3: the contacts decided by the entry speed)
             let contact_speeds = crate::bedtier::parse_contact_speeds(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1's Q15: the stranded bound read from the design's key)
+            let stranded_bound = crate::bedtier::parse_stranded_bound(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's Q14: no negative delays)
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0 && arm_delay >= 0 && close_after >= 0, "--release-after, --after-sleep, --arm-delay and --close-after are delays: never negative (G1's Q14)");
             // (G1's Q13: the design's `# integrity:` shapes, judged every tick)
@@ -16820,7 +16826,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 (o, None) => anyhow::bail!("--controller {o}: adopted or stand-in"),
             };
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, reference_check, cart_states, latch, adopted, block_p_at_wake, hurt_after_lie };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, hurt_after_lie };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
