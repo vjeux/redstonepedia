@@ -1,0 +1,1185 @@
+# The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
+# record7f (ironspec 01:07 / 01:21 PT): composed from 7b90c3f1's r3 record lift file (explore/farmopt-v15-patha-r3 8ed397b2e, designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt, --light-fix): the cell diff against record7e: (-6,8,7) glass -> glowstone and (5,-16,4) glass -> glowstone (the light fix), (-5,23,7) and (6,-3,4) air -> water[level=1] (the lifts' two top-drift currents, saved settled), (-4,0,7) air -> glass (in r3, not in record7e); the lift file's (9,25,9) east_west is its own stand-in (# stand-in:), so record7 keeps b8949c96's north_west curve there; the lift file's header lines follow (its # stand-in: and # frames: lines describe its own bench file and stay there)
+# (the next line: ironfarm's # shape: declaration from its lanes part file, origin/explore/ironfarm-next 90002f82b designs/farms/iron/carousel-assembly/wip/lanes/f1q2-lanes-sbend.txt line 14, copied as it is (the part's frame is the record's); farmopt 05:39 PT: carried by hand until the composer carries every part declaration)
+# shape: -1,24,7=north_west (load-bearing: it joins the S-bend's west arm c3 (-2,24,7) to the lip and snaps the leader from D on to the lip, while south_west would send the napper into D and every leader into the S-bend; evidence: tick-exact's official S-bend rows ran on it, artifacts 1009706688854741 and 1032428046539821; build step (ironspec 01:46 (1), replayed officially by tick-exact on record7e, lanes -1 / 3 / 7, artifact 1672965364365960: C north_west and nothing temporary left, while the two failing orders end south_west at D's placement): with C's support glass laid, lay c3 and D (-1,24,8), then a temporary block (-1,23,6) and a temporary rail on it (-1,24,6) and a temporary redstone block over C (-1,25,7), place C (the powered T resolves to north_west), remove the temporary rail, then the redstone block, then the temporary block); -1,22,6=ascending_south (load-bearing: the landing from the lip rolls down it to the lane's back, where a flat cell would change every landing's descent and speed; evidence: tick-exact's official S-bend rows, the leader landing from the lip and riding the slopes down, artifact 1032428046539821, and the official build replay, artifact 1672965364365960; build step: lay the glass (-1,22,7), a temporary rail on it at (-1,23,7) (C's support cell, so before that support is laid), place (-1,22,6) (it ascends south), remove the temporary rail, then lay C's support glass (-1,23,7)); 3,24,7=north_west (load-bearing: it joins the S-bend's west arm c3 (2,24,7) to the lip and snaps the leader from D on to the lip, while south_west would send the napper into D and every leader into the S-bend; evidence: tick-exact's official S-bend rows ran on it, artifacts 1009706688854741 and 1032428046539821; build step (ironspec 01:46 (1), replayed officially by tick-exact on record7e, lanes -1 / 3 / 7, artifact 1672965364365960: C north_west and nothing temporary left, while the two failing orders end south_west at D's placement): with C's support glass laid, lay c3 and D (3,24,8), then a temporary block (3,23,6) and a temporary rail on it (3,24,6) and a temporary redstone block over C (3,25,7), place C (the powered T resolves to north_west), remove the temporary rail, then the redstone block, then the temporary block); 3,22,6=ascending_south (load-bearing: the landing from the lip rolls down it to the lane's back, where a flat cell would change every landing's descent and speed; evidence: tick-exact's official S-bend rows, the leader landing from the lip and riding the slopes down, artifact 1032428046539821, and the official build replay, artifact 1672965364365960; build step: lay the glass (3,22,7), a temporary rail on it at (3,23,7) (C's support cell, so before that support is laid), place (3,22,6) (it ascends south), remove the temporary rail, then lay C's support glass (3,23,7)); 7,24,7=north_west (load-bearing: it joins the S-bend's west arm c3 (6,24,7) to the lip and snaps the leader from D on to the lip, while south_west would send the napper into D and every leader into the S-bend; evidence: tick-exact's official S-bend rows ran on it, artifacts 1009706688854741 and 1032428046539821; build step (ironspec 01:46 (1), replayed officially by tick-exact on record7e, lanes -1 / 3 / 7, artifact 1672965364365960: C north_west and nothing temporary left, while the two failing orders end south_west at D's placement): with C's support glass laid, lay c3 and D (7,24,8), then a temporary block (7,23,6) and a temporary rail on it (7,24,6) and a temporary redstone block over C (7,25,7), place C (the powered T resolves to north_west), remove the temporary rail, then the redstone block, then the temporary block); 7,22,6=ascending_south (load-bearing: the landing from the lip rolls down it to the lane's back, where a flat cell would change every landing's descent and speed; evidence: tick-exact's official S-bend rows, the leader landing from the lip and riding the slopes down, artifact 1032428046539821, and the official build replay, artifact 1672965364365960; build step: lay the glass (7,22,7), a temporary rail on it at (7,23,7) (C's support cell, so before that support is laid), place (7,22,6) (it ascends south), remove the temporary rail, then lay C's support glass (7,23,7))
+# (the next two lines: b8949c96's way-in part's # shape: declarations, sent via farmopt 05:40 PT, pasted as they are; they count once tick-exact's official build replay shows the placement order)
+# shape: 9,-24,-1=rail[shape=ascending_south,waterlogged=false] (the drop-and-roll's landing slope; build step: a temporary rail at (9,-23,0) on the glass (9,-24,0) first, this rail second (it connects north to (9,-24,-2) and up to the temporary one), the temporary rail broken; evidence: tick-exact's official record7e drop row (the landing at + 39); the placement order to be shown by tick-exact's official build replay)
+# shape: 9,-13,-5=detector_rail[powered=false,shape=ascending_north,waterlogged=false] (the arrival's landing slope into the queue; build step: a temporary rail at (9,-12,-6) on the glass (9,-13,-6) first, the detector second (up north to the temporary rail, down south to the queue rail), the temporary rail broken; evidence: tick-exact's day-approach row (01:24); the placement order to be shown by tick-exact's official build replay)
+# record7f10: (-1,21,9), (0,21,9), (4,21,9) glowstone -> end rods facing up, a CANDIDATE (9fc3155f's trial: their tops were unreached IDLE-stroll STAMP classes; STAMP 207 -> 200 with every other bar unchanged); these three cells came from onechunk's own module composition (first-assembly onward), no part file on main holds them
+# record7f, the F3 scarer part's glowstone row (-4,21,5), (-3,21,5), (-2,21,5) swapped for end rods facing up, a CANDIDATE until 9fc3155f re-runs the gate on this file (farmopt 04:58 PT: glass at (-3,22,5) fails the gate; the end rods pass it at 9fc3155f's, 0 dark cells, sight / exposures / golem flood unchanged)
+# day-time: 18000 (the save's day time, a night placement as the build guide places the daylight detector (-5,15,3): its stored power 0 is its reading at this time; ironspec 02:37 PT (4))
+# record7f, (-4,0,7) returned to air (record7e's state; 7b90c3f1 02:05 PT drops it from its r4 lift file: no cart meets it, it holds no water, it changes no mob space)
+# record7f, dusts re-saved settled (ironspec 01:46 (2), cc767b78's settle-check finding): (-3,23,9) (the (a) feed stack's dust, stored a dot by onechunk's composition of the stack) and (7,-14,-5) (R1's NOT-ready side dust, stored south-only by onechunk's record7c recomposition) both now north+south, their settled connections
+# record7e (ironspec 00:32 PT): A6's adopted curve fix composed: (-1,-27,3) (A6 local (-1,0,4)) glass -> minecraft:iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false] (58f770cc's exact state; nothing powers it), the glass over it (-1,-26,3) kept; the cell diff against record7d is that one cell; the statics print the same (flee-check and sight 0 diff lines, the golem exit flood 48 spots / 48 positions, junction-check PASS) except spawn-rules' interior 861 against 860 (the trapdoor is a placed non-full-cube block, which joins the interior; 0 spawns either way)
+# + module: /tmp/onechunk/f1q2-module-record7c.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
+# cleared first (committed cells a lane re-lays): x 6..6 y -13..-13 z -3..-3
+# cleared first (committed cells a lane re-lays): x 5..5 y -14..-14 z -3..-3
+# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 17
+# placement order: (-2,24,7) placed last: (-1,24,7) north_west -> east_west
+# placement order: (-1,0,7) placed last: (-1,0,7) north_west -> north_east
+# placement order: (-1,22,6) placed last: (-1,22,6) ascending_south -> north_south
+# placement order: (-1,24,7) placed last: (-1,24,7) north_west -> south_west
+# placement order: (-1,24,8) placed last: (-1,24,7) north_west -> south_west
+# placement order: (2,24,7) placed last: (3,24,7) north_west -> east_west
+# placement order: (3,0,7) placed last: (3,0,7) north_west -> north_east
+# placement order: (3,22,6) placed last: (3,22,6) ascending_south -> north_south
+# placement order: (3,24,7) placed last: (3,24,7) north_west -> south_west
+# placement order: (3,24,8) placed last: (3,24,7) north_west -> south_west
+# placement order: (6,24,7) placed last: (7,24,7) north_west -> east_west
+# placement order: (7,22,6) placed last: (7,22,6) ascending_south -> north_south
+# placement order: (7,24,7) placed last: (7,24,7) north_west -> south_west
+# placement order: (7,24,8) placed last: (7,24,7) north_west -> south_west
+# placement order: (9,-24,-2) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-24,-1) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-13,-5) placed last: (9,-13,-5) ascending_north -> north_south
+# rail Ts (every plain rail with 3 potential connections in the finished build; each a placement-order case or power-forced): 9
+# rail T: (-3,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the redstone_wire at (-3,23,9), the lever at (-3,26,9) (its update reaches this cell)
+# rail T: (-1,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (-2,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (-1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (-1,24,8), the lever at (-1,26,9) (its update reaches this cell)
+# rail T: (1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (1,26,9) (its update reaches this cell)
+# rail T: (3,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (2,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (3,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (3,24,8), the lever at (3,26,9) (its update reaches this cell)
+# rail T: (5,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (5,26,9) (its update reaches this cell)
+# rail T: (7,25,9) stored north_west, unpowered north_east, powered north_west, its signal now on; REACHED by the detector_rail at (7,24,8), the lever at (7,26,9) (its update reaches this cell)
+# rail T: (9,0,7) stored south_west, unpowered south_west, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (8,-2,7), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+name: f1q2-module-stop9
+circuit: mob-farm iron_ingot
+dwell-cap: 15 (PROVISIONAL, ironspec 23:21 PT: day-1's frame-0 column for today's way-in at to_entry 112; the basis is entry -> R <= 210 from A6's bench; the real approach exceeds it with the stale-path stall until A6 is fixed (T5b + the curve-contact fix) and the matrix re-runs on the measured entry -> R; the five rows don't count until then; 37 once C7 is composed)
+emulated: 7,-2,8=glass (the hold input's support: a floor lever on it at (7,-1,8), whose updates reach no rail T, 7b90c3f1 18:06); 6,-13,-1=glass (REST_l's line end at (6,-12,-1), a floor lever on it, day-1 19:19: the controller's line isn't laid); 4,-13,-2=glass (DAY's line end at (4,-12,-2), a floor lever on it, day-1 19:19); -5,22,9=lever[face=ceiling,facing=north,powered=false] (lane -1's (a) feed stack input stand-in, bench only: the controller's SIDING line is not laid; ironspec 23:13: record-match's guard_intrinsics refuses a lever in the built air (a signal source in a golem's spawn space), so it is declared and the statics run with it); 1,23,9+5,23,9=lever[face=ceiling,facing=north,powered=false] (lanes 3 and 7's siding input stand-ins); -4,12,6=lever[face=ceiling,facing=north,powered=false] (lane 7's slope release stand-in, hung from the lift wall's glass (-4,13,6)); 1,17,1+5,17,1=lever[face=floor,facing=north,powered=false] (the R line's input stand-ins, lanes -1 and 3); 9,17,1=lever[face=wall,facing=south,powered=false] (lane 7's R line input stand-in); 4,-12,-2+6,-12,-1=lever[face=floor,facing=north,powered=false] (R1's DAY / REST_l line-end stand-ins); 8,-14,-5=lever[face=wall,facing=west,powered=false] (R1's NOT-ready stand-in on the glass (9,-14,-5); LeverBlock.updateNeighbours reaches the queue rail (9,-14,-4) through its support, a powered rail on a straight line, no T: its state follows its own power, so the update changes nothing; G1's note); 7,-1,8=lever[face=floor,facing=north,powered=false] (the hold pulse's input stand-in on the glass (7,-2,8)); (spawn-rules on the file with these laid counts 870 interior cells against 860: its interior is the villagers' and carts' boxes, every golem cell with the two above, and every placed block that is not a full cube, so each lever cell joins it: 10 of the 11 levers, (-5,22,9), (1,23,9), (5,23,9), (-4,12,6), (1,17,1), (5,17,1), (9,17,1), (4,-12,-2), (6,-12,-1), (7,-1,8); (8,-14,-5) was interior already, a cell of napper0's cart box (x 8.81..10.19, z -4.19..-2.81 around (9.5,-13.44,-3.5)); each lever laid alone adds 1, (8,-14,-5) 0; the glass supports are full cubes; 0 spawns either way)
+k-lock: 42 (line 3, the hold gate: the waiting RS's Q delayed k_lock gt, sampled with the live Q at H2 = E + 2 = ARM3 + 4; ironspec 22:03 / 22:09 PT)
+k-sw: 6 (line 14, the S-bend siding's repeater: R powered at D + k_sw + 8; ironspec 21:35 / 22:03 PT)
+# one-way: -3,0,0=the step dust feeds the riser, signal climbs (day-1's M16bw; the cell above the step, (x-3,0,0), is air: non-conducting, on record7d: the step dust (-4,-1,0) feeds the riser dust (-3,0,0) up into the repeater (-2,0,0) facing west, which powers lane -1's pocket rail (-1,0,0)); 1,0,0=signal climbs (M16bw, lane 3: the step (0,-1,0) up into the riser (1,0,0) and the repeater (2,0,0)); 5,0,0=signal climbs (M16bw, lane 7: the step (4,-1,0) up into the riser (5,0,0) and the repeater (6,0,0))
+# switch: -1,26,9=J(-1), the T (-1,25,9)'s ceiling lever under (-1,27,9): on north_west, off north_east (day-1's latch output); 3,26,9=J(3), the T (3,25,9)'s lever (the latch); 7,26,9=J(7), the T (7,25,9)'s lever (the latch; designed on, north_west); -3,26,9=K(-1), the T (-3,25,9)'s lever (day-1's timed taps); 1,26,9=K(3), the T (1,25,9)'s lever (the timed taps); 5,26,9=K(7), the T (5,25,9)'s lever (the timed taps) (7b90c3f1's table, 22:36)
+# update-only: -1,24,8+3,24,8+7,24,8=the branch detectors D of J(-1) / J(3) / J(7): their changes update the Ts (x,25,9) and leave each in its power's settle (tick-exact's official D-J probe https://artifacts.internalmeta.com/a/1169573292176966 ; 7b90c3f1's D-on-J bench: 6 changes per J per run, 0 off-settle); -3,23,9=the (a) feed stack's dust two below the split T (-3,25,9): its updates leave the T in its intended shape in all four states of the dust and the T's lever (onechunk's --stack-bench, 0 wrong)
+# contacts: -1,24,5+3,24,5+7,24,5=the drop entry's backstop, a stop (ironfarm's lanes; evidence: tick-exact's official S-bend rows, artifact 1009706688854741: the leader stops at (3.655,24.000,6.490) at P + 8 and falls at P + 10; ironfarm's escape-bench --siding block-contact line)
+# contacts: 9,22,-6=the way-in leg's stop wall (t 37: the box's north face meets the glass at z -5.000, vz -> 0, then the straight shaft fall; evidence: tick-exact's 01:24 day-approach row + b8949c96's leg rows; farmopt 02:47 PT)
+# contacts: 9,-15,0=the way-in's drop stop (b8949c96 e9f0f4cbf): the launched cart stops against it and falls down the shaft (9,·,-1) (evidence: b8949c96's redsim trace; official row owed: tick-exact's cheap row on record7e, ironspec 00:45 PT)
+keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc: the zombie's cover, A6's local (-5,3,4))
+keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
+keep-out: 10,-2,3 10,-2,4 10,-2,5 10,-2,6 (day-1's 4-gt finding, ironspec 19:49 PT: the napper's cart box swings to x 10.16 at the curve (9,-2,4) toward its slope (9,-2,5), past the column into the next chunk; any block there slows the ride by 4 gt; 9fc3155f's swept-box scan on record7 reaches (10,-2,4) and (10,-2,5), x 10.27; (10,-2,3) and (10,-2,6) kept as ironspec's margin); 10,-25,-5 10,-25,-4 (9fc3155f's swept box: the stop's curve (9,-25,-5) south_west toward (9,-25,-4)); 10,0,7 10,0,8 (the merge row's end curve (9,0,7) south_west toward the hold (9,0,8)); 10,25,8 10,25,9 (the split row's end curve (9,25,9) north_west toward (9,25,8)); -5,24,10 -4,24,10 -3,24,10 -2,24,10 -1,24,10 0,24,10 1,24,10 2,24,10 3,24,10 4,24,10 5,24,10 6,24,10 7,24,10 8,24,10 9,24,10 -5,25,10 -4,25,10 -3,25,10 -2,25,10 -1,25,10 0,25,10 1,25,10 2,25,10 3,25,10 4,25,10 5,25,10 6,25,10 7,25,10 8,25,10 9,25,10 (9fc3155f: the split row's curves cross z 10 with the chunk at z -6..9) (each cell the cart's box reaches; the riders' boxes above them, y + 1..2, collide with nothing on their own and are listed for the tiling by 9fc3155f)
+placement-order-ts: -1,0,7=the merge T at lane -1 (never switched: no signal source and no detector reaches it; placed north_west after (-1,0,6) and (-2,0,7); 7b90c3f1's path (a) lift 83878113f); 3,0,7=the merge T at lane 3 (never switched; placed north_west after (3,0,6) and (2,0,7))
+positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
+riderless: 1,-26,-5+0,-27,-5+-1,-27,-5+-2,-27,-5+-2,-27,-4+-2,-27,-3+-2,-27,-2+-2,-27,-1+-2,-27,0+-2,-27,1+-2,-27,2=the stop's empty cart from its park to the pickup cell (A6: the napper leaves the cart at the activator (2,-25,-5) and is seated again at the pickup (-2,-27,3))
+run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1; wayin.P0 -1,0,0; wayin.D0 -1,0,2; wayin.H0 -1,16,0; wayin.P1 3,0,0; wayin.D1 3,0,2; wayin.H1 3,16,0; wayin.P2 7,0,0; wayin.D2 7,0,2; wayin.H2 7,16,0; wayin.PAD0 -3,-6,-6; wayin.PAD1 8,-6,-1
+unreachable: -4,-26,4=A6's top-hatch lever cell (58f770cc's 27bfc5dcd: glass east (-3,-26,4), west (-5,-26,4) and under it (-4,-27,4), the hatch's top trapdoor north; the only napper cell touching it is the bed top (-3,-26,3), diagonally, both orthogonals blocked; flee-check from 43 places: no draw on it; no bench visit ever stood there (100,000+ visits))
+update-only-ts: 1,25,9+5,25,9=the split's K junctions of lanes 3 and 7, state-stable for the state their levers hold (as the detectors beside them): the siding inputs' ceiling-lever stand-ins at (1,23,9) and (5,23,9) update them through their glass supports (ironspec 18:31 (3))
+# always-on: -2,0,5=torch on glass (V15, 9fc3155f 15:01); 2,0,5=torch on glass (V15); 6,0,5=torch on glass (V15); 8,-2,7=the hold's line booster (8,0,7)'s torch on glass (8,-3,7), under the slime (8,-1,7); 8,-2,5=the napper climb's torch on glass (8,-3,5); 8,-4,4=the napper climb's first booster (8,-3,4)'s redstone block; -6,23,8=the lift exit's torch on glass (-6,22,8), beside the booster (-5,23,8) (7b90c3f1's 83878113f); 3,-25,-6=A6's entry booster's redstone torch, on glass (3,-26,-6): it never toggles; -1,-27,5=A6's exit booster's redstone torch, on glass (-1,-28,5): it never toggles (58f770cc's A6 header, local + (0,-27,-1)); 6,1,4=a torch on glass powering the station climb's boosters (7,1,4), (7,2,5), (7,3,6) (dfb89499's station); 6,4,6=a torch powering the merge climb's boosters (6,4,7), (5,5,7) (dfb89499's station)
+# a6-pickup: -2,-27,3=the pickup cell (the napper's only stand-up cell; 58f770cc's A6 local (-2,0,4), 00:39 PT); stranded bound: no cart at it by the wake edge + 60 gt fails (the cart reaches it 36..40 gt after the release in every bench row)
+# switches: -4,-27,2=A6's hatch lower lever (day-1's line end: F shuts, R opens); -4,-26,4=A6's hatch upper lever (the same line); 2,-25,-6=A6's activator lever (day-1's line end, held on); 1,-26,-6=A6's park upper lever (day-1's line end: the release); 0,-27,-6=A6's park lower lever (the same line); 3,-23,-4=A6's second landing trapdoor's ceiling lever (held on; its state not load-bearing); -1,-25,-5=a golem-proofing stone button over A6's flat's cap (never pressed); -1,-25,4=a golem-proofing stone button over A6's exit booster's cap (never pressed); 0,-25,4=a golem-proofing stone button over A6's exit flat's cap (never pressed); -3,-25,2=a golem-proofing stone button over A6's bed foot's roof (never pressed) (58f770cc's A6 header, local + (0,-27,-1)); 8,-14,-4=day-1's R1 repeater, the queue rail (9,-14,-4)'s release (day-1 19:19); -3,26,9+-1,26,9+1,26,9+3,26,9+5,26,9+7,26,9=the split's J / K levers (the Ts (x,25,9)'s drivers, 7b90c3f1's split); -2,0,0+2,0,0+6,0,0=day-1's M16bw side-drive repeaters, each powering its pocket rail (x,0,0) at the release (laid by onechunk); 6,-12,-4=day-1's hatch repeater, powering the iron trapdoor (6,-12,-5) from N (R1, 19:19); 3,0,2=the station's detector, powering the boosters (3,0,3..6) while a cart passes (dfb89499); 7,0,2=the station's detector, powering (7,0,3), (7,2,5), (7,3,6) (dfb89499); 7,-3,4=the lift exit's detector, powering the booster (8,-3,4) (7b90c3f1's napper lift; also the hold gate's RS set); 8,-1,8=the hold pulse's repeater, powering the hold rail (9,0,8) through (9,-1,8) (line 3's 12-gt pulse; f1q2-run drives its input (7,-1,8)); 0,17,1+4,17,1+8,17,1=the R line's repeaters, each powering its rail (x-1,17,1) (day-1's R line, driven by the cycle's release); -3,23,8+1,23,8+5,23,8=the S-bend sidings' repeaters, each powering its rest (x,24,7) through (x,23,7) (ironfarm's sidings, line 14)
+# own-route-junctions: -2,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time); 2,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time); 6,24,7=c3 (ironspec 07:52): its third arm is the siding rest R itself and it is never switched, and no other route's cart enters it (ironfarm escape-bench --siding-north: the westmost branch-cart centre in the merge cell x+0.24 over the matrix and restarts, lane carts on the siding's cells 0, push contact 0, one napper per siding at a time)
+# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); (7,0,7) is a plain rail joining the hold's line to the row (path (a): lane 7 off the merge row), so no batch cart enters (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt (75..79, return-bench), against the bar 181 (the hold's longest wait 142 + the 12-gt pulse + clear + 20; ironspec 11:49 / 14:15): 131 to spare
+# the module of record with path (a) (ironspec 19:44), onechunk's composition (bench, tool unreviewed). The parts' sources (the /tmp paths below are copies of these):
+#   station = dfb89499's explore/farmopt-station-panic 3939d2012 wip/station/f1q2-station.txt (path (a): lane 7's climb, lane 3's booster, V15/V16s/M16bw's pocket repeaters (x-1,0,0) on glass, R_1's high-side glass (x,17,2), which the lanes part holds too: cleared and laid once); lanes = ironfarm's 71b76c221 wip/lanes/f1q2-lanes-sbend.txt (R on slime); lift-split = 7b90c3f1's explore/farmopt-v15-patha 83878113f wip/lift/f1q2-lift-split-path-a.txt (the merge row along z 7, the intake (-4,12,7), the settle lock 42), its lower 10 levels moved down 9 and 9 levels inserted (napper A's lift for the stop 9 down);
+#   bedstop = 58f770cc's explore/bedtier-stop 27bfc5dcd designs/farms/iron/parts/bed-tier-min/bed-tier-fold.txt at loop + (0,-27,-1) (the second landing); wayin = b8949c96's explore/farmopt-waycell3 e9f0f4cbf wip/b8949c96/f1q2-module-wayin.txt over onechunk's f52f712d7 module (%BASE: only its cells), its curve (9,25,9) an override; sky, scarers = this directory; f3 = 9fc3155f's f17304792 (explore/farmopt-c3-tools3) wip/c3/f1q2-scarer-f3.txt;
+#   overrides: V15's 31 cells (9fc3155f 15:01) but the pocket backs (x,0,-1) slime (ironspec 15:08); the 8 hiding glass (ironspec 16:03); M16bw's side drive (day-1, 9fc3155f 16:08); lane -1's (a) feed stack (ironspec 16:11); the hold's stop (9,0,9) slime; day-1's queue release R1 (19:19): the comparator (7,-14,-4) subtract facing west and the repeater (8,-14,-4) facing west (the queue rail's switch), N's line (5,-13,-3), (5,-14,-4) dust and the repeater (6,-14,-4), the hatch: the iron trapdoor (6,-12,-5), the repeater (6,-12,-4) facing south, the dust (6,-12,-3), N's comparator (6,-12,-2) subtract facing south, DAY's repeater (5,-12,-2) facing west, the latch's side dust (7,-14,-5), each on glass one below; but the N line's two step supports (6,-13,-3) and (5,-14,-3) smooth stone (day-1 21:41: a dust signal descends a step only over a conductor, RedStoneWireBlock.calculateTargetStrength)
+waker-places: -3,-27,3=asleep in the bed, woken by F (2.04); -2,-27,3=standing up on the pickup cell and seated there (3.03); -2,-27,4+0,-27,4+1,-27,4+1,-28,4+2,-28,4=riding out past the hatch to R (3.08..6.66) (58f770cc's A6 27bfc5dcd, its local cells + (0,-27,-1))
+port home: -3 -27 3
+port nether-anchor: -6 0 -6
+port nether-axis: -5 0 -6
+port output: -6 1 -6
+entity: minecraft:minecart -0.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 7.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 7.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:oak_boat -4.5 -27 3.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:minecart 9.5 -13.4375 -3.5 {Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 2.5 -12 -5.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
+origin: -6 0 -6
+# (the next lines: 7b90c3f1's r3 record lift file 8ed397b2e's header lines, copied as they are; ironspec 01:07 (b))
+# contacts: -6,2,7+-6,3,7=the foot entry's back wall: a cart off the merge row slides west into it and stops over the column (bench only, the official row pending: the bench prints its speed change per row); -5,2,6+-5,3,6+-5,2,8+-5,3,8=the shaft's side walls at the foot: the 0.98-wide box in the 1-wide shaft meets them as it stops and starts to rise (bench only, the official row pending: the bench prints its speed change per row); -4,3,7=the foot entry's lintel: the box's east part, still under it when the column starts lifting, is held until the cart is in (bench only, the official row pending: the bench prints its speed change per row); -5,24,7+-6,23,7=the lift's cap and its west wall at the top: the riser stops under the cap (y 23.3) and drifts south onto the exit (tick-exact's official lift-pair rows (`mctas mobai lift-pair --module path-a`, 3a5d5cdc6): redsim's cart and rider boxes equal tick for tick); -6,12,7+-6,13,7=lane 7's side entry's back wall: its cart rolls off the slope (-4,12,7) west into it and stops over the column (tick-exact's official side-slope row: rest feet 12.7767, column entry at release + 6, as redsim; the lift-pair rows enter here); -5,12,6+-5,13,6+-5,12,8+-5,13,8+-4,13,6=the shaft's side walls at the side entry and the sign's glass over the slope's north edge (tick-exact's official side-slope row: rest feet 12.7767, column entry at release + 6, as redsim; the lift-pair rows enter here); 9,0,9=the hold's slime stop: the napper rolls onto the hold rail (9,0,8) against it and rests (tick-exact's official rail-kick row (`mctas mobai rail-kick`)); 7,-28,4+7,-27,4=the napper lift's foot entry back wall: the napper off the bed stop's R slides east into it and stops over its column (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1)); 6,-2,4=the napper lift's cap: the napper rises under it and drifts east onto the exit detector (7,-3,4) (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1))
+# water: -5,23,7=designed current (saved settled at level 1: the shared lift's top-drift current, fed by the source north of the exit cell, carrying each riser south onto the exit booster, bounded by the glass round it, the cap over it and the booster's rail; evidence: tick-exact's water-settle row on record7e, one cell then still, and the bench's traces, the riser's z speed 0.027 -> 0.104 in the cell, on the booster 8 gt after the top; 7b90c3f1 r3 8ed397b2e, its reason wrapped for settle-check's strict reader); 6,-3,4=designed current (saved settled at level 1: the napper climb's top-drift current, fed by the source at 5,-3,4, carrying the napper east onto the exit detector at 7,-3,4, bounded by the glass round it and the detector's rail; evidence: tick-exact's water-settle row on record7e; 7b90c3f1 r3 8ed397b2e, its reason wrapped)
+# update-only: -1,24,8=J(-1)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (-1,25,9), which re-settles to its power's shape (its lever (-1,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 3,24,8=J(3)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (3,25,9), which re-settles to its power's shape (its lever (3,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 7,24,8=J(7)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (7,25,9), which re-settles to its power's shape (its lever (7,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0)
+# switches: -1,26,9=J(-1)'s lever (day-1's latch output; a ceiling lever under glass (-1,27,9)): on -> the T (-1,25,9) north_west, off -> north_east; -3,26,9=K(-1)'s lever (day-1's timed taps; a ceiling lever under glass (-3,27,9)): on -> the T (-3,25,9) north_west, off -> north_east; 3,26,9=J(3)'s lever (day-1's latch output; a ceiling lever under glass (3,27,9)): on -> the T (3,25,9) north_west, off -> north_east; 1,26,9=K(3)'s lever (day-1's timed taps; a ceiling lever under glass (1,27,9)): on -> the T (1,25,9) north_west, off -> north_east; 7,26,9=J(7)'s lever (day-1's latch output; a ceiling lever under glass (7,27,9)): on -> the T (7,25,9) north_west, off -> north_east; 5,26,9=K(7)'s lever (day-1's timed taps; a ceiling lever under glass (5,27,9)): on -> the T (5,25,9) north_west, off -> north_east; 7,-3,4=the napper climb's exit detector, day-1's approach detector E (the waiting bit's source): redundant on the rail it reaches, (8,-3,4) being held on by its redstone block (8,-4,4)
+palette:
+  ! minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  $ minecraft:smooth_stone
+  % minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  & minecraft:soul_sand
+  * minecraft:stone_button[face=floor,facing=north,powered=false]
+  + minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
+  0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  3 minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]
+  4 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  5 minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+  6 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  7 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  8 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  9 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  < minecraft:water[level=0]
+  = minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  > minecraft:water[level=1]
+  ? minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  @ minecraft:slime_block
+  A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:bubble_column[drag=false]
+  C minecraft:chest[facing=south,type=single,waterlogged=false]
+  D minecraft:comparator[facing=south,mode=subtract,powered=false]
+  E minecraft:comparator[facing=west,mode=subtract,powered=false]
+  F minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+  G minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  H minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  I minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  J minecraft:glowstone
+  K minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  L minecraft:iron_trapdoor[facing=south,half=bottom,open=true,powered=true,waterlogged=false]
+  M minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  N minecraft:iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
+  O minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  P minecraft:lever[face=ceiling,facing=north,powered=true]
+  Q minecraft:lever[face=floor,facing=north,powered=false]
+  R minecraft:lever[face=floor,facing=north,powered=true]
+  S minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
+  T minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  U minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  V minecraft:obsidian
+  W minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  X minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  Y minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  Z minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  a minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  b minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  c minecraft:cobblestone
+  d minecraft:daylight_detector[inverted=false,power=0]
+  e minecraft:end_rod[facing=up]
+  f minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  g minecraft:glass
+  h minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  i minecraft:iron_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  j minecraft:rail[shape=ascending_south,waterlogged=false]
+  k minecraft:rail[shape=ascending_west,waterlogged=false]
+  l minecraft:lever[face=ceiling,facing=north,powered=false]
+  m minecraft:rail[shape=east_west,waterlogged=false]
+  n minecraft:nether_portal[axis=x]
+  o minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  q minecraft:rail[shape=north_east,waterlogged=false]
+  r minecraft:rail[shape=ascending_east,waterlogged=false]
+  s minecraft:rail[shape=north_south,waterlogged=false]
+  t minecraft:rail[shape=north_west,waterlogged=false]
+  u minecraft:rail[shape=south_east,waterlogged=false]
+  v minecraft:rail[shape=south_west,waterlogged=false]
+  w minecraft:red_bed[facing=south,occupied=false,part=foot]
+  x minecraft:red_bed[facing=south,occupied=false,part=head]
+  y minecraft:redstone_block
+  z minecraft:redstone_torch[lit=true]
+layer -29:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  .......ggggg&g
+  ............g
+  .
+  .
+  .
+  .
+layer -28:
+  ......g
+  ....ggg
+  ....g
+  ....g
+  ....g
+  ....g
+  ....g
+  ....g
+  ..ggg
+  .g.gg.......g
+  ....gggkmmHmBg
+  .....g......g
+  .
+  .
+  .
+  .
+layer -27:
+  ......Qg
+  ....umpg
+  ....s
+  ....s
+  ....s
+  ....sg
+  ....sg
+  ...gsg
+  .gRwsg
+  g.MxsN......g
+  .gggqfm....gBg
+  .....z......g
+  .
+  .
+  .
+  .
+layer -26:
+  .......Qgg
+  ....gK.pgggggggg
+  ........g......g
+  ........g......g
+  ........g
+  ....ggggg
+  ....gg
+  ...ggg
+  .ggKgg
+  g.O..g......g
+  .gRgKKK....gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -25:
+  ........Rz
+  .....*..Afmmmmmv
+  .......gCCg....s
+  .......g.g.....j
+  ....gggg.g.....g
+  ...g.....g.....g
+  ...g.gggg
+  ..g..g
+  ..g*g
+  .gg.g.......g
+  ...gg**....gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -24:
+  ........g
+  .......gg
+  .......g.Lg
+  .......g.g
+  ....gggg.g.....s
+  ...g.....g.....j
+  ...g.gggg......g
+  ..g..g
+  ..g.g
+  .og.g.......g
+  ...g.......gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -23:
+  .
+  .
+  .........Pg
+  .
+  .
+  .
+  .
+  .
+  .
+  ...g........g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -22:
+  .
+  .
+  ........gg
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -21:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -20:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -19:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -18:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -17:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -16:
+  .
+  .
+  .
+  ...............g
+  ...............g
+  .
+  .
+  .
+  .
+  ............g
+  ...........JBg
+  ............g
+  .
+  .
+  .
+  .
+layer -15:
+  .
+  .............g
+  ...........ggggJ
+  ...............F
+  ...............s
+  .
+  ...............g
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -14:
+  .
+  .............0.g
+  ...........38E8W
+  ...........$
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -13:
+  ........g......g
+  ...............F
+  ............g
+  ...........5$
+  ...........gg
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -12:
+  .
+  ............i
+  ............7
+  ............1
+  ...........8D
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -11:
+  ...........g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -10:
+  ..........g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -9:
+  .
+  ....VVVVVVVVVV
+  .
+  .
+  ....VVVVVVVVVV
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -8:
+  ....cccccccccc
+  ...VnnnnnnnnnnV
+  ....cccccccccc
+  ....cccccccccc
+  ...VnnnnnnnnnnV
+  ....cccccccccc
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -7:
+  ...cccccccccccc
+  ...VnnnnnnnnnnV
+  ...cccccccccccc
+  ...cccccccccccc
+  ...VnnnnnnnnnnV
+  ...cccccccccccc
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -6:
+  .
+  ...VnnnnnnnnnnV
+  .
+  .
+  ...VnnnnnnnnnnV
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -5:
+  .
+  ...VVVVVVVVVVVV
+  .
+  .
+  ...VVVVVVVVVVVV
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBg
+  ............g
+  .
+  .
+  .
+  .
+layer -4:
+  .
+  ...gggggggggggg
+  .
+  .
+  ...gggggggggggg
+  .
+  .
+  .
+  .
+  ............g
+  ...........gBgy
+  ............g
+  .
+  .
+  .
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........gg
+  ..........g<>HZg
+  ...........gg.gg
+  .
+  ..............g
+  .
+  .
+layer -2:
+  .
+  .g.......g
+  .
+  .
+  .
+  ......g...g
+  .gg...g...g
+  .
+  .
+  .
+  ...........gg..v
+  ..............za
+  ...............g
+  ..............z
+  ..............g
+  .
+layer -1:
+  .g
+  g
+  .g
+  .
+  .
+  ......0...0
+  .24ggg5ggg5ggg
+  .....g...g...g
+  .....g...g...g
+  .....g...g...g
+  .....g...g...g
+  ....gg..gg..gg
+  .....g...g...g.a
+  ....gggggggggg@g
+  ..............8@
+  .
+layer 0:
+  .g
+  g..g
+  .g
+  .
+  .
+  .....@...@...@
+  ...28Y.28Y.28Y
+  .....Y...Y...Y
+  .....I...I...I
+  .....s...h...a
+  .....h...h..gg
+  ....zh..zh..zg
+  .....h...h...g
+  .g.gktmmmtmmmmfv
+  ...............Y
+  ...............@
+layer 1:
+  .
+  .g
+  .
+  .
+  .
+  .....+...+...+
+  ...g?=!g?=!g?=!g
+  .
+  .
+  .
+  ............za
+  .............g
+  .
+  .&gk
+  .
+  ...............g
+layer 2:
+  .g
+  g.g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............a
+  .g...........g
+  gBm
+  .g
+  .
+layer 3:
+  .g
+  g.g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g..........ga
+  gBg.........gg
+  .g
+  .
+layer 4:
+  .
+  .J
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g..........z
+  gBg........gbt
+  .g
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg.......gb
+  .g
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg......gk
+  .g
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg.....gk
+  .g
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  JBg....gk
+  .g
+  .
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg...gk
+  .g
+  .
+layer 10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg..gk
+  .g
+  .
+layer 11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg.gk
+  .g
+  .
+layer 12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBpgk
+  .g
+  .
+layer 13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .gg
+  gBUm
+  .g
+  .
+layer 14:
+  .
+  ..............g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .d
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 16:
+  .
+  .
+  .
+  .
+  .
+  .....g...g...g
+  ....gTg.gTg.gTg
+  ...J.ggJ.ggJ.gg
+  .
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 17:
+  .
+  .
+  .
+  .
+  .
+  .....%...%...%
+  ...J?=!J?=!J?=!J
+  .....X6..X6..X6
+  ....Jg.J.g.J.g
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 18:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......g...g...g
+  .....j...j...j
+  ....Jg..Jg..Jg
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 19:
+  .
+  .
+  .
+  .
+  .
+  .....g...g
+  .
+  .
+  .
+  .....j...j...j
+  ....Jg..Jg..Jg
+  .
+  .g
+  gBg
+  .g
+  .
+layer 20:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....j...j...j
+  .....g...g...g
+  .g
+  gBg
+  .g
+  .
+layer 21:
+  ...............g
+  .
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ..eeej...j...j.g
+  .g...gJ..gJ..g
+  gBg...J...J
+  .g....J...J
+  ..g..ee...e
+layer 22:
+  ...............g
+  ..............g
+  ...............s
+  .........g.....s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............j
+  .g...j...j...j.g
+  gBg..g...g...g
+  gg.g...g...g
+  ..9@
+layer 23:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  g<ggg..gg..gg..j
+  g>g@gg.@gg.@gg.g
+  za.7.g.7.g.7.g
+  .gg0
+layer 24:
+  .
+  .......g.g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....g...g...g
+  .g.uv..uv..uv
+  .g.Xqt.Xqt.Xqt.j
+  ...g.G.g.G.g.G.g
+  .qrggggggggggggg
+layer 25:
+  .......g
+  ......g
+  .
+  .
+  ..........g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...s...s...s...s
+  ...qmqmqmqmqmtmt
+layer 26:
+  .......g
+  ......g.g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...l.l.l.l.l.P
+layer 27:
+  .
+  .......g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...g.g.g.g.g.g
+layer 28:
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %g%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+layer 29:
+  S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+nether-origin: 0 0 0
+nether layer 64:
+  .VV
+nether layer 65:
+  VnnV
+nether layer 66:
+  VnnV
+nether layer 67:
+  VnnV
+nether layer 68:
+  .VV
