@@ -1,5 +1,7 @@
 # recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
 file	hash	deps	version	recorded	how
+ak-wanderer-seed3.rec	14bc254ece3f566b		26.3	2026-11-14T10:56Z on 78133f5284	mctas mobai record ak-wanderer --seed 3 --ticks 200 --dir /tmp/rec-akw-3 (then moved into pending/)
+ak-wanderer-seed8.rec	6776198c31966095		26.3	2026-11-14T10:56Z on 78133f5284	mctas mobai record ak-wanderer --seed 8 --ticks 200 --dir /tmp/rec-akw-8 (then moved into pending/)
 animal-panic.rec	896e58d641fe8ada		26.3	2026-11-09T08:49Z on dd744b4378	mctas mobai record animal-panic --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 animals.rec	d2dcf5e8a3afbd8b		26.3	2026-11-09T01:44Z on 556db985e	mctas mobai record animals --seed 1 --ticks 7000 --dir designs/redsim/recorded/mobai
 baby-animals.rec	81acab55f63cfa99		26.3	2026-11-09T02:29Z on 4fc4dee38	mctas mobai record baby-animals --seed 1 --ticks 6000 --dir designs/redsim/recorded/mobai
@@ -59,6 +61,7 @@ curve-wrong-side.rec	a5d4dd68e0fe1501		26.3	2026-11-11T15:04Z on 0bf0bdaab4	mcta
 door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas mobai record door-halves --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 drop-bridge.rec	f370f361f7c8c9b0		26.3	2026-11-12T06:36Z on 3837f080a	mctas mobai record drop-bridge --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 drowned-trident.rec	37b7967c66fa587d		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+e-string-empty.rec	1e4f7a4b7d4c5abf		26.3	2026-11-14T08:31Z on 23f14352df	mctas mobai record e-string-empty --seed 1 --ticks 50 --dir /tmp/rec-e (then moved into pending/)
 enderman-flower.rec	380b5c44d8b814db		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 enderman-golem.rec	03bed56814f1516a		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 flee-distance.rec	5e82e368f2cb6438		26.3	2026-11-11T18:33Z on 1ccfb43c1e	mctas mobai record flee-distance --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
@@ -103,6 +106,8 @@ jobsite-memory.rec	897fc66aadcbc6cf		26.3	2026-11-11T18:13Z on d9186e31db	mctas 
 jobsite-near.rec	6cc73b0ba3a97706		26.3	2026-11-11T19:37Z on d2663812b7	mctas mobai record jobsite-near --seed 1 --ticks 12000 --dir designs/redsim/recorded/mobai
 junction-settle.rec	61bbd0ad8c06dab3		26.3	2026-11-11T21:31Z on 6c741d7b3c	mctas mobai record junction-settle --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 lane-handoff.rec	c40a74fd56e94b4d		26.3	2026-11-12T08:45Z on 00333dd04	mctas mobai record lane-handoff --seed 1 --ticks 240 --dir designs/redsim/recorded/mobai
+latch-aslisted.rec	99e1e300ceff9510		26.3	2026-11-14T11:04Z on 5fcf01e224	mctas mobai record latch-aslisted --seed 1 --ticks 60 --dir /tmp/rec-asl (then moved into pending/)
+latch-formb.rec	d050cb8b5c4dff08		26.3	2026-11-14T10:56Z on 78133f5284	mctas mobai record latch-formb --seed 1 --ticks 80 --dir /tmp/rec-lfb (then moved into pending/)
 ledge-r1-150.rec	81ce5c84b3ef460c		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-150 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-182.rec	3fe0e0ef3b8cc669		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-182 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
 ledge-r1-196.rec	eeab59cbe641f9b8		26.3	2026-11-11T16:04Z on 6ac19d7503	mctas mobai record ledge-r1-196 --seed 1 --ticks 160 --dir designs/redsim/recorded/mobai
@@ -156,6 +161,7 @@ rider-sensors.rec	d6384499bd5e8371		26.3	2026-11-11T19:49Z on c0d3305d74	mctas m
 rollback-booster.rec	0c0908cf503d265e		26.3	2026-11-11T20:21Z on 6ea194a67b	mctas mobai record rollback-booster --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 rollback-halt.rec	3c8fb706f45830db		26.3	2026-11-11T20:15Z on d9a04c79b9	mctas mobai record rollback-halt --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 salmon-pond.rec	80933cb5b0ba5ff7		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+seated-stamp.rec	999ae42111de513f		26.3	2026-11-14T11:04Z on 5fcf01e224	mctas mobai record seated-stamp --seed 1 --ticks 1300 --dir /tmp/rec-sst (then moved into pending/)
 sentinel-asleep.rec	eda5bf349c85f752		26.3	2026-11-12T02:11Z on 4059b9875	mctas mobai record sentinel-asleep --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
 sentinel-dawn.rec	21e4e2e107145d86		26.3	2026-11-12T02:12Z on 4059b9875	mctas mobai record sentinel-dawn --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
 sentinel-dusk.rec	8799054543f11745		26.3	2026-11-12T02:11Z on 4059b9875	mctas mobai record sentinel-dusk --seed 1 --ticks 13300 --dir designs/redsim/recorded/mobai
@@ -179,6 +185,7 @@ sleep-drop.rec	42a63f41f1683dd7		26.3	2026-11-11T21:18Z on bbdcd2b84d	mctas moba
 sleep-siding.rec	80696ad3d68ade43		26.3	2026-11-11T21:38Z on e44ccd99d1	mctas mobai record sleep-siding --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 slope-merge-ridden.rec	c9b719c2a65c5612		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record slope-merge-ridden --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 slope-merge.rec	3424208fa9672800		26.3	2026-11-11T17:41Z on a6c966a89a	mctas mobai record slope-merge --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+slot1-hold.rec	44c7042ccf71ff3d		26.3	2026-11-14T08:45Z on c49690808d	mctas mobai record slot1-hold --seed 1 --ticks 60 --dir /tmp/rec-slot (then moved into pending/)
 spider-effects.rec	bc7bcd4b52713a4f		26.3	2026-11-10T23:51Z on 4e39780ede	mctas mobai record spider-effects --seed 1 --ticks 2400 --dir designs/redsim/recorded/mobai
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 spider-walls.rec	460e567ed52121ef		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-walls --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
