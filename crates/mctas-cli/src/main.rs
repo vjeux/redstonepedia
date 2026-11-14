@@ -115,6 +115,11 @@ enum Cmd {
     /// why, runs them in parallel sized from the machine, PASS / FAIL per piece, and ends with
     /// the line for the commit message. `--all`: every piece, on demand.
     Test(door_judge::TestArgs),
+    /// A re-cut chain's review map (G1 10:38): every function of a file at the chain's last commit
+    /// with its line range, the chain commit that introduced it, the commits that changed it, whether
+    /// a reviewed commit introduced or changed it, and its text against the last reviewed commit;
+    /// `--block` maps a CLI match arm the same way (crates/door-judge/src/cmd/review.rs).
+    ReviewMap(door_judge::ReviewMapArgs),
     /// The recorded game answers the simulator pieces replay: `check` their manifests (a stale
     /// recording fails), `write` a manifest after recording again (crates/mctas/src/recorded.rs).
     Recorded {
@@ -247,6 +252,7 @@ fn main() -> Result<()> {
         Cmd::Farmopt { command } => farmopt_iron::cli::run(command)?,
         Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
+        Cmd::ReviewMap(args) => door_judge::cmd_review_map(args)?,
         Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,
         Cmd::Mobai { command } => mobai::cli::run(&cli.version, command)?,
         Cmd::Design { command } => design_cli::run(command)?,
