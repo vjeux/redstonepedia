@@ -223,9 +223,9 @@ palette:
   r minecraft:rail[shape=ascending_east,waterlogged=false]
   s minecraft:redstone_torch[lit=true]
   t minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  u minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
-  v minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  w minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  u minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  v minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  w minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
   x minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
   y minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
   z minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
@@ -466,7 +466,7 @@ layer -11:
 layer -10:
   .
   .............t.g
-  ..........cv2c2Q
+  ..........cu2c2Q
   ..........1
   .
   .
@@ -632,7 +632,7 @@ layer -1:
   .
   .
   ......t...t
-  .vxgggygggyggg
+  .uxgggygggyggg
   .....g...g...g
   .....g...g...g
   .....g...g...g
@@ -650,7 +650,7 @@ layer 0:
   .
   .
   .....4...4...4
-  ...v2T.v2T.v2T
+  ...u2T.u2T.u2T
   .....f...f...f
   .....G...G...G
   .....f...Y...V
@@ -937,7 +937,7 @@ layer 16:
   .
   .
   .....0...0...0
-  ....u4...4...4
+  ....w4...4...4
   ....gIg.gIg.gIg
   ...H.ggg.ggg.ggg
   .
@@ -975,7 +975,7 @@ layer 18:
   .
   .
   .
-  ......g...g...g
+  ...g@9&g@9&g@9&g
   .....Z...Z...Z
   ....Hg..Hg..Hg
   .
@@ -1073,7 +1073,7 @@ layer 23:
   g*ggg..gg..gg..Z
   g+g4gg.4gg.4gg.g
   sV.1.g.1.g.1.g
-  .ggt...t...wz
+  .ggt...t...vz
   .
 layer 24:
   .
