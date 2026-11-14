@@ -982,6 +982,23 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-14, ironspec 05:03 (9)(ii) / G1 05:05 (1)(a)) A gadget drive script replayed on the official
+    /// server with its expects checked against the game; `--cart` presses detector rails with a real minecart
+    GameDrive {
+        design: std::path::PathBuf,
+        drive: std::path::PathBuf,
+        #[arg(long)]
+        cart: bool,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-14, dfb89499 05:11 / 58f770cc 05:13) Does a seated rider press a tripwire string? A hooked
+    /// string one block over a flat rail (band 0.300 above the cart's box): ridden carts (AI / NoAI) resting and rolling
+    /// under it, empty-cart and no-cart controls; the string's powered state per tick
+    RiderString {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, G1 23:06 (2)) A cart rolling off a rail end over an 8-block drop: its landing cell per speed
     RailEndDrop {
         #[arg(long, default_value = "26.3")]
@@ -2343,6 +2360,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SlopeString { version } => crate::slopestring::slope_string(&version),
         MobaiCmd::ParkString { version } => crate::parkstring::park_string(&version),
         MobaiCmd::RailEndDrop { version } => crate::railenddrop::rail_end_drop(&version),
+        MobaiCmd::RiderString { version } => crate::riderstring::rider_string(&version),
+        MobaiCmd::GameDrive { design, drive, cart, version } => crate::gamedrive::game_drive(&version, &design, &drive, cart),
         MobaiCmd::RailEndThreshold { version } => crate::railenddrop::rail_end_threshold(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {

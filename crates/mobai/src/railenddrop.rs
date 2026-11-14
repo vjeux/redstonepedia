@@ -151,6 +151,8 @@ pub fn rail_end_drop(version: &str) -> Result<()> {
 /// summoned on the last rail at z0 = -0.95, -0.75, -0.55, -0.35, -0.15: where in the last cell its moves fall), EMPTY and
 /// RIDDEN; after 80 gt each cart is LANDED (on the floor) or STRANDED (on ground on the support's top, z >= 0). Printed:
 /// per speed the phases that strand; the fastest speed any phase strands at and the slowest at which every phase lands.
+/// "Every phase" means each of the 5 SAMPLED entry phases (about 0.06 b apart within one move at 0.27, G1 04:53 (b)): a
+/// design figure judged within 0.02 of a bound needs a denser phase sweep at the band edges first.
 /// Asserted (the first run's answers; MCTAS_RAIL_END_THRESHOLD_PLANT=k inverts assert k): (1) EMPTY: every phase strands
 /// at 0.15 .. 0.21; (2) EMPTY: the fastest stranding speed is 0.26 (0.22 .. 0.26 mixed and not monotone: 0.24 / 0.25 land
 /// at every sampled phase); (3) EMPTY: every phase lands at 0.27 .. 0.60; (4) RIDDEN: every phase strands at 0.15 ..
@@ -242,12 +244,12 @@ pub fn rail_end_threshold(version: &str) -> Result<()> {
     // against) MCTAS_RAIL_END_THRESHOLD_PLANT=k inverts assert k
     let at = |r: bool, lo: f64, hi: f64, f: &dyn Fn(usize, usize, usize) -> bool| tally.iter().filter(|t| t.0 == r && t.1 >= lo - 1e-9 && t.1 <= hi + 1e-9).all(|t| f(t.2, t.3, t.4));
     let fastest_strand = |r: bool| tally.iter().filter(|t| t.0 == r && t.2 >= 1).map(|t| t.1).fold(f64::NAN, f64::max);
-    pin_t(1, at(false, 0.15, 0.21, &|s, n, _| s == n), "(1) EMPTY: every phase strands at 0.15 .. 0.21".into())?;
-    pin_t(2, (fastest_strand(false) - 0.26).abs() < 1e-9, format!("(2) EMPTY: the fastest speed any phase strands at is 0.26 (between 0.22 and 0.26 the phases are mixed and not monotone in speed: 0.24 and 0.25 land at every sampled phase): {:.2}", fastest_strand(false)))?;
-    pin_t(3, at(false, 0.27, 0.60, &|s, _, x| s == 0 && x == 0), "(3) EMPTY: every phase lands at 0.27 .. 0.60 (the all-phase bound)".into())?;
-    pin_t(4, at(true, 0.15, 0.18, &|s, n, _| s == n), "(4) RIDDEN: every phase strands at 0.15 .. 0.18".into())?;
-    pin_t(5, (fastest_strand(true) - 0.24).abs() < 1e-9 && at(true, 0.19, 0.24, &|s, n, _| s >= 1 && s < n), format!("(5) RIDDEN: mixed at every speed 0.19 .. 0.24 (some phases strand, some land), 0.24 the fastest stranding: {:.2}", fastest_strand(true)))?;
-    pin_t(6, at(true, 0.25, 0.60, &|s, _, x| s == 0 && x == 0), "(6) RIDDEN: every phase lands at 0.25 .. 0.60 (the all-phase bound)".into())?;
+    pin_t(1, at(false, 0.15, 0.21, &|s, n, _| s == n), "(1) EMPTY: every one of the 5 sampled entry phases strands at 0.15 .. 0.21".into())?;
+    pin_t(2, (fastest_strand(false) - 0.26).abs() < 1e-9, format!("(2) EMPTY: the fastest speed any of the 5 sampled entry phases strands at is 0.26 (between 0.22 and 0.26 the phases are mixed and not monotone in speed: 0.24 and 0.25 land at every sampled phase): {:.2}", fastest_strand(false)))?;
+    pin_t(3, at(false, 0.27, 0.60, &|s, _, x| s == 0 && x == 0), "(3) EMPTY: every one of the 5 sampled entry phases lands at 0.27 .. 0.60 (the all-phase bound, over 5 sampled phases)".into())?;
+    pin_t(4, at(true, 0.15, 0.18, &|s, n, _| s == n), "(4) RIDDEN: every one of the 5 sampled entry phases strands at 0.15 .. 0.18".into())?;
+    pin_t(5, (fastest_strand(true) - 0.24).abs() < 1e-9 && at(true, 0.19, 0.24, &|s, n, _| s >= 1 && s < n), format!("(5) RIDDEN: mixed at every speed 0.19 .. 0.24 over the 5 sampled entry phases (some strand, some land), 0.24 the fastest stranding: {:.2}", fastest_strand(true)))?;
+    pin_t(6, at(true, 0.25, 0.60, &|s, _, x| s == 0 && x == 0), "(6) RIDDEN: every one of the 5 sampled entry phases lands at 0.25 .. 0.60 (the all-phase bound, over 5 sampled phases)".into())?;
     println!("  every known answer held (asserts 1..6)");
     Ok(())
 }

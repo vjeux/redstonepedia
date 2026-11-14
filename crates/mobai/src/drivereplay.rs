@@ -657,6 +657,11 @@ struct V {
     stamps_armed: Vec<String>,
     /// (ironspec 16:24) the latest WALK_TARGET set (tick, call site), kept after its erase
     wt_last: Option<String>,
+    /// (ironspec 03:23 (1)) the latest WALK_TARGET set's value (its target cell), kept after its erase, and the
+    /// latest NEAREST_HOSTILE set (tick, value: the scarer's id and place), kept after its clear: each CLEAR line
+    /// names both (the panic-night reference for 9fc3155f's "panics and clears" control)
+    wt_cell: Option<String>,
+    last_hostile: Option<(u32, String)>,
     /// (ironspec 16:45 (2)) the open PANIC period (start tick, stamp age then, place) and its attempts:
     /// complete, partial, null-or-reached; (G1 16:47) the hostile sensor's scan phase (tick mod 20)
     panic_open: Option<(u32, Option<i64>, String)>,
@@ -1658,9 +1663,11 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 vs[vi].activity = act;
             } else if l.starts_with("set minecraft:walk_target") {
                 let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                let cell = body.split(" = ").nth(1).unwrap_or("").split(" by ").next().unwrap_or("").to_string();
                 let v = &mut vs[vi];
                 v.wt = Some(by.clone());
                 v.wt_last = Some(format!("t{t} {by}"));
+                v.wt_cell = Some(cell);
                 if by.starts_with("SetWalkTargetFromBlockMemory") {
                     // (ironspec 09:42 (R2)) EVERY run of SetWalkTargetFromBlockMemory is judged on the
                     // age it saw, not only a spell's first (a later run after a stale sink stops)
@@ -1710,6 +1717,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     }
                 }
                 vs[vi].hostile = true;
+                vs[vi].last_hostile = Some((t, what.clone()));
                 vs[vi].hostile_what = what;
             } else if l.starts_with("erase minecraft:nearest_hostile") {
                 if vs[vi].phase.is_none() {
@@ -1770,10 +1778,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     let v = &mut vs[vi];
                     let age = v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "?".into());
                     let line = format!(
-                        "t{t} by {by} in {} (age {age}; the walk target {}; its last set {})",
+                        "t{t} by {by} in {} (age {age}; the walk target {}; its last set {}; its cell {}; the last hostile {})",
                         v.activity.trim_start_matches("minecraft:"),
                         if v.wt.is_some() { "present" } else { "absent" },
-                        v.wt_last.as_deref().unwrap_or("never")
+                        v.wt_last.as_deref().unwrap_or("never"),
+                        v.wt_cell.as_deref().unwrap_or("never set"),
+                        v.last_hostile.as_ref().map(|(ht, w)| format!("set t{ht}: {}", w.split(", l=").next().unwrap_or(w).to_string() + &w.split(", x=").nth(1).map(|r| format!(" x={r}")).unwrap_or_default())).unwrap_or_else(|| "none yet".into())
                     );
                     if let Some(log) = night_log.as_mut() {
                         // the lane from the rider's x in the record frame (lanes at x -1, 3, 7)
@@ -1932,8 +1942,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             }
             // (cc767b78 16:08) MCTAS_REPLAY_TRACE_RAW=1: the position as the server prints its doubles (no rounding)
             let raw_pos = if std::env::var("MCTAS_REPLAY_TRACE_RAW").is_ok() { Some(srv.cmd_long(&format!("data get entity @e[tag={who},limit=1] Pos"))?) } else { None };
+            // (cc767b78 04:28) MCTAS_REPLAY_TRACE_RIDER=1: the rider's own position too (raw doubles), for box-edge contacts
+            let rider_pos = if std::env::var("MCTAS_REPLAY_TRACE_RIDER").is_ok() {
+                let s = srv.cmd_long(&format!("execute as @e[tag={who},limit=1] on passengers run data get entity @s Pos"))?;
+                format!(" rider pos {}", s.split("data: ").nth(1).unwrap_or("none").trim())
+            } else {
+                String::new()
+            };
             trace_rows.push(format!(
-                "t{t}: {who} pos {} motion {} rider {} block {rail}",
+                "t{t}: {who} pos {} motion {} rider {}{rider_pos} block {rail}",
                 match &raw_pos {
                     Some(r) => r.split("data: ").nth(1).unwrap_or("gone").trim().to_string(),
                     None => p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()),

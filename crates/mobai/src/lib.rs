@@ -53,6 +53,8 @@ pub mod cartfall;
 pub mod cartoncart;
 pub mod parkstring;
 pub mod railenddrop;
+pub mod riderstring;
+pub mod gamedrive;
 pub mod latchformb;
 pub(crate) mod latchformbcells;
 pub mod latchrig;

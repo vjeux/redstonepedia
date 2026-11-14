@@ -27,13 +27,84 @@ pub enum DesignCmd {
     /// blocks and the Nether part are each pasted raw into their own world. A rail beside a block
     /// redsim can't parse is reported as unjudged, not as a pop.
     WouldPop { paths: Vec<PathBuf> },
+    /// (tickexact, Nov 14 2026, G1 04:10 (a): does a row run on one revision of a file stand for another?) Compare two
+    /// design files cell by cell: every cell only in A, only in B, or with a different state (air written or not counts
+    /// as absent), then the entities (kind, position, NBT). `--box x0,y0,z0,x1,y1,z1` limits the cells compared
+    /// (inclusive). Exits 0 either way; the counts line says whether they differ.
+    CellDiff {
+        a: PathBuf,
+        b: PathBuf,
+        #[arg(long = "box", allow_hyphen_values = true)]
+        within: Option<String>,
+    },
 }
 
 pub fn run(cmd: DesignCmd) -> Result<()> {
     match cmd {
         DesignCmd::BlankRows { paths, rewrite } => blank_rows(&paths, rewrite.as_deref()),
         DesignCmd::WouldPop { paths } => would_pop(&paths),
+        DesignCmd::CellDiff { a, b, within } => cell_diff(&a, &b, within.as_deref()),
     }
+}
+
+fn cell_diff(a: &Path, b: &Path, within: Option<&str>) -> Result<()> {
+    let bx: Option<[i32; 6]> = match within {
+        Some(s) => {
+            let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            if v.len() != 6 {
+                bail!("--box x0,y0,z0,x1,y1,z1, got {s}");
+            }
+            Some([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5]), v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])])
+        }
+        None => None,
+    };
+    let inside = |p: &[i32; 3]| bx.is_none_or(|q| (0..3).all(|i| p[i] >= q[i] && p[i] <= q[i + 3]));
+    let cells = |d: &Design| -> BTreeMap<[i32; 3], String> { d.block_list().into_iter().filter(|(p, s)| s != "minecraft:air" && inside(p)).collect() };
+    let (da, db) = (Design::load(a)?, Design::load(b)?);
+    let (ca, cb) = (cells(&da), cells(&db));
+    let mut only_a = 0usize;
+    let mut only_b = 0usize;
+    let mut changed = 0usize;
+    for (p, s) in &ca {
+        match cb.get(p) {
+            None => {
+                only_a += 1;
+                println!("  only in A ({},{},{}): {s}", p[0], p[1], p[2]);
+            }
+            Some(t) if t != s => {
+                changed += 1;
+                println!("  changed ({},{},{}): {s} -> {t}", p[0], p[1], p[2]);
+            }
+            Some(_) => {}
+        }
+    }
+    for (p, t) in &cb {
+        if !ca.contains_key(p) {
+            only_b += 1;
+            println!("  only in B ({},{},{}): {t}", p[0], p[1], p[2]);
+        }
+    }
+    let ent = |d: &Design| -> Vec<String> { d.entities.iter().map(|e| format!("{} at ({}, {}, {}) {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.clone().unwrap_or_default())).collect() };
+    let (ea, eb) = (ent(&da), ent(&db));
+    let ent_same = ea == eb;
+    if !ent_same {
+        for e in ea.iter().filter(|e| !eb.contains(e)) {
+            println!("  entity only in A: {e}");
+        }
+        for e in eb.iter().filter(|e| !ea.contains(e)) {
+            println!("  entity only in B: {e}");
+        }
+    }
+    println!(
+        "{} vs {}{}: {} cells in A, {} in B; {only_a} only in A, {only_b} only in B, {changed} changed; entities {}",
+        a.display(),
+        b.display(),
+        bx.map(|q| format!(" within ({},{},{})..({},{},{})", q[0], q[1], q[2], q[3], q[4], q[5])).unwrap_or_default(),
+        ca.len(),
+        cb.len(),
+        if ent_same { format!("the same ({})", ea.len()) } else { format!("DIFFER ({} vs {})", ea.len(), eb.len()) }
+    );
+    Ok(())
 }
 
 /// The rails of one part (its blocks pasted raw into a world one cell larger on every side) that

@@ -127,7 +127,9 @@ pub fn cart_on_cart(version: &str) -> Result<()> {
     // (G1 03:14) the death itself: an entity selector never matches a dead entity, so the Health-0 read can't be made;
     // each falling rider is NAMED (CustomName = its tag), and the server logs a named entity's death with its cause
     // ("Named entity Villager['ccfvN'/..] died: .."): read from the server's own log
-    let log = std::fs::read_to_string(srv.dir.join("logs").join("latest.log")).unwrap_or_default();
+    // (G1 05:00 (a), non-blocking) a server log that can't be read fails the run by name, never "no death line"
+    let log_path = srv.dir.join("logs").join("latest.log");
+    let log = std::fs::read_to_string(&log_path).map_err(|e| anyhow::anyhow!("the server log {} is unreadable ({e}): the death check needs it", log_path.display()))?;
     let mut death_line: Vec<Option<String>> = vec![None; n];
     for (i, dl) in death_line.iter_mut().enumerate() {
         *dl = log.lines().find(|l| l.contains("Named entity") && l.contains(&format!("['ccfv{i}'/")) && l.contains(" died: ")).map(|l| l.split(" died: ").nth(1).unwrap_or("").to_string());

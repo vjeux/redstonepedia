@@ -705,6 +705,36 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-14, farmopt 05:49 (2)) ARM3's drive with real cart presses: the cart (id0) onto the detector
+        // rail (11.5, 65.0625, 8.5) and back to its parking rail; REL at the repeater's input (9, 66, 9); A filled at t1
+        "arm3-cart" => {
+            let press = || ([0, 0, 0], "tp:id0:11.5:65.0625:8.5".to_string());
+            let park = || ([0, 0, 0], "tp:id0:2.5:64.0625:2.5".to_string());
+            let rel_on = || s([8, 66, 9], "minecraft:redstone_block");
+            let rel_off = || s([8, 66, 9], "minecraft:air");
+            vec![
+                (1, vec![s([11, 65, 9], "nbt:{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}")]),
+                (7, vec![press()]),
+                (19, vec![park()]),
+                (25, vec![press()]),
+                (45, vec![park()]),
+                (51, vec![rel_on()]),
+                (55, vec![rel_off()]),
+                (65, vec![rel_on()]),
+                (69, vec![rel_off()]),
+                (79, vec![press()]),
+                (99, vec![park()]),
+                (105, vec![press()]),
+                (125, vec![park()]),
+                (131, vec![rel_on()]),
+                (135, vec![rel_off()]),
+                (145, vec![press()]),
+                (165, vec![rel_on()]),
+                (169, vec![rel_off()]),
+                (189, vec![park()]),
+                (195, vec![press()]),
+            ]
+        }
         // (tickexact 2026-11-14, G1 03:47) the hold drive's lever stand-in on at t20, off at t60
         "hold-drive" => vec![(20, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=true]")]), (60, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=false]")])],
         // (tickexact 2026-11-14, ironspec 02:28 (1)) the linker (#2), holding HOME and the bed's ticket by its own claim,
@@ -6059,6 +6089,77 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: if linker { ([0, 40, 0], [40, 80, 40]) } else { ([0, 60, 0], [40, 80, 40]) },
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, cc767b78 04:50 / ironspec 04:40 (2): the slot-1 0.108 b as the game's push-or-not) lane 3's
+    // settling queue as cc767b78's seed-1 pair lays it (its scene, md5 a588be77d188, vendored as
+    // scenes/f1q2-seed1-c19-a588be77d188.txt) at design + (16, 80, 16): every block, and only lane 3's six carts on the
+    // slope (design (3.5, 17.5625 .. 22.5625, 1.5 .. 6.5), as the scene file places them), each with a villager holding
+    // HOME = the bed head (-3,-27,3) (NBT, as the drive writes it; no ticket), from day time 10778 (the drive's day0). In
+    // the game they settle 0.790 apart by t16; a seated rider whose move control is in MoveTo travels and pushes the cart
+    // above it (the push at t17 / t32 in one game run, none in another): each seed is one exact run (seed 1 pushes from
+    // t15, seeds 2 .. 6 do not; all replay with 0 differences)
+    {
+        let d = mctas::design::Design::parse(include_str!("../scenes/f1q2-seed1-c19-a588be77d188.txt")).expect("scenes/f1q2-seed1-c19-a588be77d188.txt");
+        let o = [16, 80, 16];
+        // the (A) stop's shutter (-5,-26,8) is written open and powered (its drive, day-1's shutter line, is a stand-in
+        // the scene does not carry): placed settled (closed, unpowered), as one update pass leaves it; far from lane 3
+        let shutter = [-5 + o[0], -26 + o[1], 8 + o[2]];
+        let b: Vec<([i32; 3], String)> = d
+            .block_list()
+            .into_iter()
+            .map(|(p, s)| ([p[0] + o[0], p[1] + o[1], p[2] + o[2]], s))
+            .map(|(p, s)| if p == shutter { (p, s.replace("open=true", "open=false").replace("powered=true", "powered=false")) } else { (p, s) })
+            .collect();
+        let home = format!("{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", -3 + o[0], -27 + o[1], 3 + o[2]);
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = (0..6).map(|k| ("minecraft:minecart".to_string(), [3.5 + o[0] as f64, 17.5625 + k as f64 + o[1] as f64, 1.5 + k as f64 + o[2] as f64], Some(home.clone()))).collect();
+        v.push(Scene {
+            name: "lane3-settle".into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 10778,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([17, 95, 15], [21, 105, 24]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, farmopt 05:49 (2): does redsim's detector rail hold like the game's?) ironfarm's ARM3
+    // interlock (designs/gadgets/ironfarm-arm3-interlock.txt, md5 0c7958d76b4f) at local + (8, 64, 8), its drive's schedule
+    // with REAL minecart presses: one empty cart parked on a rail at (2,64,2) and teleported onto the detector rail (press)
+    // and back (release); REL a redstone block at the SET repeater's input for 4 gt; A's stone filled at t1
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 62, stone);
+        for (p, s) in [
+            ([3, 0, 0], "minecraft:glass"),
+            ([2, 0, 2], "minecraft:stone"),
+            ([3, 1, 0], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]"),
+            ([1, 1, 1], "minecraft:stone"),
+            ([2, 1, 1], "minecraft:dropper[facing=east,triggered=false]"),
+            ([3, 1, 1], "minecraft:dropper[facing=west,triggered=false]"),
+            ([2, 1, 2], "minecraft:comparator[facing=north,mode=compare,powered=false]"),
+            ([1, 2, 1], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+        ] {
+            b.push(([p[0] + 8, p[1] + 64, p[2] + 8], s.to_string()));
+        }
+        b.push(([2, 63, 2], "minecraft:stone".to_string()));
+        b.push(([2, 64, 2], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        v.push(Scene {
+            name: "arm3-cart".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: vec![("minecraft:minecart".to_string(), [2.5, 64.0625, 2.5], None)],
+            day_time: 6000,
+            difficulty: Difficulty::Peaceful,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [14, 68, 14]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
