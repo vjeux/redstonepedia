@@ -7747,7 +7747,8 @@ fn p_static_run(
 fn cells_of(v: &[String], flag: &str) -> Result<Vec<redsim::pos::BlockPos>> {
     v.iter()
         .map(|s| {
-            let n: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+            // (G1 Nov 14 07:14 non-blocking, part 57) a parse error names the flag and the value
+            let n: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{flag} {s}: {e} (x,y,z integers)"))?;
             anyhow::ensure!(n.len() == 3, "{flag} {s}: x,y,z");
             Ok(redsim::pos::BlockPos::new(n[0], n[1], n[2]))
         })
@@ -9436,7 +9437,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_c, spec) = load(version, &design)?;
             let biome: &'static str = Box::leak(biome.into_boxed_str());
             let query = cells_of(&cell, "--cell")?;
-            let (lines, inside, outside) = crate::fleecheck::spawn_static_q(&spec, biome, lit, &query).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, inside, outside, q_bad) = crate::fleecheck::spawn_static_q(&spec, biome, lit, &query).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
@@ -9445,7 +9446,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &glines {
                 println!("{l}");
             }
-            anyhow::ensure!(inside == 0 && outside == 0 && off == 0, "the spawn static: {inside} spawnable cell(s) inside, {outside} on the build's outside, {off} golem floor(s) off the pad (bars 0)");
+            anyhow::ensure!(
+                inside == 0 && outside == 0 && off == 0 && q_bad == 0,
+                "the spawn static: {inside} spawnable cell(s) inside, {outside} on the build's outside, {off} golem floor(s) off the pad, {q_bad} --cell(s) outside the design's box or not judged (bars 0)"
+            );
         }
         MobfarmCmd::TExposure { design } => {
             let (c, spec_file) = load(version, &design)?;
