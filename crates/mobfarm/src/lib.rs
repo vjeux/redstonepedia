@@ -105,3 +105,4 @@ pub mod postsearch;
 pub mod yard;
 pub mod killguard;
 pub mod storage;
+pub mod portalframe;

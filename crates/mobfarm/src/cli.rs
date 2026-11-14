@@ -1362,6 +1362,18 @@ pub enum MobfarmCmd {
         #[arg(long)]
         partial: bool,
     },
+    /// (farmopt / G1 / ironspec Nov 14 13:19–13:47p: the frame car) The portal FRAME check over every nether portal
+    /// plane of each design, its overworld and its Nether part: obsidian under every bottom cell, above every top cell,
+    /// in both side columns (26.3 `PortalShape`'s `FRAME`; corners not needed), the interior a full one-axis rectangle
+    /// 2..21 wide and 3..21 high (`mobfarm::portalframe`); `--expect OVERWORLD,NETHER` asserts the plane counts; an Err
+    /// naming every failure
+    PortalFrames {
+        designs: Vec<PathBuf>,
+        /// The expected plane counts, OVERWORLD,NETHER (each design listed): a plane whose portal blocks are missing
+        /// isn't found, so a count other than expected fails by name
+        #[arg(long)]
+        expect: Option<String>,
+    },
     /// (ironspec 2026-11-12 23:19 (3) / 23:21 / 23:38 / 23:48) A design file must be saved settled: laid as
     /// the judges lay a design, its entities held (present, never ticked), daylight at the file's declared
     /// time (`# day-time: N`, else --day-time, else noon), then block ticks until no cell changes and nothing
@@ -15751,6 +15763,53 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::PortalFrames { designs, expect } => {
+            let expect = match &expect {
+                Some(s) => {
+                    let v: Vec<usize> = s.split(',').map(|n| n.trim().parse::<usize>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--expect {s:?}: OVERWORLD,NETHER ({e})"))?;
+                    anyhow::ensure!(v.len() == 2, "--expect {s:?}: OVERWORLD,NETHER");
+                    Some((v[0], v[1]))
+                }
+                None => None,
+            };
+            let mut bad: Vec<String> = Vec::new();
+            for f in &designs {
+                let text = std::fs::read_to_string(f)?;
+                let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
+                // (the overworld's planes and the Nether part's, each in its own coordinates)
+                let mut planes: Vec<(&str, crate::portalframe::Plane)> = crate::portalframe::portal_planes(&d.blocks).into_iter().map(|p| ("overworld", p)).collect();
+                planes.extend(crate::portalframe::portal_planes(&d.nether_blocks).into_iter().map(|p| ("Nether", p)));
+                let ne = planes.iter().filter(|(w, _)| *w == "Nether").count();
+                println!(
+                    "portal frames {}: {} plane(s) ({} in the Nether part){}, {} failing",
+                    f.display(),
+                    planes.len(),
+                    ne,
+                    expect.map_or(String::new(), |(o, n)| format!(", {o} overworld and {n} Nether expected")),
+                    planes.iter().filter(|(_, p)| !p.failures.is_empty()).count()
+                );
+                for (world, p) in &planes {
+                    let span = format!("{world} axis {} interior {},{},{}..{},{},{}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2]);
+                    if p.failures.is_empty() {
+                        println!("  stands: {span}");
+                    } else {
+                        println!("  FAILS: {span}: {}", p.failures.join("; "));
+                        bad.push(format!("{}: {span}", f.display()));
+                    }
+                }
+                // (the expected counts through the library's one entry)
+                if let Some((o, n)) = expect
+                    && let Err(e) = crate::portalframe::check_expect(&d, o, n)
+                {
+                    for l in e.iter().filter(|l| l.contains("expected")) {
+                        println!("  FAILS: {l}");
+                        bad.push(format!("{}: {l}", f.display()));
+                    }
+                }
+            }
+            // (an Err, never `exit(1)`, so the evidence dispatch's last line stands)
+            anyhow::ensure!(bad.is_empty(), "portal frames: {} failing: {}", bad.len(), bad.join("; "));
         }
         MobfarmCmd::SettleCheck { file, write, cap, day_time, allow_unchecked, all } => {
             let text = std::fs::read_to_string(&file)?;
