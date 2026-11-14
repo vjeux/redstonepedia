@@ -3257,6 +3257,10 @@ pub enum MobfarmCmd {
         /// over its sources): a cell counts only at block light 0; without it every cell is dark.
         #[arg(long)]
         lit: bool,
+        /// (dfb89499 / ironspec Nov 14, part 53) A cell x,y,z (repeatable) whose membership is printed:
+        /// interior or top surface (judged, with its verdict), a design block, or not judged.
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
     },
     /// (ironspec Nov 13 09:44) The T exposure static: every plain rail with three potential
     /// connections, its signal sources within Manhattan 2 (constant or operating) and its
@@ -9811,10 +9815,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (claims, _) = crate::fleecheck::design_claims(&spec, taken);
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
         }
-        MobfarmCmd::ExteriorSpawn { design, biome, lit } => {
+        MobfarmCmd::ExteriorSpawn { design, biome, lit, cell } => {
             let (_c, spec) = load(version, &design)?;
             let biome: &'static str = Box::leak(biome.into_boxed_str());
-            let (lines, inside, outside) = crate::fleecheck::spawn_static(&spec, biome, lit).map_err(|e| anyhow::anyhow!(e))?;
+            let query = cells_of(&cell, "--cell")?;
+            let (lines, inside, outside) = crate::fleecheck::spawn_static_q(&spec, biome, lit, &query).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
