@@ -9160,6 +9160,36 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 "  the bed's ticket at the night's end (ironspec 15:06b): {}; spare spends (takes of the free ticket) {takes}, releases {frees}\n",
                 if end_taken { "TAKEN (state (ii): the spare spent)" } else { "free (state (i): the spare intact)" }
             ));
+            // (G1 16:40 (i), ironspec 16:40) the ticks in state (ii) (the ticket taken: a second HOME loss
+            // locks napping), what ended each stretch, and the 16-ball exposure during (ii) (bar 0)
+            let tick_of = |r: &str| -> Option<i64> { r.trim_start_matches("dusk ").strip_prefix("t ").and_then(|x| x.split(':').next()).and_then(|t| t.parse::<i64>().ok()) };
+            let mut stretches: Vec<(i64, Option<i64>, String)> = Vec::new();
+            let mut open: Option<i64> = None;
+            for r in ticket_rows.iter() {
+                let Some(t) = tick_of(r) else { continue };
+                if r.starts_with("dusk") && r.contains("free 0") {
+                    open = Some(t);
+                } else if r.contains("free 1 -> 0") && open.is_none() {
+                    open = Some(t);
+                } else if r.contains("free 0 -> 1")
+                    && let Some(a) = open.take()
+                {
+                    let who = r.split("lost ").nth(1).map_or("a release".to_string(), |w| format!("{}'s release", w.trim()));
+                    stretches.push((a, Some(t), who));
+                }
+            }
+            if let Some(a) = open {
+                stretches.push((a, None, "still taken at the night's end".to_string()));
+            }
+            let in_ii = |t: i64| stretches.iter().any(|(a, b, _)| t >= *a && b.is_none_or(|b| t < b));
+            let ex_ii = ctl.exposure_16.iter().filter(|(t, _, _)| in_ii(*t - 0)).count();
+            let ticks_ii: i64 = stretches.iter().map(|(a, b, _)| b.unwrap_or(o.ticks as i64) - a).sum();
+            s.push_str(&format!(
+                "  state (ii) (G1 16:40 (i): the ticket taken; an exposure erase then LOCKS napping): {ticks_ii} ticks in {} stretches{}; the 16-ball exposure during (ii): {ex_ii} villager-ticks ({})\n",
+                stretches.len(),
+                if stretches.is_empty() { String::new() } else { format!(" ({})", stretches.iter().map(|(a, b, w)| format!("t {a}..{}: ended by {w}", b.map_or("the end".to_string(), |b| b.to_string()))).collect::<Vec<_>>().join("; ")) },
+                if ex_ii == 0 { "PASS" } else { "FAIL" }
+            ));
         }
         // (ironspec 06:24 / 06:31 / 07:02 real, G1: the decisive bar) every REST entry; the lane
         // riders' REST outside their own trip; those at a design position with a partial HOME path
