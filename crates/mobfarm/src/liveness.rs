@@ -727,10 +727,16 @@ thread_local! {
 
 /// (G1's Y6) Runs `f` with every [`restart_ev`] a no-op: the restart bar's control through the real run path.
 pub fn with_noop_restart<T>(f: impl FnOnce() -> T) -> T {
+    // (ironspec on f6e715e50 (f)) a drop guard: the flag clears even if `f` panics
+    struct Clear;
+    impl Drop for Clear {
+        fn drop(&mut self) {
+            NOOP_RESTART.with(|c| c.set(false));
+        }
+    }
     NOOP_RESTART.with(|c| c.set(true));
-    let r = f();
-    NOOP_RESTART.with(|c| c.set(false));
-    r
+    let _clear = Clear;
+    f()
 }
 
 /// (G1's Y6, the stub control through the REAL path) The evidence a no-op "restart" leaves: no chunk unloaded, the ids

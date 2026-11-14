@@ -243,6 +243,14 @@ pub enum MobfarmCmd {
         /// give it.
         #[arg(long)]
         world_open_shift: Option<i64>,
+        /// (ironspec on f6e715e50 (c)) `--wait-margin` is measured (the D-press spread + push); unset, the wait bar calls
+        /// it a placeholder.
+        #[arg(long)]
+        wait_margin_measured: bool,
+        /// (ironspec 16:28 (4)(2) (ii)) A pick waits for the stop to be free (no napper held at the queue seat through a
+        /// stop halt): the coverage cost of that rule.
+        #[arg(long)]
+        pick_only_free: bool,
         /// (G1 on 7897f4ba7 (b)) Print the judged bars' failures without failing the run.
         #[arg(long)]
         report_only: bool,
@@ -359,6 +367,15 @@ pub enum MobfarmCmd {
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
     /// driver repeater power-forcing a T-junction rail; the edge to the switch and the reset to the
     /// return, at every phase, against <= 10 gt.
+    /// ctl-shutter, LOGIC LEVEL (`ctlshutter.rs`, ironspec 16:00): the stop's shutter / release block of record
+    /// (the release on sustained presence from the latest bed-head pulse, held D, within W, PARKED; OPEN set
+    /// A70 AND SO AND NOT P_STRING, reset RLS OR P_STRING) as a delayed-logic model with designed gate delays:
+    /// the normal sweep, every forced row, a world open at every tick, one control per gate.
+    CtlShutterBench {
+        /// Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
+    },
     CtlJunctionBench {
         #[arg(long)]
         out: PathBuf,
@@ -13242,7 +13259,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0), hold_lead: 0, gated_tap: false, rs_delay: 0 };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0), hold_lead: 0, gated_tap: false, rs_delay: 0, pick_only_free: false };
                 if held_compare {
                     // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
                     // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
@@ -13838,7 +13855,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, hold_lead, gated_tap, rs_delay, clock_tol, push_shift, exit_phase_sweep, wait_margin, design_of_record, world_open_shift, report_only, rule2, days, seeds } => {
+        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, hold_lead, gated_tap, rs_delay, clock_tol, push_shift, exit_phase_sweep, wait_margin, design_of_record, world_open_shift, wait_margin_measured, pick_only_free, report_only, rule2, days, seeds } => {
             let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
             // (G1's Z4 on 10bcdf661: the hold lead and d_RS given or not, kept apart from their 0 default)
             let (hold_lead_given, rs_delay_given) = (hold_lead, rs_delay);
@@ -13934,6 +13951,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     world_open_shift
                 },
+                wait_margin_measured,
+                pick_only_free,
             };
             let mut v = crate::verdict::Verdict::new(&format!("ctl-coverage-bench (the operating hold {operating_hold})"));
             if design_of_record {
@@ -13950,6 +13969,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             crate::mirror::set(mirror_z);
             let mut v = crate::verdict::Verdict::new("ctl-feed-bench");
             for l in crate::ctlfeed::bench(width, &mut v).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+        }
+        MobfarmCmd::CtlShutterBench { report_only } => {
+            let mut v = crate::verdict::Verdict::new("ctl-shutter-bench");
+            for l in crate::ctlshutter::bench(&mut v) {
                 println!("{l}");
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
