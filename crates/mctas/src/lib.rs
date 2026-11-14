@@ -8,6 +8,7 @@
 
 pub mod blockstate;
 pub mod bridge;
+pub mod buildinputs;
 pub mod design;
 pub mod fabric;
 pub mod mcfont;

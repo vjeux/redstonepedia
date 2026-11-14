@@ -873,7 +873,27 @@ Every crate's code also picks the crate's own unit tests (`unit:<crate>`, the ve
 its row's pieces, and a full run (`--all`, or a change that picks everything) runs every crate's:
 the crates are the git root's `crates/` directories (a list the plan cannot read, or an empty one,
 fails the run as `unit:workspace`, never runs less); redsim's tests run in `sim:redsim-tests`
-(`testplan::TESTS_RUN_BY`), which every redsim rule picks (ironspec 2026-11-12 19:42 PT).
+(`testplan::TESTS_RUN_BY`), which every redsim rule picks (ironspec 2026-11-12 19:42 PT). A changed
+file that a crate's source pulls in with a literal `include_str!` / `include_bytes!` (a compiled-in
+design, a record file a test compares against) also picks that crate's unit tests, wherever it lives
+(ironspec 2026-11-14 05:35: train 15's lift-travel cars changed a design file `returnbench.rs`'s record
+test includes, and `mctas test` said "nothing to run"); the scan is the build inputs' own
+(`mctas::buildinputs`, the one definition the binary rule's provenance check uses too).
+
+**Builds before clocks, and the stamp** (ironspec 2026-11-14 05:35 / 05:40): before any piece's clock
+starts, the runner builds the tested tree's own `mctas` (the pieces that spawn mctas, such as
+`sim:recorded-mobai`'s `mobai replay`, run that binary) and every unit piece's test binaries in one
+`cargo test --release --no-run` (a piece's clock then times its own run: a piece no longer burns its
+time waiting on the shared build lock, and a genuinely slow piece still times out, by name); and every
+build is STAMPED with the tested tree's build tree (`MCTAS_SOURCE_TREE`, the binary rule's
+`mctas mobfarm source-tree`), so the evidence subcommands (mobfarm / mobai, default-deny) pass mctas's
+provenance check on a clean tested checkout and keep their real exit codes (no switch turns the check
+off). A dirty worktree is refused by that check when no commit is cited, so commit before `mctas test`
+(the runner says so). Outside the runner, a plain `cargo test` that runs a test spawning an evidence
+subcommand needs the same stamp: `MCTAS_SOURCE_TREE=$(mctas mobfarm source-tree) cargo test …`. Such a
+test writes only outside the worktree (a temp dir: a file written inside it changes the run's inputs and
+is refused) and names a refusal when it sees one (exit 4 asserted as "binary unstamped: provenance
+refused", never a bare exit-code mismatch: G1 2026-11-14 05:41).
 
 The rules are the table `testplan::RULES` (crates/piston-door/src/testplan.rs, most specific
 first; its tests check that every crate has a rule, that every rule under `crates/` picks at least
