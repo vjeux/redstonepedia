@@ -839,3 +839,24 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
 - **The readers of the moved cells** (ironspec 09:12a (2)): 9fc3155f's parts 29 / 50 / 52 (under the
   default-deny update reach, ARM's consumers declared once part 60's line lands), tick-exact's game
   `latch-rig --laid` on the moved latch row, the ONE TABLE's stop rows; the bench's own (above).
+
+## The re-lay unit's fix car (G1 12:26, CHANGES 6; ironspec 12:28p)
+
+- **No bar on 0 samples**: the boat, the waker statics, Z1's spread and the asleep boarding margin
+  each report NOT JUDGED (exit 2) by name when the run never measured them (the awake margin's
+  empty window passes only when the per-visit count shows every lie-down on the dismount tick).
+  The control: `--drop-z1-boat` removes Z1's boat before the first tick, and those bars report NOT
+  JUDGED by name.
+- **One frame constant**: `V_OFFSET` = (0,-20,-1), V rev 3.1's placement (V's header: "the stop at
+  loop = local + (0,-20,-1)"), in the re-laid headers and the boat's print; the fold's (0,-27,-1)
+  is named only as this frame's origin.
+- **The column bound** is vcompose's composer check (default-deny over every cell and entity box),
+  the one judge of "inside the chunk" (ironspec 12:28p): the bench's old label is gone. The
+  bench-only run-out's last cells (10,-1,5), (10,-2,5) and its stop (11,-1,5) lie east of the bound,
+  said so in the bench headers; the boat's 1.375-wide box overlaps its 1-wide cage's walls by 0.1875
+  a side (held by its collision; its play over the band 0).
+- **The waker margin's positive control**: `relaid/controls/bed-tier-relaid-z1-up-bench.txt`
+  (`--waker-dy 1`: Z1's cage one cell higher, its header saying CONTROL), on which the bench fails
+  by name: "the woken napper on P can stand ... from Z1's feet".
+- **ARM_IN's open input**: the reset row's end dust (5,-2,-5) points east at ARM_IN (6,-2,-5), the
+  controller's input cell, empty in the record (declared in the latch file's header).
