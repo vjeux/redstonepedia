@@ -160,6 +160,25 @@ pub struct ReturnOpts {
     pub bit_delay: i64,
     /// day-1's tripwire departure sensor over (8,0,7) (string (8,1,7), hooks (8,1,6)/(8,1,8)).
     pub tripwire: bool,
+    /// `--probe-string X,Y,Z` (ironfarm Nov 13 19:53; day-1's gate list rev 20:00: G15's containment
+    /// string over E's detector): a north-south string at (X,Y,Z), its hooks at Z-1 / Z+1 on glass at
+    /// Z-2 / Z+2, laid over everything; the bench prints the napper's cart and rider boxes per tick near
+    /// it, the string's state and the approach detector (7,-3,4)'s, and the press ticks against E.
+    pub probe_string: Option<(i32, i32, i32)>,
+    /// `--probe-empty`: the lift napper's cart spawned with no rider (the planted row: the string stays up).
+    pub probe_empty: bool,
+    /// `--probe-gate`: H2's approach set ANDs the probe string at E + 2 (day-1's form (i)).
+    pub probe_gate: bool,
+    /// `--arm-cell X,Y,Z,D` (day-1 Nov 13 20:17): ARM3 = the press of the detector at (X,Y,Z) (lane 7's
+    /// own climb; lay it with `--set`) delayed D gt (its repeater line, emulated).
+    pub arm_cell: Option<(i32, i32, i32, i64)>,
+    /// `--second-napper T` (the second-fault row, ironspec Nov 13 20:31 (e)): a second ridden napper
+    /// spawned at R at tick T (with --probe-empty, while the empty first one is parked on the hold).
+    pub second_napper: Option<i64>,
+    /// `--slow-after DT` (ironspec Nov 13 20:22 / 20:49, with `--arm-cell`): the cart that presses the
+    /// arming cell is planted slow: held still where its press found it for DT gt, then given back its
+    /// motion (the lift-foot merge margin's row).
+    pub slow_after: Option<i64>,
     /// `day1_taps` keyed to the napper's departure off the hold instead of its pulse's ARM3
     /// (ironspec 10:09, option (b)); with `tripwire`, to the string's first rising edge.
     pub dep_keyed: bool,
@@ -261,6 +280,9 @@ pub struct ReturnOpts {
     pub controller_f: bool,
     /// `forced_table`'s R6 positive: every F4(a) J hold-off widened by this many gt each side.
     pub f4_widen: i64,
+    /// `--f4-trim-trail T` (day-1 / ironspec Nov 13 21:20 / 21:24): G14's trailing guard trimmed: each of
+    /// F4(a)'s J hold-offs ends T gt earlier (R6's trailing edge), its start unchanged.
+    pub f4_trim_trail: i64,
     /// `forced_table`'s K-window positive (G1's C4): K(n)'s on-window widened by this many gt each side.
     pub f4_kwiden: i64,
     /// The run's length beyond `ticks` that the station's schedule may need (F1's waits, the drops'
@@ -1424,6 +1446,10 @@ pub struct Summary {
     /// G1's C7: R6's least margin after k + j (i64::MAX: no hold-off); C8: each branch's clear time
     /// (lanes -1 / 3 / 7; i64::MAX: no cart); C9: carts on lane n's R when K(n) armed.
     pub r6_margin: i64,
+    /// (ironspec Nov 13 21:18 (a)) R6's binding term: the cart (index), its J, and the side: 1 = the
+    /// leading edge (a batch cart leaving J before the napper's hold-off begins: the clear margin), 2 =
+    /// the trailing edge (a batch cart reaching J after the hold-off ends: the settle margin); 0 none.
+    pub r6_bind: (i64, i32, u8),
     pub branch_clear: [i64; 3],
     pub r_full_at_k: u16,
     /// The routing's bars join `bars()` under the new controller (G1's C1); the napper's own lane.
@@ -1522,7 +1548,16 @@ impl Summary {
             fails.push(format!("R6 {}", self.f4_r6));
         }
         if self.r6_margin != i64::MAX && self.r6_margin < 10 {
-            fails.push(format!("R6's margin {} (< 10)", self.r6_margin));
+            let (bc, bj, bs) = self.r6_bind;
+            fails.push(format!(
+                "R6's margin {} (< 10; binding: {} edge, batch cart {bc} at J({bj}))",
+                self.r6_margin,
+                match bs {
+                    1 => "the LEADING (a cart clearing J before the hold-off)",
+                    2 => "the TRAILING (a cart reaching J after the hold-off)",
+                    _ => "an unknown",
+                }
+            ));
         }
         if self.f4_kwin > 0 {
             fails.push(format!("K-window {}", self.f4_kwin));
@@ -1988,6 +2023,38 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
         bad.len(),
         if bad.is_empty() { String::new() } else { format!(": {}", bad.iter().take(30).cloned().collect::<Vec<_>>().join("; ")) }
     ) + &{
+        // (C1's classification (G1 / ironspec 17:29; ironfarm Nov 13 20:49): every failing row's bars by
+        // name (bench_fails + the routing's), and how many rows each bar fails, with its first rows)
+        let mut by: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+        for (l, r) in v.iter() {
+            match r {
+                Ok(s) if !s.bars() => {
+                    let mut why = bench_fails(s);
+                    if s.controller_f {
+                        why.extend(s.routing_fails());
+                    }
+                    if why.is_empty() {
+                        why.push("a bar of bars() outside bench_fails / routing_fails".to_string());
+                    }
+                    for w in why {
+                        // (the bar's name without its number, so rows group by bar)
+                        let key: String = w.chars().take_while(|c| !c.is_ascii_digit() && *c != '(').collect::<String>().trim().to_string();
+                        by.entry(key).or_default().push(format!("{l}: {w}"));
+                    }
+                }
+                Err(e) => by.entry("the row errored".to_string()).or_default().push(format!("{l}: {e}")),
+                _ => {}
+            }
+        }
+        if by.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; the failing rows by bar (C1's classification): {}",
+                by.iter().map(|(k, rows)| format!("[{k}: {} rows, e.g. {}]", rows.len(), rows.iter().take(3).cloned().collect::<Vec<_>>().join(" / "))).collect::<Vec<_>>().join(" ")
+            )
+        }
+    } + &{
         // (ironspec 07:26 PT C1: record-match is a bar; the rows it alone fails, so the other bars'
         // count stays readable while the Nether cells wait for `# out-of-scope:`)
         let only_rm = v.iter().filter(|(_, r)| r.as_ref().is_ok_and(|s| !s.clean() && Summary { record_no: None, ..*s }.clean())).count();
@@ -4043,6 +4110,30 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     };
     // (`mirror_z`: the world built mirrored, z' = 3 - z, every block's north and south swapped)
     let spec = if o.mirror_z { mirror_spec(&spec)? } else { spec };
+    // (`probe_string` (ironfarm Nov 13 19:53): the containment string and its hooks on glass, laid over
+    // the record and the bench's own cells)
+    let spec = if let Some((px, py, pz)) = o.probe_string {
+        let mut s = spec;
+        let cells = [
+            (pz - 2, "minecraft:glass"),
+            (pz + 2, "minecraft:glass"),
+            (pz - 1, "minecraft:tripwire_hook[attached=true,facing=south,powered=false]"),
+            (pz + 1, "minecraft:tripwire_hook[attached=true,facing=north,powered=false]"),
+            (pz, "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]"),
+        ];
+        for (z, b) in cells {
+            let p = BlockPos::new(px, py, z);
+            let blk = Block::parse(b)?;
+            if let Some(slot) = s.blocks.iter_mut().find(|(q, _)| *q == p) {
+                slot.1 = blk;
+            } else {
+                s.blocks.push((p, blk));
+            }
+        }
+        s
+    } else {
+        spec
+    };
     // (ironspec 11:05: `place_raw` skips cells outside the world's box silently; refuse them)
     let oob = spec.blocks.iter().filter(|(p, _)| p.x < spec.lo.x || p.y < spec.lo.y || p.z < spec.lo.z || p.x > spec.hi.x || p.y > spec.hi.y || p.z > spec.hi.z).count();
     if oob > 0 {
@@ -4295,6 +4386,20 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut skipped_pulses: usize = 0;
     let mut arms: Vec<i64> = Vec::new();
     let mut det_rise: Option<i64> = None;
+    // (`probe_string`'s per-tick lines and its edges)
+    let (mut probe_lines, mut probe_press, mut probe_release, mut probe_e): (Vec<String>, Vec<i64>, Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut probe_s_was, mut probe_e_was) = (false, false);
+    let mut probe_e2: Option<bool> = None;
+    let mut probe_blocked = 0usize;
+    // (the latest E rise, and the E whose string read pressed at its E + 2: the waiting bit's set)
+    let (mut probe_last_e, mut probe_set_e): (Option<i64>, Option<i64>) = (None, None);
+    // (`second_napper`: the second ridden napper's cart, and its per-tick lines)
+    let mut nap2: Option<u32> = None;
+    // (`arm_cell`: the climb detector's rises)
+    let mut arm_cell_rises: Vec<i64> = Vec::new();
+    let mut arm_cell_was = false;
+    // (`slow_after`: (entity index, the tick its hold ends, its position and motion at the press))
+    let mut slow_holds: Vec<(usize, i64, redsim::entity::Vec3, redsim::entity::Vec3)> = Vec::new();
     let mut col_min: Option<(f64, usize, usize, i64)> = None;
     let mut j_vmax = [0.0f64; 3];
     let mut slope_rises: Vec<i64> = Vec::new();
@@ -4503,6 +4608,18 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // (`path_a`: lane 7's release is toggled with the controller's writes, just before the tick:
         // see `lane7_drive` below)
         if let Some(d) = o.napper_delay {
+            // (`slow_after`: the planted slow carts held still where their press found them, then given
+            // back their motion)
+            for &(ci, until, p0, v0) in &slow_holds {
+                if ci < run.world.entities.list.len() && !run.world.entities.list[ci].removed {
+                    if t < until {
+                        run.world.entities.set_pos(ci, p0);
+                        run.world.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+                    } else if t == until {
+                        run.world.entities.list[ci].delta_movement = v0;
+                    }
+                }
+            }
             let a = if let Some(c0) = o.arm_rel {
                 // (ARM3 := REL + c (day-1 14:41): the arming at a fixed tick of each cycle; keyed to
                 // F1's gated REL with `controller_f` (day-1 12:58: the hold pulse keyed to it))
@@ -4511,6 +4628,28 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 // start of tick REL + c + 1, as a signal risen in tick REL + c; the hold rail then rises
                 // in tick REL + c + D)
                 (0..o.batches).any(|b| clock == sched.rel[b] + c0 + 1)
+            } else if let Some((ax, ay, az, dl)) = o.arm_cell {
+                // (day-1 20:17: ARM3 = the lane-7 cart's press of a detector on its own climb ((5,5,7)
+                // or (4,6,7), laid with `--set`), delayed `dl` gt by its repeater line (emulated: the
+                // press's rise + dl))
+                let clock = if o.game_ticks { t } else { live };
+                let p = on(&run.world, ax, ay, az);
+                if p && !arm_cell_was {
+                    arm_cell_rises.push(clock);
+                    // (`slow_after` DT (ironspec 20:22 / 20:49): the pressing cart planted slow after
+                    // its press: held where it is, still, for DT gt, then given back its motion)
+                    if let Some(dt) = o.slow_after
+                        && dt > 0
+                    {
+                        for (ci, e) in run.world.entities.list.iter().enumerate() {
+                            if !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && (e.pos.x.floor() as i32, e.pos.y.floor() as i32, zf(e.pos.z.floor() as i32)) == (ax, ay, az) {
+                                slow_holds.push((ci, t + dt, e.pos, e.delta_movement));
+                            }
+                        }
+                    }
+                }
+                arm_cell_was = p;
+                arm_cell_rises.iter().any(|r| clock == r + dl)
             } else if o.napper_lift && o.arm_station {
                 // (`arm_station`: the station's own exit detector on lane 7 (7,0,2), before the boosters)
                 on(&run.world, 7, 0, 2)
@@ -4534,12 +4673,17 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     None => true,
                     // (live AND delayed (ironspec 11:49): the waiting bit itself (set on (7,-3,4),
                     // reset by the fired pulse, so not after the release) and its copy delayed X)
-                    Some(x) if !o.gate_delayed_only => !hold_released && det_rise.or(carts[n].w_exit).is_some_and(|we| now + 2 - we >= x),
+                    Some(x) if !o.gate_delayed_only => !hold_released && (if o.probe_gate { probe_set_e } else { det_rise.or(carts[n].w_exit) }).is_some_and(|we| now + 2 - we >= x),
                     // (the control: the delayed copy alone, still high for X gt after the reset, so the
                     // departing napper's own second ARM3 rise fires a phantom pulse)
                     Some(x) => det_rise.or(carts[n].w_exit).is_some_and(|we| now + 2 - we >= x) && rel_at.is_none_or(|r| now + 2 < r + x),
                 };
-                if fire {
+                if fire && o.probe_gate && probe_set_e.is_none() {
+                    // (`probe_gate` (day-1's form (i), gate list rev 20:00): H2's approach set takes the
+                    // probe string at E + 2 as one more AND input: no press at E + 2, no waiting bit)
+                    probe_blocked += 1;
+                    skipped_pulses += 1;
+                } else if fire {
                     pulses.push(now + d);
                     fired_arms.push(now);
                 } else {
@@ -4563,17 +4707,111 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             // (`napper_lift`: the napper leaves R at `napper_r` (default 0), climbs its lift and the
             // staircase and waits on the hold (9,0,8))
             if o.napper_lift && carts[n].id.is_none() && t >= o.napper_r {
-                let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", o.napper_speed);
+                let nbt = if o.probe_empty {
+                    format!("{{Motion:[{:.4}d,0.0d,0.0d]}}", o.napper_speed)
+                } else {
+                    format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", o.napper_speed)
+                };
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375 - o.lift_depth as f64, if o.mirror_z { -0.5 } else { 4.5 }], Some(&nbt))?;
                 carts[n].id = Some(id);
                 carts[n].launch_live = live;
                 carts[n].rider = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied());
+            }
+            // (`second_napper` T (the second-fault row, ironspec 20:31 (e)): a second RIDDEN napper
+            // spawned at R at tick T, while the first (with --probe-empty, empty) is parked on the hold)
+            if let Some(t2) = o.second_napper
+                && o.napper_lift
+                && nap2.is_none()
+                && t >= t2
+            {
+                let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", o.napper_speed);
+                nap2 = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375 - o.lift_depth as f64, if o.mirror_z { -0.5 } else { 4.5 }], Some(&nbt))?);
             }
             // (the release pulse (day-1 07:03): the hold rail powered from ARM3 + D for `release_pulse`
             // gt (8; >= 6 launches from rest) every cycle (EMULATED: day-1's chain end, a redstone
             // block at the repeater's input (7,-1,8) from two gt before: the repeater's delay 1 is one
             // redstone tick, 2 gt; the rail's measured rise is printed)
             if o.napper_lift {
+                // (`probe_string`: the napper's cart and rider boxes near the string, the string's and E's
+                // states, each tick (ironfarm Nov 13 19:53; ironspec 19:45 (a): measured on the real cells))
+                if let Some((px, py, pz)) = o.probe_string {
+                    let s_on = matches!(run.world.get(BlockPos::new(px, py, zf(pz))), Block::Tripwire { powered: true, .. });
+                    let e_on = matches!(run.world.get(BlockPos::new(7, -3, zf(4))), Block::DetectorRail { powered: true, .. });
+                    if let Some(id) = carts[n].id
+                        && let Some(ci) = redsim::entity::index_of(&run.world, id)
+                    {
+                        let ce = &run.world.entities.list[ci];
+                        let near = (ce.pos.x - (px as f64 + 0.5)).abs() < 4.0 && (ce.pos.z - (pz as f64 + 0.5)).abs() < 4.0 && ce.pos.y > (py - 4) as f64 && ce.pos.y < (py + 3) as f64;
+                        if near || s_on != probe_s_was || e_on != probe_e_was {
+                            let rider = carts[n].rider.and_then(|r| redsim::entity::index_of(&run.world, r)).map_or("none".to_string(), |ri| {
+                                let e = &run.world.entities.list[ri];
+                                format!("feet {:.4},{:.4},{:.4} box x {:.4}..{:.4} y {:.4}..{:.4} z {:.4}..{:.4}", e.pos.x, e.pos.y, e.pos.z, e.bb.min_x, e.bb.max_x, e.bb.min_y, e.bb.max_y, e.bb.min_z, e.bb.max_z)
+                            });
+                            probe_lines.push(format!(
+                                "  probe t {t}: cart {:.4},{:.4},{:.4} box x {:.4}..{:.4} y {:.4}..{:.4} z {:.4}..{:.4} on {} | rider {rider} | string ({px},{py},{pz}) {} | E (7,-3,4) {}",
+                                ce.pos.x,
+                                ce.pos.y,
+                                ce.pos.z,
+                                ce.bb.min_x,
+                                ce.bb.max_x,
+                                ce.bb.min_y,
+                                ce.bb.max_y,
+                                ce.bb.min_z,
+                                ce.bb.max_z,
+                                run.world.get(BlockPos::new(ce.pos.x.floor() as i32, ce.pos.y.floor() as i32, ce.pos.z.floor() as i32)).to_string().trim_start_matches("minecraft:"),
+                                if s_on { "PRESSED" } else { "up" },
+                                if e_on { "on" } else { "off" }
+                            ));
+                        }
+                    }
+                    if s_on && !probe_s_was {
+                        probe_press.push(t);
+                    }
+                    // (the second napper's line, each tick near the string or the hold)
+                    if let Some(id2) = nap2
+                        && let Some(ci) = redsim::entity::index_of(&run.world, id2)
+                    {
+                        let ce = &run.world.entities.list[ci];
+                        let near = (ce.pos.x - (px as f64 + 0.5)).abs() < 4.0 && (ce.pos.z - (pz as f64 + 0.5)).abs() < 4.5 && ce.pos.y > (py - 4) as f64 && ce.pos.y < (py + 3) as f64;
+                        if near {
+                            let rider = ce.passengers.first().copied().and_then(|r| redsim::entity::index_of(&run.world, r)).map_or("none (no passenger)".to_string(), |ri| {
+                                let e = &run.world.entities.list[ri];
+                                format!("feet {:.4},{:.4},{:.4}", e.pos.x, e.pos.y, e.pos.z)
+                            });
+                            probe_lines.push(format!(
+                                "  probe t {t}: napper-2 cart {:.4},{:.4},{:.4} v {:.4},{:.4},{:.4} on {} | rider {rider} | string {} | E {}",
+                                ce.pos.x,
+                                ce.pos.y,
+                                ce.pos.z,
+                                ce.delta_movement.x,
+                                ce.delta_movement.y,
+                                ce.delta_movement.z,
+                                run.world.get(BlockPos::new(ce.pos.x.floor() as i32, ce.pos.y.floor() as i32, ce.pos.z.floor() as i32)).to_string().trim_start_matches("minecraft:"),
+                                if s_on { "PRESSED" } else { "up" },
+                                if e_on { "on" } else { "off" }
+                            ));
+                        }
+                    }
+                    if e_on && !probe_e_was {
+                        probe_last_e = Some(t);
+                    }
+                    // (day-1's form (i): H2's approach set samples the string at the LATEST E + 2; a set
+                    // E keys the waiting bit (`probe_set_e`) the gate reads under `probe_gate`)
+                    if probe_last_e.is_some_and(|e| t == e + 2) {
+                        probe_e2 = Some(s_on);
+                        if s_on {
+                            probe_set_e = probe_last_e;
+                        }
+                    }
+                    if !s_on && probe_s_was {
+                        probe_release.push(t);
+                    }
+                    if e_on && !probe_e_was {
+                        probe_e.push(t);
+                    }
+                    probe_s_was = s_on;
+                    probe_e_was = e_on;
+                }
                 let hold_on = matches!(run.world.get(BlockPos::new(9, 0, zf(8))), Block::Rail { activator: false, powered: true, .. });
                 // (the approach detector (7,-3,4)'s own powered state: its first rise once the
                 // napper is out, for the detector -> rest the official ride measures)
@@ -4709,7 +4947,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     let (kw, js) = f4_windows_w(o.napper_lane, td, o.f4_widen);
                     let kw = (kw.0 - o.f4_kwiden, kw.1 + o.f4_kwiden);
                     f4_k = Some(kw);
-                    f4_holds = js;
+                    // (`f4_trim_trail` T (day-1 / ironspec Nov 13 21:20 / 21:24): G14's trailing guard
+                    // trimmed: each J hold-off ends T gt earlier, its start unchanged)
+                    f4_holds = js.into_iter().map(|(j, a, b)| (j, a, b - o.f4_trim_trail)).collect();
                 }
                 if let Some((k0, k1)) = f4_k {
                     let want = t >= k0 && t < k1;
@@ -5626,6 +5866,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // of a cart before it, the back-on write by the first read of a cart after it, a cart inside it -1;
     // the least, less k (2: the convention placement's world open) and j (2: the release jitter); the
     // bar >= 10)
+    let mut r6_bind: (i64, i32, u8) = (-1, 0, 0);
     let r6_margin: i64 = {
         let mut m = i64::MAX;
         for (j, a, b) in &f4_holds {
@@ -5634,16 +5875,22 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     continue;
                 }
                 let last = j_last.get(&(*x, *k)).copied().unwrap_or(*t0);
-                m = m.min(if last < *a {
-                    clear_margin(*a, last, false)
+                let (v, side) = if last < *a {
+                    (clear_margin(*a, last, false), 1u8)
                 } else if *t0 >= *b {
-                    settle_margin(*b, *t0, false)
+                    (settle_margin(*b, *t0, false), 2u8)
                 } else {
-                    -1
-                });
+                    (-1, 0u8)
+                };
+                if v < m {
+                    m = v;
+                    r6_bind = (*k as i64, *x, side);
+                }
             }
         }
-        if m == i64::MAX { m } else { m - 2 - 2 }
+        // (ironspec 17:51: the design term k + j = 2 (an entity press against a redstone sample, the
+        // jitter); the login sweep emulates the world open itself and subtracts nothing more)
+        if m == i64::MAX { m } else { m - 2 }
     };
     // (G1's C8: each branch's clear time, a cart's first tick on its D cell to its arrival at the lane's
     // merge cell, the most over the run; R2's bar: consecutive carts into a branch at least that + 10)
@@ -5695,7 +5942,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     }
     if o.controller_f {
         out.push(format!(
-            "controller f (F1 + F2 + F4(a)): K({}) ({},25,9) on over t {}; held off for the napper's passage: {}; R6 (a batch cart at a held J) {}, its least margin after k 2 + j 2 {} (G1's C7: bar >= 10); the K-window bar (a batch cart at K while on) {}; carts on R({}) when K arms (G1's C9: bar 0) {}; K windows disjoint and one napper per run: by construction{}",
+            "controller f (F1 + F2 + F4(a)): K({}) ({},25,9) on over t {}; held off for the napper's passage: {}; R6 (a batch cart at a held J) {}, its least margin after k + j = 2 (ironspec 17:51) {} (G1's C7: bar >= 10); the K-window bar (a batch cart at K while on) {}; carts on R({}) when K arms (G1's C9: bar 0) {}; K windows disjoint and one napper per run: by construction{}",
             o.napper_lane,
             o.napper_lane - 2,
             f4_k.map_or("- (the napper never left the hold)".to_string(), |(a, b)| format!("{a}..{} (T_d + {} .. + {})", b - 1, a - carts.get(n).and_then(|c| c.w_leave).unwrap_or(0), b - 1 - carts.get(n).and_then(|c| c.w_leave).unwrap_or(0))),
@@ -6721,6 +6968,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         branch_gap,
         mouth_gap,
         r6_margin,
+        r6_bind,
         branch_clear,
         r_full_at_k,
         controller_f: o.controller_f,
@@ -6819,6 +7067,62 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         }),
     };
     out.extend(trace);
+    if let Some((ax, ay, az, dl)) = o.arm_cell {
+        // (G1's per-batch print (day-1 20:17): ARM3's press - REL against R6's after-pair margin)
+        out.push(format!(
+            "arm-cell ({ax},{ay},{az}) (day-1 Nov 13 20:17: ARM3 = its press + {dl}, the line emulated): presses {:?}; press - REL per batch [{}]",
+            arm_cell_rises,
+            (0..o.batches).map(|b| arm_cell_rises.iter().find(|r| **r >= sched.rel[b]).map_or("-".to_string(), |r| format!("batch {b}: {}", r - sched.rel[b]))).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if let Some((px, py, pz)) = o.probe_string {
+        // (day-1's form (i): the string read at H2's sample E + 2; ironspec 19:45: the release lag (a
+        // pressed string re-checks every 10 gt) and the least gap from a press's release to the next E + 2)
+        let at = |t: i64| probe_press.iter().zip(probe_release.iter().map(Some).chain(std::iter::repeat(None))).any(|(a, r)| *a <= t && r.is_none_or(|r| t < *r));
+        out.push(format!(
+            "probe-string ({px},{py},{pz}) (ironfarm Nov 13 19:53, G15's containment string over E's detector; the napper's cart {}; --probe-gate {}: pulses withheld by the string {probe_blocked}): E's rises {:?}; the string's presses {:?}, releases {:?}; per E rise, the string at E + 2: [{}]; ticks pressed before E + 2 / after it (the margin each side): [{}]",
+            if o.probe_empty { "EMPTY (no rider)" } else { "ridden" },
+            if o.probe_gate { "on (day-1's form (i): H2's approach set ANDs the string at E + 2)" } else { "off (the string read, not wired)" },
+            probe_e,
+            probe_press,
+            probe_release,
+            probe_e.iter().map(|e| format!("E {e}: {}", if at(e + 2) { "PRESSED" } else { "up" })).collect::<Vec<_>>().join(", "),
+            probe_e
+                .iter()
+                .map(|e| {
+                    let t2 = e + 2;
+                    let p = probe_press.iter().filter(|a| **a <= t2).max();
+                    let r = probe_release.iter().filter(|r| **r > t2).min();
+                    match (p, at(t2)) {
+                        (Some(p), true) => format!("E {e}: {} before, {} after", t2 - p, r.map_or("held to the end".to_string(), |r| (r - 1 - t2).to_string())),
+                        _ => format!("E {e}: not pressed at E + 2"),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        out.extend(probe_lines);
+        // (the second-fault row's outcome: both carts' last positions and riders)
+        if let Some(t2) = o.second_napper {
+            let at = |id: Option<u32>| {
+                id.and_then(|id| redsim::entity::index_of(&run.world, id)).map_or("gone".to_string(), |i| {
+                    let e = &run.world.entities.list[i];
+                    let rider = e.passengers.first().copied().and_then(|r| redsim::entity::index_of(&run.world, r)).map_or("no rider".to_string(), |ri| {
+                        let r = &run.world.entities.list[ri];
+                        format!("rider seated, feet {:.2},{:.2},{:.2}", r.pos.x, r.pos.y, r.pos.z)
+                    });
+                    format!("{:.2},{:.2},{:.2} ({rider})", e.pos.x, e.pos.y, e.pos.z)
+                })
+            };
+            out.push(format!(
+                "second-fault row (ironspec 20:31 (e); the second napper spawned at R at t {t2}): the hold's pulses {:?}; the first napper's cart ({}) ends at {}; the second napper's cart ends at {}",
+                pulses,
+                if o.probe_empty { "EMPTY" } else { "ridden" },
+                at(carts[n].id),
+                at(nap2)
+            ));
+        }
+    }
     Ok((out.join("\n"), summary))
 }
 
