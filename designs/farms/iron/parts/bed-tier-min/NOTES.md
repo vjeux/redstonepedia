@@ -537,3 +537,35 @@ Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2a
   (-3,1,5..6)), so an awake napper on P never re-acquires it. Tick-exact: in 26.3 a cart at P does
   NOT seat a sleeper in this bed (9 / 9), so the awake guard is bought (DAY-1 places it: a string at P
   + 1). A never-slept napper (by day) stays on the bed foot (-3,0,3) the whole visit, never on P.
+  (Tick-exact 15:46, later: the game DOES seat a sleeper that drifted after a walked re-sleep, the
+  merged path's; ironspec 15:48: a seated sleeper is a normal departure, a centred one refused is the
+  permanent halt the STALE guard prevents.)
+
+## The controller's terms, RS_ready and the 16-ball (Nov 13 evening)
+
+- **The bench's controller terms are NAMED STAND-INS** (G1 15:59's bench rule; printed by every run):
+  F = max(the lie-down + 2, ARM's rise + 70), the close at the wake + `--close-after`, the park's
+  release at the wake + `--release-after`, by the stand-in levers (-5,1,8) and (3,0,4); `--latch` is
+  DAY-1's superseded 12:38 latch. DAY-1's adopted stop (ironspec 15:46 / 16:00: RLS on sustained
+  P_STRING presence after the latest observer pulse, OPEN reset on RLS or P_STRING, PARK = RLS + 8,
+  no timeouts) is ctl-shutter's to measure; on its wiring the shutter closes at the wake press (about
+  the wake + 4) and the park releases about the wake + 20..28: there the hold delta's least margin is
+  13 / 17 / 21 gt (park at the wake + 20 / 24 / 28), 408 / 408 clean, the longest wake -> boarding
+  39..47 gt (LAST_WOKEN's 100: the re-sleep lock holds with >= 53 gt).
+- **The rider-keyed RS_ready** (`bedtier --rs-ready`; ironspec 15:23, day-1 15:29): a tripwire string
+  at (4,0,5) one cell over R's detector, hooks (4,0,4) facing south / (4,0,6) facing north on glass
+  (4,0,3) / (4,0,7), off the rail line; a seated rider's box presses its band (y 0.0625..0.15625, the
+  attached string's shape), an empty cart's top (y -0.24) never reaches it. DAY-1 reads the north
+  hook by a repeater at (5,0,4) on (5,-1,4) (its cells). `bedtier-bench` judges it per visit: the
+  riding napper presses it on every seated visit, nothing else ever does, the rider's band overlap
+  and the cart's gap under the band, its press - R's detector rise (d_RS's new reference).
+- **The stale press** (ironspec 15:46 (2)): every run prints the napper's least gap to P_STRING's band
+  (-2,1,4) over the 12 gt before each lie-down; the eject's set-down lies down in its own tick, the
+  ridden cart north of P at K.
+- **Check 4's 16-ball** (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME): the
+  stop's own cells all sit within 11.1 of the bed head but are occupied only while the bed is free
+  (RS_ready / R1 hold the next napper until the previous one boards); the held next napper waits at
+  onechunk's queue seat (9,13,-3) local, 18.9 away. Every run prints the boarded rider's distance at R
+  and at its last bench tick (the route beyond R is composed).
+- **R4's planter** (G1 15:29 / b8949c96): `--cart-states FILE` writes the cart's states near the
+  top-half trapdoors (`x,y,z,vx,vy,vz,rider`, the design frame).

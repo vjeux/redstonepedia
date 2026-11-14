@@ -6822,12 +6822,11 @@ pub enum MobfarmCmd {
         /// defaults are the accepted design; 10 is the pre-cut control).
         #[arg(long, default_value_t = 2)]
         after_sleep: i64,
-        /// The park's release, gt after the wake edge: the (b+) ruling's 5 (ironspec 08:53 / 09:38 /
-        /// 10:12: delta = 5 at the park, the window closed at the wake + 1; G1's Q4: the first
-        /// (-2,0,5) entry >= the close + 27 is judged, so 0 fails; a real line through the wake
-        /// sensor closes later: pass --close-after and --release-after = close + 4; 30 is the
-        /// pre-cut control).
-        #[arg(long, default_value_t = 5)]
+        /// The park's release, gt after the wake edge (a named stand-in for DAY-1's adopted stop,
+        /// ironspec 16:09: the park at RLS + 8, about the wake + 20..28; 20 is the earliest: the
+        /// first (-2,0,5) entry clears the close + 27 by >= 13 gt, the bar; 30 is the pre-cut
+        /// control).
+        #[arg(long, default_value_t = 20)]
         release_after: i64,
         /// By day (2,000): the napper should not sleep.
         #[arg(long)]
@@ -7021,9 +7020,10 @@ pub enum MobfarmCmd {
         /// design frame; the stop's own bench only.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         offset: Vec<i32>,
-        /// (day-1 12:03) Z1's window shut this many gt after the wake edge (1: the earliest, the
-        /// bench's stand-in; a real line through the wake sensor closes later).
-        #[arg(long, default_value_t = 1)]
+        /// (day-1 12:03 / ironspec 16:09) Z1's window shut this many gt after the wake edge (a named
+        /// stand-in: on DAY-1's adopted stop the woken napper's press on P resets OPEN, about the
+        /// wake + 4).
+        #[arg(long, default_value_t = 4)]
         close_after: i64,
         /// (G1's Q2) The slope hold's tap on its built path: T,W[,PERIOD]: the stand-in input lever
         /// (1,-2,3) into DAY-1's repeater (1,-2,4) on for W gt at T, and with a PERIOD at every

@@ -1483,6 +1483,12 @@ pub struct Row {
     pub ride_dist_at_r: Option<f64>,
     pub ride_dist_last: Option<(i64, f64)>,
     pub ride_over16_at: Option<i64>,
+    /// (G1 16:09: the step-off) after the wake and before the pickup: the napper's awake ticks on P
+    /// in REST (calm) and in other activities, and its first awake cell off P (a step-off: the cart
+    /// would leave empty).
+    pub rest_on_p: usize,
+    pub other_on_p: usize,
+    pub stepped_off: Option<(i64, [i32; 3])>,
     /// (G1 15:29 / b8949c96 15:45: R4's planter) the cart's states on each tick its centre is within
     /// 1.5 of a top-half trapdoor's column at its layer or the one above: `x,y,z,vx,vy,vz,rider`
     /// (the design frame, the stored motion), with --cart-states.
@@ -3328,6 +3334,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.ride_over16_at = Some(t);
                 }
             }
+            // (G1 16:09: the step-off: awake after the wake, before the pickup: on P calm (REST) or
+            // not, and the first cell off P)
+            if !riding && !asleep && row.woke_at.is_some() && row.pickup.is_none() {
+                if vcell == [-2, 0, 4] {
+                    if redsim::entity::mob::ai::brain::brain(w, vi).activity.name() == "rest" {
+                        row.rest_on_p += 1;
+                    } else {
+                        row.other_on_p += 1;
+                    }
+                } else if row.stepped_off.is_none() {
+                    row.stepped_off = Some((t, vcell));
+                    row.problems.push(format!("t {t}: the woken napper stepped off P to {vcell:?} before the pickup (G1 16:09: the cart would leave empty)"));
+                }
+            }
             // (ironspec 16:29, the escape row: the napper on foot on the entry or the approach (x 3
             // and east at z -4 and north, y 2 and up), or out of the stop's box)
             if !riding
@@ -4887,6 +4907,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             sk.ride_last.push(d);
                         }
                         sk.ride_over16 += r.ride_over16_at.is_some() as usize;
+                        sk.rest_on_p_max = sk.rest_on_p_max.max(r.rest_on_p);
+                        sk.rest_on_p_visits += (r.rest_on_p > 0) as usize;
+                        sk.other_on_p_max = sk.other_on_p_max.max(r.other_on_p);
+                        sk.step_offs += r.stepped_off.is_some() as usize;
                         seated += r.seated_out as usize;
                         seated_here += r.seated_out as usize;
                         not_out += r.out_at.is_none() as usize;
@@ -5638,8 +5662,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         if delta_ruled > i64::MIN {
             println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", base.close_after.max(1), -delta_ruled);
-            if delta_ruled > 0 {
-                failed.push(format!("the cart's first entry into (-2,0,5) came {delta_ruled} gt before the window's close + 27 on a wake (raise --release-after: delta = close + 4)"));
+            // (ironspec 16:09: on the adopted wiring (the shutter closing at the wake press, the park
+            // at RLS + 8) the hold delta's margin is a bar: >= 13 gt)
+            if -delta_ruled < 13 {
+                failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (ironspec 16:09's bar: >= 13; the park releases at RLS + 8, about the wake + 20..28)", -delta_ruled));
             }
         }
         {
@@ -5648,7 +5674,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                 failed.push(format!("{resleeps} visits with the napper lying back down after its wake before the pickup (the re-sleep lock)"));
             }
             // (G1's Q13: the design's `a6-pickup:` stranded bound judged: a boarding by the wake
-            // edge + 60 gt on every visit)
+            // edge + 60 gt on every visit; ironspec 16:09: the cooldown margin, LAST_WOKEN's 100 - the
+            // longest wake -> boarding, >= 10)
+            if board_wait_max > 90 {
+                failed.push(format!("a boarding {board_wait_max} gt after the wake: LAST_WOKEN's 100-gt cooldown keeps under 10 gt of margin (ironspec 16:09's bar: >= 10)"));
+            }
             if board_wait_max > 60 {
                 failed.push(format!("a boarding {board_wait_max} gt after the wake: over the `a6-pickup:` stranded bound (60: the design's declared bound, about 1.3x the longest wake -> boarding measured at the slowest park release, 47 gt at wake + 28)"));
             }
@@ -5811,6 +5841,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         // (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME: the boarded
         // rider's ride away, as far as this bench follows it)
+        if sk.rest_on_p_visits > 0 || sk.step_offs > 0 || sk.other_on_p_max > 0 {
+            println!("the woken napper on P before the pickup (G1 16:09: the step-off; redsim's vanilla REST package: with HOME held it runs SetWalkTargetFromBlockMemory(HOME, 1); InsideBrownianWalk runs only without HOME): calm (REST) on P in {} visits, at most {} gt in one; other awake ticks on P at most {} gt; visits that stepped off P before the pickup {} (bar 0)", sk.rest_on_p_visits, sk.rest_on_p_max, sk.other_on_p_max, sk.step_offs);
+        }
+        if sk.step_offs > 0 {
+            failed.push(format!("{} woken nappers stepped off P before the pickup (G1 16:09: a step-off leaves the cart empty, a permanent halt)", sk.step_offs));
+        }
         if !sk.ride_at_r.is_empty() || !sk.ride_last.is_empty() {
             let mm = |v: &[f64]| if v.is_empty() { "none".to_string() } else { format!("{:.2}..{:.2}", v.iter().copied().fold(f64::INFINITY, f64::min), v.iter().copied().fold(f64::NEG_INFINITY, f64::max)) };
             println!("the boarded rider's distance to the bed head's centre (-2.5,0.5,4.5) (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME): at R's rise {}; at its last bench tick {} (the bench ends at the stop's out: the composed route beyond R decides when it passes 16); over 16 within the bench on {} visits", mm(&sk.ride_at_r), mm(&sk.ride_last), sk.ride_over16);
@@ -5969,6 +6005,12 @@ struct SkipTotals {
     ride_at_r: Vec<f64>,
     ride_last: Vec<f64>,
     ride_over16: usize,
+    /// (G1 16:09) the woken napper's calm (REST) ticks on P before the pickup, the most in a visit;
+    /// its other awake ticks there; visits whose napper stepped off P
+    rest_on_p_max: usize,
+    rest_on_p_visits: usize,
+    other_on_p_max: usize,
+    step_offs: usize,
     idle_targets: std::collections::BTreeMap<[i32; 3], usize>,
     idle_stamps: usize,
     post_lost: usize,
