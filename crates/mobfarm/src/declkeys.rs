@@ -108,7 +108,15 @@ pub fn emulated_entries(text: &str) -> Result<(Vec<Emulated>, usize), String> {
             if state.is_empty() || cs.trim().is_empty() || cs.chars().any(|c| !(c.is_ascii_digit() || c == ',' || c == '-' || c == '+' || c == ' ')) {
                 return Err(bad());
             }
-            let reason = rest.find(" (").map(|i| rest[i + 2..].trim_end().trim_end_matches(')').trim().to_string()).unwrap_or_default();
+            // (vcompose 13:29: exactly ONE closing `)` stripped, the reason's own: a reason ending in its own parenthesised
+            // text, `(… at (7,-1,8))`, keeps it whole)
+            let reason = rest
+                .find(" (")
+                .map(|i| {
+                    let r = rest[i + 2..].trim_end();
+                    r.strip_suffix(')').unwrap_or(r).trim().to_string()
+                })
+                .unwrap_or_default();
             // (the role tags, in order: `support=X,Y,Z` first, then `drive=ROLE[,ROLE...]`, then the free reason; each at
             // most once and never empty; a tag after the free reason, or `drive=` before `support=`, is refused)
             let (mut support, mut drive, mut why): (Option<[i32; 3]>, Option<Vec<String>>, Vec<String>) = (None, None, Vec::new());
@@ -157,6 +165,11 @@ pub fn emulated_entries(text: &str) -> Result<(Vec<Emulated>, usize), String> {
                 && d.len() != cells.len()
             {
                 return Err(format!("emulated entry {e:?}: {} `drive=` role(s) for {} cell(s) (one role per cell, in the entry's cell order)", d.len(), cells.len()));
+            }
+            // (ironspec Nov 14 13:40p (2)(ii): the ruled form ends in a why; an entry with none (no parentheses, or only
+            // role tags) refused by name; committed designs carry 0 such entries)
+            if why.is_empty() {
+                return Err(format!("emulated entry {e:?}: no reason (the ruled form is `x,y,z=STATE (support=X,Y,Z; drive=ROLE; why)`, the why required)"));
             }
             out.push(Emulated { cells, state, why: why.join("; "), support, drive });
         }
@@ -258,6 +271,9 @@ mod tests {
         assert!(es[0].cells == vec![[7, -2, 8]] && es[0].state == "minecraft:glass" && es[0].why == "the hold input's support; a floor lever on it" && es[0].support.is_none() && es[0].drive.is_none(), "{:?}", es[0]);
         assert!(es[1].cells == vec![[1, 16, -3], [5, 16, -3]] && es[1].support == Some([1, 15, -3]) && es[1].drive == Some(vec!["hold:-1".to_string(), "hold:3".to_string()]) && es[1].why == "the station holds stood in", "{:?}", es[1]);
         assert!(es[2].support.is_none() && es[2].drive == Some(vec!["r-line:-1".to_string()]) && es[2].why == "lane -1's feed" && es[2].state.starts_with("minecraft:lever["), "{:?}", es[2]);
+        // (vcompose 13:29) a reason ending in its own parenthesised text keeps it whole: one `)` stripped, the reason's
+        let (nested, _) = emulated_entries("emulated: 7,-2,8=glass (the hold input's support at (7,-1,8)); 1,0,0=glass (drive=a; ends (x))\n").unwrap();
+        assert!(nested[0].why == "the hold input's support at (7,-1,8)" && nested[1].why == "ends (x)" && nested[1].drive == Some(vec!["a".to_string()]), "{nested:?}");
         for (bad, why) in [
             ("emulated: 1,0=glass (r)\n", "emulated cell"),
             ("emulated: 1,0,0 glass\n", "CELLS=STATE (why)"),
@@ -270,6 +286,8 @@ mod tests {
             ("emulated: 1,0,0+2,0,0=glass (drive=hold:-1; r)\n", "1 `drive=` role(s) for 2 cell(s)"),
             ("emulated: 1,0,0=glass (drive=a,,b; r)\n", "an empty `drive=` role"),
             ("emulated: 7,-2,8=lever[face=floor,facing=north,powered=true] support=7,-3,8 (the old form)\n", "is followed by \"support=7,-3,8\" outside the parentheses (the old form"),
+            ("emulated: 1,0,0=glass\n", "no reason"),
+            ("emulated: 1,0,0=glass (support=1,-1,0; drive=a)\n", "no reason"),
         ] {
             let r = emulated_entries(bad);
             assert!(r.as_ref().is_err_and(|e| e.contains(why)), "{bad:?} refused for {why:?}: {r:?}");
