@@ -5523,10 +5523,11 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     // (G1 18:37, B5: the rails and the guards as the settled design holds them)
     let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, _)| (*p, w.get(*p))).collect();
     let rails: Vec<(BlockPos, String)> = blk.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
-    let guards = rails.iter().filter(|(p, _)| golem_guard(&blk, *p)).count();
+    let (gset, _) = golem_guards(&blk, Ok(&w));
+    let guards = rails.iter().filter(|(p, _)| gset.contains(p)).count();
     // (G1 18:37, B4: a seated rider's cell along its rail, the cell above near a slope's top)
     let mut callers: Vec<BlockPos> = Vec::new();
-    for (p, s) in rails.iter().filter(|(p, _)| !golem_guard(&blk, *p)) {
+    for (p, s) in rails.iter().filter(|(p, _)| !gset.contains(p)) {
         // (t in [0, 1): t = 1 is the next cell's edge, its own rail's t = 0)
         for t in (0..10).map(|k| k as f64 / 10.0).chain([0.99]) {
             let f = along_rail(*p, s, t);
@@ -7735,15 +7736,103 @@ fn record_ends(track: &Track, reached: &HashMap<TailNode, f64>, window: f64, slo
 /// with no rail beside it it could join (level, one up or one down): part of the record, never a track
 /// end.
 pub fn golem_guard(blocks: &HashMap<BlockPos, redsim::block::Block>, p: BlockPos) -> bool {
+    guard_shape(blocks, p) == Some(false)
+}
+
+/// A lone rail on a closed top-half trapdoor cap (no rail beside it at y-1..y+1, none above it): Some(false)
+/// with no rail two below (the strict guard, 58f770cc 16:34), Some(true) over a track rail two below (the
+/// cap over the track: a guard only on `golem_guards`' power check), None otherwise.
+fn guard_shape(blocks: &HashMap<BlockPos, redsim::block::Block>, p: BlockPos) -> Option<bool> {
     let name = |q: BlockPos| blocks.get(&q).map(|b| b.to_string()).unwrap_or_default();
     let below = name(p.below());
     // (G1 / ironspec Nov 13 18:10, on part 13: the cap CLOSED: an open trapdoor has no top face, so
     // the rail pops at its next update (an unsupported rail, no guard))
     if !name(p).starts_with("minecraft:rail[") || !below.contains("_trapdoor[") || !below.contains("half=top") || !below.contains("open=false") {
-        return false;
+        return None;
     }
     let lone = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|(dx, dz)| (-1..=1).all(|dy| !name(BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).contains("rail")));
-    lone && !name(p.above()).contains("rail") && !name(p.below().below()).contains("rail")
+    if !lone || name(p.above()).contains("rail") {
+        return None;
+    }
+    Some(name(p.below().below()).contains("rail"))
+}
+
+/// The power sources in reach of `cap` in the settled world `w`: one beside it, or one beside a conductor
+/// beside it (`power_into`'s reach for one cell).
+fn cap_sources(w: &redsim::World, cap: BlockPos) -> Vec<String> {
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let mut out = Vec::new();
+    for q in n6(cap) {
+        let b = w.get(q);
+        if may_source(w, &b) {
+            out.push(format!("{} at {},{},{}", name(q), q.x, q.y, q.z));
+        } else if redsim::behavior::is_conductor(w, &b, q) {
+            for r in n6(q) {
+                if r != cap && may_source(w, &w.get(r)) {
+                    out.push(format!("{} at {},{},{} through the conductor {} at {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z));
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// (58f770cc 16:34; ironspec Nov 14 01:51 (2), part 38) The design's golem guards, with a line each: the
+/// strict guard (a lone rail on a closed top-half trapdoor cap, no rail beside it at y-1..y+1, none above,
+/// none two below), and the guard OVER A TRACK RAIL (the same with a track rail under the cap), accepted
+/// provided (i) no rail beside it at y-1..y+1 (it can't connect to or reshape the track), (ii) no track
+/// connects to it (from (i) and no rail above it; a fall landing on it stays a TRACK END), (iii) the cap
+/// stays closed and unpowered every tick: closed in the settled world `w`, no power source beside it or
+/// through a conductor beside it. Without a settled world a guard over a track stays track (NOT JUDGED).
+pub fn golem_guards(blocks: &HashMap<BlockPos, redsim::block::Block>, w: Result<&redsim::World, &str>) -> (std::collections::HashSet<BlockPos>, Vec<String>) {
+    let mut set = std::collections::HashSet::new();
+    let mut lines = Vec::new();
+    let mut rails: Vec<BlockPos> = blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
+    rails.sort_by_key(|p| (p.y, p.z, p.x));
+    for p in rails {
+        let cap = p.below();
+        let track = cap.below();
+        match guard_shape(blocks, p) {
+            Some(false) => {
+                set.insert(p);
+                lines.push(format!("{},{},{} is a golem guard (a lone rail on a top-half trapdoor cap, 58f770cc 16:34): no track end, no fall", p.x, p.y, p.z));
+            }
+            Some(true) => match w {
+                Err(why) => lines.push(format!("{},{},{}: a lone rail on the cap {},{},{} over the track rail {},{},{}: no settled world to judge its cap ({why}): NOT JUDGED as a guard (read as track)", p.x, p.y, p.z, cap.x, cap.y, cap.z, track.x, track.y, track.z)),
+                Ok(w) => {
+                    let closed = w.get(cap).to_string().contains("open=false");
+                    let src = cap_sources(w, cap);
+                    if closed && src.is_empty() {
+                        set.insert(p);
+                        lines.push(format!(
+                            "{},{},{} is a golem guard over the track rail {},{},{} (ironspec Nov 14 01:51 (2): (i) no rail beside it at y-1..y+1, (ii) no track connects to it, (iii) its cap {},{},{} closed with no power source in reach): no track end, no fall",
+                            p.x, p.y, p.z, track.x, track.y, track.z, cap.x, cap.y, cap.z
+                        ));
+                    } else {
+                        lines.push(format!(
+                            "{},{},{}: a lone rail on the cap {},{},{} over the track rail {},{},{}: its cap {} ({}): it may open and drop the rail: NOT a guard (read as track)",
+                            p.x,
+                            p.y,
+                            p.z,
+                            cap.x,
+                            cap.y,
+                            cap.z,
+                            track.x,
+                            track.y,
+                            track.z,
+                            if closed { "in reach of power" } else { "open in the settled world" },
+                            if src.is_empty() { "no source".to_string() } else { src.join("; ") }
+                        ));
+                    }
+                }
+            },
+            None => {}
+        }
+    }
+    (set, lines)
 }
 
 /// (ironspec Nov 13 19:32) The gate on `auto_columns`' lines: a side entry NOT JUDGED (its settle
@@ -7810,10 +7899,23 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
     let mut settled: Option<Result<redsim::World, String>> = None;
     let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
-    for (c, _) in rails.iter().filter(|(c, _)| golem_guard(&blk, *c)) {
-        lines.push(format!("auto column: {},{},{} is a golem guard (a lone rail on a top-half trapdoor cap, 58f770cc 16:34): no track end, no fall", c.x, c.y, c.z));
+    // (ironspec Nov 14 01:51 (2), part 38: a guard over a track rail is judged on its cap in the settled
+    // world, read only when one is there)
+    if rails.iter().any(|(c, _)| guard_shape(&blk, *c) == Some(true)) {
+        settled = Some(settled_world_void(spec));
     }
-    rails.retain(|(c, _)| !golem_guard(&blk, *c));
+    let (gset, glines) = golem_guards(
+        &blk,
+        match &settled {
+            Some(Ok(w)) => Ok(w),
+            Some(Err(e)) => Err(e.as_str()),
+            None => Err("not settled"),
+        },
+    );
+    for l in &glines {
+        lines.push(format!("auto column: {l}"));
+    }
+    rails.retain(|(c, _)| !gset.contains(c));
     for (c, s) in &rails {
         for (dx, dy, dz) in rail_exits(s) {
             if dx == 0 && dz == 0 {
@@ -7949,7 +8051,7 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
             // (ironspec Nov 13 18:09, on part 13: a fall onto a golem guard lands off the track: the
             // guard is no rail of the track, so a cart that could end on it is flagged UNLANDED)
             if let Some((l, true)) = land {
-                if golem_guard(&blk, l) {
+                if gset.contains(&l) {
                     lines.push(format!("auto column: a free fall off the rail end {},{},{} into {},{},{} lands on the golem guard {},{},{} (no rail of the track): a TRACK END (UNLANDED)", c.x, c.y, c.z, m.x, m.y, m.z, l.x, l.y, l.z));
                     continue;
                 }
@@ -8229,9 +8331,20 @@ struct Track<'a> {
 
 impl<'a> Track<'a> {
     fn new(spec: &FarmSpec, columns: &'a [[f64; 4]], rests: &'a [BlockPos]) -> Track<'a> {
-        // (58f770cc / ironspec 16:34: a golem guard is no rail of the track: never a track end)
+        // (58f770cc / ironspec 16:34: a golem guard is no rail of the track: never a track end; ironspec
+        // Nov 14 01:51 (2), part 38: a guard over a track rail too, judged on its cap in the settled world)
         let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
-        let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && !golem_guard(&blk, *p)).map(|(p, b)| (*p, b.to_string())).collect();
+        let over_track = spec.blocks.iter().any(|(p, _)| guard_shape(&blk, *p) == Some(true));
+        let sw = if over_track { Some(settled_world_void(spec)) } else { None };
+        let (gset, _) = golem_guards(
+            &blk,
+            match &sw {
+                Some(Ok(w)) => Ok(w),
+                Some(Err(e)) => Err(e.as_str()),
+                None => Err("not settled"),
+            },
+        );
+        let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && !gset.contains(p)).map(|(p, b)| (*p, b.to_string())).collect();
         // (G1's note (c) on fa1267b75: the signal sources are the game's `isSignalSource` set;
         // `update_reach` (settle-check's) holds that set with each type's update footprint)
         // (ironspec Nov 13 09:57, G1 09:58: a T is switched only inside the update footprint of an
@@ -10210,6 +10323,29 @@ mod gate_tests {
         let gspec = redsim::entity::mob::farm::FarmSpec { blocks: g.clone(), ..spec.clone() };
         let (_, gl) = super::auto_columns(&gspec, &[]);
         assert!(gl.iter().any(|l| l.contains("0,6,1 is a golem guard")) && !gl.iter().any(|l| l.contains("UNLANDED")), "{gl:?}");
+        // (ironspec Nov 14 01:51 (2), part 38) the guard OVER A TRACK RAIL: a rail (0,4,1) on stone under
+        // the cap: a guard (i) alone (ii) unconnected (iii) its cap closed with no power in reach, never a
+        // track end; a redstone torch beside the cap: its cap in reach of power, NOT a guard (read as track)
+        let mut o = g.clone();
+        o.retain(|(q, _)| *q != b(0, 4, 1) && *q != b(0, 3, 1));
+        o.push((b(0, 3, 1), p("minecraft:stone")));
+        o.push((b(0, 4, 1), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        let ospec = redsim::entity::mob::farm::FarmSpec { blocks: o.clone(), ..spec.clone() };
+        let (_, ol) = super::auto_columns(&ospec, &[]);
+        assert!(
+            ol.iter().any(|l| l.contains("0,6,1 is a golem guard over the track rail 0,4,1") && l.contains("(iii) its cap 0,5,1 closed with no power source in reach"))
+                && !ol.iter().any(|l| l.contains("rail end 0,6,1")),
+            "a guard over a track rail: {ol:?}"
+        );
+        let mut pw = o;
+        pw.push((b(1, 4, 1), p("minecraft:stone")));
+        pw.push((b(1, 5, 1), p("minecraft:lever[face=floor,facing=north,powered=false]")));
+        let pspec = redsim::entity::mob::farm::FarmSpec { blocks: pw, ..spec.clone() };
+        let (_, pl) = super::auto_columns(&pspec, &[]);
+        assert!(
+            pl.iter().any(|l| l.contains("0,6,1: a lone rail on the cap 0,5,1 over the track rail 0,4,1: its cap in reach of power (lever") && l.contains("NOT a guard (read as track)")) && !pl.iter().any(|l| l.contains("0,6,1 is a golem guard")),
+            "its cap in reach of a lever: {pl:?}"
+        );
         let mut t = g;
         t.push((b(0, 6, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
         t.push((b(0, 5, 2), p("minecraft:stone")));
