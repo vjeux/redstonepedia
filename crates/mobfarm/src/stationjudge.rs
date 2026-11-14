@@ -234,12 +234,9 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     if s.offrail_unseen {
         v.push("NOT JUDGED (no cart at rest at or above the line): the off-rail check");
     }
-    // (G1 on e2d9333bc (B2): the hold strings' lead before the R line, a bar)
-    match s.hold_lead_bad.as_deref() {
-        Some(b) if b.starts_with("NOT JUDGED") => v.push("NOT JUDGED (the R line never rose): the hold-string lead bar"),
-        Some(_) => v.push("a hold string's release under 2 gt before the R line (or none, or pressed at the rise)"),
-        None => {}
-    }
+    // (the hold-string lead bar, G1 on e2d9333bc (B2), RETIRED BY NAME (ironspec 21:16): its consumer
+    // was G8c, not bought at 20:24; nothing in day-1's gate list (rev 20:00) reads a hold string's
+    // release; the three leads stay printed as a diagnostic, never a failure)
     if s.refill_fail > 0 {
         v.push("the refill failed");
     }
