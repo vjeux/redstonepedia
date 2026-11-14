@@ -2508,15 +2508,105 @@ pub fn login_sweep(o: &ReturnOpts, from: i64, to: i64, len: i64) -> Result<(Stri
 /// re-issued record clears it; it fails `bars()` for every row on either controller until then.
 fn routing_verdict(s: &Summary) -> (bool, Vec<String>, bool) {
     let mut fails = s.routing_fails();
-    let bench = (Summary { controller_f: false, ..*s }).bars();
-    let bench_no_rm = (Summary { controller_f: false, record_no: None, ..*s }).bars();
-    if !bench_no_rm {
-        fails.push("a bench bar (bars(): clean(), the y-12 pairs, the settle / clear margins, riders, contacts)".to_string());
-    }
+    // (G1 17:32 N2: each failing bench condition named, identity misroutes included; N1: record-match
+    // in the table's verdict, named, not carved out)
+    let bench = bench_fails(s);
+    let rm_alone = fails.is_empty() && !s.fault && bench.len() == 1 && bench[0].starts_with("record-match");
+    fails.extend(bench);
     if s.fault {
         fails.push("a fault row's own flag".to_string());
     }
-    (fails.is_empty(), fails, bench_no_rm && !bench)
+    (fails.is_empty(), fails, rm_alone)
+}
+
+/// Every bench condition `bars()` (with `clean()`) judges, each failing one named with its count
+/// (G1 17:32 N2), and record-match's undeclared cells (N1).
+fn bench_fails(s: &Summary) -> Vec<String> {
+    let mut f: Vec<String> = Vec::new();
+    if s.wrong > 0 {
+        f.push(format!("identity misroutes {}", s.wrong));
+    }
+    if s.pushes > 0 {
+        f.push(format!("pushes {}", s.pushes));
+    }
+    if s.napper_off {
+        f.push("the napper off its route".to_string());
+    }
+    if s.riders_bad > 0 {
+        f.push(format!("riders {}", s.riders_bad));
+    }
+    if s.hold_intrusions > 0 {
+        f.push(format!("hold intrusions {}", s.hold_intrusions));
+    }
+    if s.extra_busy > 0 {
+        f.push(format!("the extra cart's busy cells {}", s.extra_busy));
+    }
+    if s.release_bad {
+        f.push("the release's settle / clear margins".to_string());
+    }
+    if s.y12_bad {
+        f.push(format!("the y-12 pairs ({})", s.y12_why));
+    }
+    if s.contacts_undeclared > 0 {
+        f.push(format!("undeclared block contacts {}", s.contacts_undeclared));
+    }
+    if s.dj.iter().any(|d| d.1 != 0 || d.2 != 0) || (s.path_a && s.dj_any.iter().any(|d| *d != 0)) {
+        f.push("D-on-J (a D press while its J's T was off its turn)".to_string());
+    }
+    if s.path_a && s.dj.iter().any(|d| d.0 == 0) {
+        f.push("a lane's D never pressed".to_string());
+    }
+    if s.water_undeclared > 0 {
+        f.push(format!("undeclared water {}", s.water_undeclared));
+    }
+    if s.nap_det == Some(false) || s.nap_hold_margin.is_some_and(|m| m < 2) {
+        f.push(format!("the napper's detector / hold margin ({:?} / {:?})", s.nap_det, s.nap_hold_margin));
+    }
+    if s.air_bad > 0 || s.air_nj > 0 {
+        f.push(format!("air {} / at a J {}", s.air_bad, s.air_nj));
+    }
+    if s.struck > 0 || s.rod_bad > 0 {
+        f.push(format!("struck {} / rod {}", s.struck, s.rod_bad));
+    }
+    if s.t_off > 0 {
+        f.push(format!("a T off its settle {}", s.t_off));
+    }
+    if s.restart_bad {
+        f.push("the restart".to_string());
+    }
+    if !s.j_settle.iter().chain(s.j_clear.iter()).chain(s.j_clear_cart.iter()).chain([s.k_settle, s.k_clear].iter()).all(|m| m.is_none_or(|v| v >= 3)) {
+        f.push("a J / K settle or clear margin < 3".to_string());
+    }
+    if !(0..7).all(|i| s.cause_settle[i].is_none_or(|v| v >= 3) && s.cause_clear[i].is_none_or(|v| v >= 3)) {
+        f.push("a cause's settle / clear margin < 3".to_string());
+    }
+    // (clean()'s remaining terms, the napper's scope and siding, named together when they alone fail)
+    if f.is_empty() && !s.clean() && s.record_no.is_none() {
+        f.push("clean(): the napper's scope / siding terms".to_string());
+    }
+    if s.gap_min < 16 {
+        f.push(format!("the foot gap {} (< 16)", s.gap_min));
+    }
+    if !s.path_a && s.napper_behind.is_some_and(|g| g < 16) {
+        f.push(format!("the napper behind {} (< 16)", s.napper_behind.unwrap_or(0)));
+    }
+    if !s.path_a && s.napper_ahead.is_some_and(|g| g < 16) {
+        f.push(format!("the napper ahead {} (< 16)", s.napper_ahead.unwrap_or(0)));
+    }
+    if s.head >= 28.0 {
+        f.push(format!("a head at {:.2} (>= 28)", s.head));
+    }
+    if s.v_merge.0.is_finite() && !(s.v_merge.0 >= 0.30 && s.v_merge.1 <= 0.48) {
+        f.push(format!("the merge speeds {:.3}..{:.3} (outside 0.30..0.48)", s.v_merge.0, s.v_merge.1));
+    }
+    if let Some((u, g)) = s.record_no {
+        f.push(format!("record-match: {u} undeclared cell(s), {g} entity difference(s)"));
+    }
+    // (every condition of `bars()` covered: a bars() failure with nothing named is a defect here)
+    if f.is_empty() && !(Summary { controller_f: false, ..*s }).bars() {
+        f.push("a bench bar no named condition covers (a defect in bench_fails)".to_string());
+    }
+    f
 }
 
 /// A forced row's expected outcome on one controller, each citing its ruling (G1's C3 / C4).
@@ -3911,6 +4001,10 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // (G1's C10: F1's ring term reads the station's pockets; never silently dropped)
     if o.controller_f && !station_mode(o) {
         return Err("--controller-f's F1 reads the station's pockets: it needs the record line (--record) or --station-part".into());
+    }
+    // (G1 17:32 N3: G10's drive (+6 / +8) is the ring's too, never an immediate write beside F4's windows)
+    if o.controller_f && !o.driver_latency {
+        return Err("--controller-f's ring and F4(a) windows carry G10's drive (+6 / +8): it needs --driver-latency".into());
     }
     // (the junctions' drives; `--stale-t X` leaves J(X)'s T off its settle after each latch write)
     let drv = |w: &mut redsim::world::World, real: bool, x: i32, y: i32, z: i32, on: bool| drive_j(w, real, x, y, z, on, o.stale_t == Some(x));

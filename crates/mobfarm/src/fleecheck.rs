@@ -66,6 +66,9 @@ pub struct Place {
     pub panic_from: usize,
     pub seen: usize,
     pub village: bool,
+    /// The stroll branch its points took (ironspec 17:16 PT): in a village (the cube), out of village
+    /// toward a section (the half-disc), or out of village with no closer section (the cube).
+    pub branch: String,
     pub flee: Source,
     pub panic_stroll: Source,
     pub stroll: Source,
@@ -496,8 +499,8 @@ pub fn check_claims(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], 
     check_inner(spec, home, foot, panic_boxes, continuous, claims, &[], None, &[])
 }
 
-/// [`check_claims`] with declared pillagers (9fc3155f, ironspec Nov 11 22:53's S2 scarer; redsim
-/// does not spawn a pillager, so each is a position, its feet, not an entity): a hostile within
+/// [`check_claims`] with pillagers (9fc3155f, ironspec Nov 11 22:53's S2 scarer; each a position,
+/// its feet: the design's own, read by [`record_hostiles`], and any declared): a hostile within
 /// PILLAGER_BAR (`VillagerHostilesSensor`'s 15) of a rider point panics it when seen (the rider's
 /// eye to the pillager's, 1.62 up); within 6 it is fled from, as a zombie.
 pub fn check_pillagers(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool, claims: &[BlockPos], pills: &[Vec3]) -> Result<Vec<Place>, String> {
@@ -506,6 +509,64 @@ pub fn check_pillagers(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos
 
 /// A pillager's panic distance (`VillagerHostilesSensor.ACCEPTABLE_DISTANCE_FROM_HOSTILES`).
 pub const PILLAGER_BAR: f64 = 15.0;
+
+/// `VillagerHostilesSensor.ACCEPTABLE_DISTANCE_FROM_HOSTILES` (26.3): each hostile type a villager
+/// panics at, and its distance.
+pub const VILLAGER_HOSTILES: [(&str, f64); 11] = [("drowned", 8.0), ("evoker", 12.0), ("husk", 8.0), ("illusioner", 12.0), ("pillager", 15.0), ("ravager", 12.0), ("vex", 8.0), ("vindicator", 10.0), ("zoglin", 10.0), ("zombie", 8.0), ("zombie_villager", 8.0)];
+
+/// (ironspec 17:02 (3) / 17:10 PT, G1 17:06) Every VILLAGER_HOSTILES entity the design lists,
+/// standing or a vehicle's passenger (its `Passengers:` NBT): the pillagers' feet (a boat's seat:
+/// `PILLAGER_SEAT` over the boat's y; a cart's 0.1875 - 0.6; standing, its own y), to add to the
+/// declared `--pillager` posts; the zombies are the world's own (`zombies_seated`); any other
+/// hostile type refuses the run (the check models a zombie's 8 and a pillager's 15 only). Returns
+/// the pillagers and a line naming every hostile read by type and distance.
+pub fn record_hostiles(spec: &FarmSpec) -> Result<(Vec<Vec3>, String), String> {
+    hostiles_of(&spec.entities)
+}
+
+/// [`record_hostiles`] on a design's entity lines.
+pub fn hostiles_of(entities: &[(String, [f64; 3], Option<String>)]) -> Result<(Vec<Vec3>, String), String> {
+    let mut pills: Vec<Vec3> = Vec::new();
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for (ty, p, nbt) in entities {
+        let own = ty.trim_start_matches("minecraft:");
+        let mut found: Vec<(&str, f64)> = Vec::new();
+        if let Some((h, _)) = VILLAGER_HOSTILES.iter().find(|(h, _)| *h == own) {
+            found.push((*h, p[1]));
+        }
+        if let Some(n) = nbt.as_deref() {
+            for (h, _) in VILLAGER_HOSTILES.iter() {
+                if n.contains(&format!("\"minecraft:{h}\"")) {
+                    let seat = if own.ends_with("boat") {
+                        (0.5625f32 / 3.0f32) as f64
+                    } else if own.ends_with("minecart") {
+                        0.1875
+                    } else {
+                        0.0
+                    };
+                    found.push((*h, p[1] + seat));
+                }
+            }
+        }
+        for (h, y) in found {
+            *counts.entry(h).or_insert(0) += 1;
+            match h {
+                "zombie" => {}
+                "pillager" => {
+                    // (standing: its own feet; seated: the vehicle's attachment, then its ridingOffset -0.6)
+                    let feet = if (y - p[1]).abs() < 1e-12 && !own.ends_with("boat") && !own.ends_with("minecart") { y } else { y - 0.6 };
+                    pills.push(Vec3::new(p[0], feet, p[2]));
+                }
+                other => return Err(format!("flee-check: the design's {other} at {:.2},{:.2},{:.2} is a villager hostile the check doesn't model (zombies at 8 and pillagers at 15 only): refused", p[0], p[1], p[2])),
+            }
+        }
+    }
+    let line = format!(
+        "villager hostiles read from the design (VillagerHostilesSensor's distances; boat and cart passengers included): {}",
+        if counts.is_empty() { "none".to_string() } else { counts.iter().map(|(h, n)| format!("{n} {h} ({})", VILLAGER_HOSTILES.iter().find(|(x, _)| x == h).map_or(0.0, |(_, d)| *d))).collect::<Vec<_>>().join(", ") }
+    );
+    Ok((pills, line))
+}
 
 /// A pillager's eye over its feet (G1's review: no `eyeHeight` on its builder, so 0.85 x 1.95).
 pub const PILLAGER_EYE: f64 = 0.85 * 1.95;
@@ -634,6 +695,8 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
         };
         let (mut flee_s, mut panic_s, mut idle_s) = (Vec::new(), Vec::new(), Vec::new());
         let (mut flee_from, mut panic_from, mut seen, mut village) = (0, 0, 0, false);
+        // (ironspec 17:16 PT: each place's stroll branch, as its points took it)
+        let mut branches: Vec<String> = Vec::new();
         // (the 6-8 rule, ironspec Nov 11 10:18: the nearest hostile's distance at each point, the
         // least and the greatest over the place's points, and that hostile)
         let mut near: Option<(f64, f64, Vec3)> = None;
@@ -693,6 +756,16 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             village |= v;
             let s = (me_b.x.div_euclid(16), me_b.y.div_euclid(16), me_b.z.div_euclid(16));
             let best = if v { s } else { redsim::entity::mob::ai::poi::section_closest_to_village(w, s, 2) };
+            let branch = if v {
+                "in a village: LandRandomPos, the cube".to_string()
+            } else if best != s {
+                format!("out of village: DefaultRandomPos toward section {},{},{}, the half-disc", best.0, best.1, best.2)
+            } else {
+                "out of village, no closer section within 2: LandRandomPos, the cube".to_string()
+            };
+            if !branches.contains(&branch) {
+                branches.push(branch);
+            }
             let village_stroll = |w: &redsim::World, h: f64, vv: i32| {
                 if best != s {
                     let c = ((best.0 * 16 + 8) as f64 + 0.5, (best.2 * 16 + 8) as f64 + 0.5);
@@ -764,7 +837,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
         }
         let panic_declared = panic_boxes.iter().any(|(a, b)| (a[0]..=b[0]).contains(&cell.x) && (a[1]..=b[1]).contains(&cell.y) && (a[2]..=b[2]).contains(&cell.z));
-        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok, near_seen });
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, branch: branches.join(" / "), flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok, near_seen });
         let _ = redsim::entity::kill(w, vid);
         if let Some(c) = cart {
             let _ = redsim::entity::kill(w, c);
@@ -2433,7 +2506,7 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
                     }
                 })
                 .collect();
-            rows.push(format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }));
+            rows.push(format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}; the stroll's branch: {}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }, if p.branch.is_empty() { "-" } else { p.branch.as_str() }));
         }
     }
     let mut lines = vec![format!(
@@ -4166,6 +4239,34 @@ mod along_rail_tests {
         assert!(close(top.y, 22.0625), "flat top: y {}", top.y);
         let siding = along_rail(BlockPos::new(1, 24, 8), "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]", 0.5);
         assert!(close(siding.y, 24.5625), "siding slope centre: y {}", siding.y);
+    }
+}
+
+#[cfg(test)]
+mod hostile_read_tests {
+    use super::{PILLAGER_SEAT, hostiles_of};
+
+    /// (ironspec 17:10 PT) The design's hostiles read from its entity lines: a pillager in a boat at
+    /// its seat (the declared --pillager's feet exactly), a standing one at its own feet, a zombie
+    /// counted (the world's), a zombie villager in a cart counted (8) and refused (not modeled), a
+    /// vindicator refused.
+    #[test]
+    fn the_record_s_hostiles() {
+        let e = |ty: &str, p: [f64; 3], nbt: Option<&str>| (ty.to_string(), p, nbt.map(|s| s.to_string()));
+        let (pills, line) = hostiles_of(&[
+            e("minecraft:oak_boat", [1.5, 25.0, -4.5], Some("{Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}")),
+            e("minecraft:pillager", [3.5, 10.0, 3.5], None),
+            e("minecraft:oak_boat", [-4.5, 2.0, -4.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}")),
+        ])
+        .expect("modelled hostiles only");
+        assert_eq!(pills.len(), 2);
+        assert!((pills[0].y - (25.0 + PILLAGER_SEAT)).abs() < 1e-12, "{pills:?}");
+        assert!((pills[1].y - 10.0).abs() < 1e-12, "{pills:?}");
+        assert!(line.contains("2 pillager (15)") && line.contains("1 zombie (8)"), "{line}");
+        let err = hostiles_of(&[e("minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:zombie_villager\"}]}"))]).unwrap_err();
+        assert!(err.contains("zombie_villager"), "{err}");
+        let err = hostiles_of(&[e("minecraft:vindicator", [0.5, 0.0, 0.5], None)]).unwrap_err();
+        assert!(err.contains("vindicator"), "{err}");
     }
 }
 

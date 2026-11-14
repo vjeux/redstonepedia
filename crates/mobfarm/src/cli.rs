@@ -1216,9 +1216,11 @@ pub enum MobfarmCmd {
         /// cell) may touch (repeatable: other parts' space, the pad's spawn columns, rider cells).
         #[arg(long, allow_hyphen_values = true)]
         scarer_exclude: Vec<String>,
-        /// A declared pillager seated in a boat, the BOAT's position x,y,z (repeatable; redsim does
-        /// not spawn pillagers; G1's review: its feet at boat y + 0.1875 - 0.6, its eye 1.6575 over
-        /// them): a panic source within 15 of a rider point when seen, fled from within 6.
+        /// A declared pillager seated in a boat, the BOAT's position x,y,z (repeatable; G1's review: its
+        /// feet at boat y + 0.1875 - 0.6, its eye 1.6575 over them): a panic source within 15 of a rider
+        /// point when seen, fled from within 6. The design's own pillagers (boat or cart passengers, or
+        /// standing) are read from its entity lines whatever the flags (ironspec 17:10 PT): a flag only
+        /// adds a post; a villager hostile the check doesn't model refuses the run.
         #[arg(long, allow_hyphen_values = true)]
         pillager: Vec<String>,
         /// Instead: whether an iron golem standing on any cell of --golem-pad has a path to this
@@ -1338,6 +1340,11 @@ pub enum MobfarmCmd {
         /// it); undeclared track ends still fail.
         #[arg(long)]
         report_only: bool,
+        /// (ironspec 17:19 / G1 17:14 PT) Also print, per place that panics in either state, the panic
+        /// stroll in BOTH ticket states: (i) the bed's ticket free, (ii) the bed claimed (`--home`'s
+        /// cell), each with k (its cells), p (an event's chance of a reached one) and the branch taken.
+        #[arg(long)]
+        both_states: bool,
         /// A caller's rest point x,y,z (a pocket rider's cart, repeatable; default: the design's
         /// `run-cells:` P0, P1, ... cells, the cart at the cell's centre over the rail): the caller
         /// sight row (ironspec Nov 12 15:35, permanent with --clear-all): every hostile within the
@@ -3181,6 +3188,13 @@ pub enum MobfarmCmd {
         /// citing its ruling (C3); exits 1 when any row is off its expectation.
         #[arg(long)]
         forced_table: bool,
+        /// (G1 17:32 PT, C1's control) With --controller-f: F4(a)'s J hold-offs widened this many gt each
+        /// side (the R6 margin bar's positive: 1 gt takes the design's margin 10 to 9 and the run exits 1).
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        f4_widen: i64,
+        /// With --controller-f: F4(a)'s K windows widened this many gt each side (the K-window bar's positive).
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        f4_kwiden: i64,
     },
     /// (7b90c3f1, farmopt Nov 11 20:58) The vertical lift bench: a soul-sand bubble column built
     /// alone, an entry flat at its foot (its east wall open `--entry-h` cells: 1 = the rail cell,
@@ -8462,7 +8476,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, no_controls, thunder, rod, toggle, drop_cart, late_cart, late_arrival, swap_carts, extra_cart, park_cart, controller_f, forced_table, top_restart, lift_pair, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, no_controls, thunder, rod, toggle, drop_cart, late_cart, late_arrival, swap_carts, extra_cart, park_cart, controller_f, forced_table, f4_widen, f4_kwiden, top_restart, lift_pair, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (ironspec 07:26 PT C4: `--block-exit` takes exactly T,N)
             anyhow::ensure!(block_exit.is_empty() || block_exit.len() == 2, "--block-exit T,N: two values, not {}", block_exit.len());
@@ -8473,7 +8487,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(extra_cart.is_empty() || (extra_cart.len() == 2 && extra_cart[0] >= 0 && [-1, 3, 7].contains(&extra_cart[1])), "--extra-cart T,X: two values, T >= 0, X a lane (-1, 3 or 7)");
             anyhow::ensure!(park_cart.is_empty() || park_cart.len() == 3, "--park-cart X,Y,Z: three values, not {}", park_cart.len());
             anyhow::ensure!(drop_cart.iter().chain(late_cart.first().map(|k| *k as usize).iter()).chain(swap_carts.map(|k| k + 1).iter()).all(|k| *k < 3 * batches), "--drop-cart / --late-cart / --swap-carts: a batch cart index under {} (3 x --batches; the napper isn't one)", 3 * batches);
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), controls: !no_controls, record_poke: false, hold_early: false, thunder, rod: (rod.len() == 3).then(|| (rod[0], rod[1], rod[2])), toggle: (toggle.len() == 5).then(|| (toggle[0] as i32, toggle[1] as i32, toggle[2] as i32, toggle[3], toggle[4])), drop_cart: drop_cart.clone(), late_cart: (late_cart.len() == 2).then(|| (late_cart[0] as usize, late_cart[1])), swap_carts, extra_cart: (extra_cart.len() == 2).then(|| (extra_cart[0], extra_cart[1] as i32)), park_cart: (park_cart.len() == 3).then(|| (park_cart[0], park_cart[1], park_cart[2])), h13_probe: false, controller_f, f4_widen: 0, f4_kwiden: 0, ext_ticks: 0, late_arrival: (late_arrival.len() == 2).then(|| (late_arrival[0] as usize, late_arrival[1])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), controls: !no_controls, record_poke: false, hold_early: false, thunder, rod: (rod.len() == 3).then(|| (rod[0], rod[1], rod[2])), toggle: (toggle.len() == 5).then(|| (toggle[0] as i32, toggle[1] as i32, toggle[2] as i32, toggle[3], toggle[4])), drop_cart: drop_cart.clone(), late_cart: (late_cart.len() == 2).then(|| (late_cart[0] as usize, late_cart[1])), swap_carts, extra_cart: (extra_cart.len() == 2).then(|| (extra_cart[0], extra_cart[1] as i32)), park_cart: (park_cart.len() == 3).then(|| (park_cart[0], park_cart[1], park_cart[2])), h13_probe: false, controller_f, f4_widen, f4_kwiden, ext_ticks: 0, late_arrival: (late_arrival.len() == 2).then(|| (late_arrival[0] as usize, late_arrival[1])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
             // (ironspec 07:26 PT C3: the positive controls, in the tool, after the rows (not the
             // lift-pair, top-restart or T-snap benches); one that doesn't bite fails the command)
             let other_bench = lift_pair.len() == 2 || !top_restart.is_empty() || t_snap.is_some();
@@ -8498,6 +8512,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1's C10: F1's ring term needs the station's pockets; C11: F2 has no timed re-arm)
             anyhow::ensure!(!o.controller_f || o.record.is_some() || o.station_part.is_some(), "--controller-f's F1 reads the station's pockets: it needs the record line (--record) or --station-part");
             anyhow::ensure!(!o.controller_f || o.resync == 0, "--controller-f's F2 has no timed re-arm: no --resync with it");
+            anyhow::ensure!(!(o.controller_f || forced_table) || o.driver_latency, "--controller-f's ring and F4(a) windows carry G10's drive (+6 / +8): it needs --driver-latency (G1 17:32 N3)");
             if other_bench {
                 anyhow::ensure!(
                     o.record.is_none() && o.set_cells.is_empty() && o.undeclare_contact.is_empty() && o.stale_t.is_none() && o.block_exit.is_none() && o.thunder.is_none() && o.rod.is_none() && o.toggle.is_none() && o.drop_cart.is_empty() && o.late_cart.is_none() && o.late_arrival.is_none() && o.swap_carts.is_none() && o.extra_cart.is_none() && o.park_cart.is_none() && !o.controller_f,
@@ -12939,7 +12954,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, both_states, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
@@ -13025,6 +13040,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "--pillager x,y,z");
                 pills.push(redsim::entity::Vec3::new(v[0], v[1] + crate::fleecheck::PILLAGER_SEAT, v[2]));
             }
+            // (ironspec 17:02 (3) / 17:10 PT, G1 17:06: every VILLAGER_HOSTILES entity of the design is
+            // read, boat passengers included, each at its own distance; the flags only add; a hostile
+            // type the check doesn't model refuses the run)
+            let (record_pills, hostile_line) = crate::fleecheck::record_hostiles(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            let declared = pills.len();
+            for p in record_pills {
+                if !pills.iter().any(|q: &redsim::entity::Vec3| (q.x - p.x).abs() < 0.01 && (q.y - p.y).abs() < 0.01 && (q.z - p.z).abs() < 0.01) {
+                    pills.push(p);
+                }
+            }
+            println!("{hostile_line}; pillagers judged {} ({} declared by --pillager, the rest the record's)", pills.len(), declared);
             if !scarer_check.is_empty() {
                 let mut extra = Vec::new();
                 for r in &scarer_rider {
@@ -13095,6 +13121,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let places = crate::fleecheck::check_pillagers(&spec, bed, &foot, &panic_boxes, !sampled, &claims, &pills).map_err(|e| anyhow::anyhow!(e))?;
             if !claims.is_empty() {
                 println!("POI tickets taken first: {}", claims.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" "));
+            }
+            // (ironspec 17:19 / G1 17:14 PT: the stroll per place in BOTH ticket states, (i) the bed's ticket
+            // free (the cube everywhere) and (ii) taken (the half-disc where isVillage is false), with k
+            // (the panic stroll's cells) and p (an event's chance of a reached one) for each; (ii) binds)
+            if both_states && let Some(b) = bed {
+                let free = crate::fleecheck::check_pillagers(&spec, bed, &foot, &panic_boxes, !sampled, &[], &pills).map_err(|e| anyhow::anyhow!(e))?;
+                let taken = crate::fleecheck::check_pillagers(&spec, bed, &foot, &panic_boxes, !sampled, &[b], &pills).map_err(|e| anyhow::anyhow!(e))?;
+                println!("the panic stroll in both ticket states (k cells, p = an event's chance of a reached one; state (ii) binds): the places that panic in either state");
+                for f in &free {
+                    let Some(t) = taken.iter().find(|t| t.cell == f.cell && t.on_foot == f.on_foot) else { continue };
+                    if f.panic_from == 0 && t.panic_from == 0 {
+                        continue;
+                    }
+                    println!(
+                        "  BOTH {},{},{}{}: (i) ticket free: k {}, p {:.1}% [{}]; (ii) bed claimed: k {}, p {:.1}% [{}]",
+                        f.cell.x,
+                        f.cell.y,
+                        f.cell.z,
+                        if f.on_foot { " on foot" } else { "" },
+                        f.panic_stroll.cells,
+                        100.0 * f.panic_stroll.reached_share,
+                        f.branch,
+                        t.panic_stroll.cells,
+                        100.0 * t.panic_stroll.reached_share,
+                        t.branch
+                    );
+                }
             }
             for l in crate::fleecheck::stamp_classes(&places, classes) {
                 println!("{l}");
