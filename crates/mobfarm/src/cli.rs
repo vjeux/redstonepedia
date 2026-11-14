@@ -3327,6 +3327,10 @@ pub enum MobfarmCmd {
         /// A design meant to have no string (else no string is NOT JUDGED).
         #[arg(long)]
         allow_empty: bool,
+        /// (G1 / ironspec Nov 14 08:32, part 63) Fail when a `# string-class:` declaration names no resolvable evidence
+        /// row (an artifact a/<digits>, a test <fn name>, a recording <path> md5 <hex>): the train gate's flag.
+        #[arg(long)]
+        require_evidence: bool,
     },
     /// (ironspec Nov 13 21:39, G1 21:39) A villager placed STANDING at --from (its feet x,y,z) in the
     /// settled design, its navigation asked for a path to the cell --to: reached or not, every node with
@@ -9716,7 +9720,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 crate::fleecheck::Reach::Undetermined { .. } => anyhow::bail!("path-probe: NOT JUDGED: the search was cut (UNDETERMINED), expected {}", if want { "reached" } else { "unreached" }),
             }
         }
-        MobfarmCmd::StringAudit { design, expect, rail_range, allow_empty } => {
+        MobfarmCmd::StringAudit { design, expect, rail_range, allow_empty, require_evidence } => {
             let (_c, spec) = load(version, &design)?;
             let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
                 let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{s}: {e}"))?;
@@ -9744,15 +9748,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &lines {
                 println!("{l}");
             }
-            // (ironspec Nov 14 07:50r, part 61) the registry: each declared string's class and the evidence row its
-            // declaration names (the geometry is on its audit line above)
-            let (reg, no_ev) = crate::fleecheck::string_registry(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            // (ironspec Nov 14 07:50r, part 61; G1 08:32, part 63) the registry: each declared string's class and the
+            // evidence row its declaration names, which must resolve (the geometry is on its audit line above); a gap
+            // fails under --require-evidence (the train gate's flag) and is a visible note otherwise
+            let (reg, gaps) = crate::fleecheck::string_registry(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             for l in &reg {
                 println!("{l}");
             }
-            println!("string registry: {} declaration(s), {no_ev} naming no evidence row", reg.len());
+            println!(
+                "string registry: {} declaration(s), {gaps} without a resolvable evidence row{}",
+                reg.len(),
+                if gaps == 0 { String::new() } else if require_evidence { " (FAIL under --require-evidence)".to_string() } else { " (a gap to fill; the train gate runs --require-evidence)".to_string() }
+            );
             println!("string audit: {} string(s), {n} CART-KEYED, {bad} failing its declared class", lines.iter().filter(|l| l.starts_with("string ")).count());
             anyhow::ensure!(bad == 0, "string audit: {bad} string(s) not as declared (or undeclared)");
+            crate::fleecheck::evidence_gate(gaps, require_evidence).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::Riderless { design, allow_activator } => {
             let (_c, spec) = load(version, &design)?;
