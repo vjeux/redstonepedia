@@ -6257,8 +6257,10 @@ fn diode_reads(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
 /// pressure plate: weak to all six, strong only into the block below; a redstone torch: weak to all but its
 /// support, strong only into the block above; a lever or button: weak to all, strong into the block it hangs
 /// on (face floor: below, ceiling: above, wall: behind its `facing`); a tripwire hook: weak to all, strong
-/// into the block behind it; a redstone block and dust: weak only. Any other source: both, every face (the
-/// conservative reading).
+/// into the block behind it; a redstone block: weak only; dust (part 51): both outputs into the block below it
+/// and into each block its LIVE connections point at (a side or up connection, read from the settled world,
+/// which redsim settles as getConnectionState computes it), nothing up, and a block it powers passes the power
+/// to components but never to other dust. Any other source: both, every face (the conservative reading).
 pub fn source_faces(c: BlockPos, s: &str) -> Box<dyn Fn(BlockPos) -> (bool, bool)> {
     let id = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
     let prop = |k: &str| s.split_once(&format!("{k}=")).map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
@@ -6362,7 +6364,8 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
             // (`getSignal`) feeds an adjacent component; only its STRONG signal (`getDirectSignal`) powers
             // an adjacent conductor block so that block passes it on (a diode: its front only; a detector
             // rail or plate: strong into the block below; a torch: strong into the block above; a lever,
-            // button or hook: strong into its attached block; a redstone block or dust: never strong)
+            // button or hook: strong into its attached block; a redstone block: never strong; dust: into the
+            // block below and each live-connected side, part 51)
             let (weak, strong) = if source { faces(q) } else { (true, true) };
             let qs = w.get(q).to_string();
             if torch_support(q, &qs) == Some(*c) {
@@ -12175,6 +12178,13 @@ mod gate_tests {
         let dust_n = p("minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
         let (ld2, _) = super::power_out(&mk(vec![(b(1, 1, 1), dust_n), (b(1, 1, 2), dust_n), (b(1, 1, 3), dust_n), (b(2, 1, 2), p("minecraft:stone")), (b(3, 1, 2), lamp_b)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(ld2[0].contains("redstone_wire[east=none,north=side") && !ld2[0].contains("3,1,2"), "dust running past the stone (a north-south line): {ld2:?}");
+        // (G1 Nov 14 06:29, part 54) the faces come from the SETTLED world's state, which redsim settles as
+        // 26.3's getConnectionState computes it LIVE: a dust STORED `east=side` alone (one side) completes
+        // straight through to a line (east + west), so it powers WEST too: the stone and lamp to its west are
+        // reached, and the settled state printed shows both sides
+        let dust_one = p("minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]");
+        let (ld3, nd3) = super::power_out(&mk(vec![(b(2, 1, 2), dust_one), (b(1, 1, 2), p("minecraft:stone")), (b(0, 1, 2), lamp_b)]), &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nd3 >= 1 && ld3[0].contains("west=side") && ld3[0].contains("at 0,1,2 through the conductor stone at 1,1,2"), "a one-side dust powers straight through (live connections): {ld3:?}");
         // a torch: strong into the block above (a lamp beside that block lights), not the block beside it
         let torch_up = p("minecraft:redstone_torch[lit=true]");
         let (lt1, _) = super::power_out(&mk(vec![(b(2, 1, 2), torch_up), (b(2, 2, 2), p("minecraft:stone")), (b(3, 2, 2), lamp_b)]), &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
