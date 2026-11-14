@@ -1177,7 +1177,34 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
         Ok(())
     })?;
     w.set_block(dbp(p[0], p[1], p[2]), b, flags);
+    // (G1 16:18 (1), 26.3 LeverBlock.updateNeighbours 133-139: `level.updateNeighborsAt(pos)` and
+    // `level.updateNeighborsAt(pos.relative(front))`, front = getConnectedDirection(state).getOpposite())
+    // a commanded lever performs a pulled lever's full update: its ATTACHED block's neighbours too
+    // (every emulated lever write passes here: the (A) stop's stand-ins, the R line's, the hold input's,
+    // the junction levers)
+    if state.contains("minecraft:lever[") {
+        let att = if state.contains("face=floor") {
+            [p[0], p[1] - 1, p[2]]
+        } else if state.contains("face=ceiling") {
+            [p[0], p[1] + 1, p[2]]
+        } else if state.contains("facing=east") {
+            [p[0] - 1, p[1], p[2]]
+        } else if state.contains("facing=west") {
+            [p[0] + 1, p[1], p[2]]
+        } else if state.contains("facing=south") {
+            [p[0], p[1], p[2] - 1]
+        } else {
+            [p[0], p[1], p[2] + 1]
+        };
+        w.update_neighbors_at(dbp(att[0], att[1], att[2]), redsim::block::Kind::Lever);
+        LEVER_FULL_UPDATES.with(|n| *n.borrow_mut() += 1);
+    }
     Ok(())
+}
+
+thread_local! {
+    /// (G1 16:18 (1)) every commanded lever write's attached-block update, counted for the gate print
+    static LEVER_FULL_UPDATES: std::cell::RefCell<u64> = const { std::cell::RefCell::new(0) };
 }
 
 /// (G1's guard, ironspec 17:49) A controller line end's stand-in matching the built air in every
@@ -2589,23 +2616,8 @@ impl Ctl {
                 return Err(format!("(A)'s stand-in cell ({},{},{}) holds {s}, not a lever", c[0], c[1], c[2]));
             }
             set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)?;
-            // (onechunk 16:15: a lever's toggle also updates its ATTACHED block's neighbours, as
-            // LeverBlock.updateNeighbours does; a raw set notified only the lever's own neighbours,
-            // so the park rail beside the conductor never saw the conductor's power)
-            let att = if s.contains("face=floor") {
-                [c[0], c[1] - 1, c[2]]
-            } else if s.contains("face=ceiling") {
-                [c[0], c[1] + 1, c[2]]
-            } else if s.contains("facing=east") {
-                [c[0] - 1, c[1], c[2]]
-            } else if s.contains("facing=west") {
-                [c[0] + 1, c[1], c[2]]
-            } else if s.contains("facing=south") {
-                [c[0], c[1], c[2] - 1]
-            } else {
-                [c[0], c[1], c[2] + 1]
-            };
-            w.update_neighbors_at(dbp(att[0], att[1], att[2]), redsim::block::Kind::Lever);
+            // (the attached block's neighbours: updated by `set` for every lever write, LeverBlock's
+            // updateNeighbours 133-139)
             Ok(())
         };
         // ARM's edge: SLEPT_ONCE reset (G17), the one-shot cleared (G21), ARMED70's hopper started (G18)
@@ -10317,6 +10329,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 gaps.iter().min().map_or("none".to_string(), |g| format!("{g} gt")),
                 if gaps.iter().any(|g| *g < 2) { " (FAIL)" } else { " (PASS)" }
             ));
+            s.push_str(&format!("the stand-ins' update path (G1 16:18 (1), 26.3 LeverBlock.updateNeighbours 133-139): every commanded lever write updates the lever's neighbours AND its attached block's neighbours ({} such writes this run): the (A) stop's F output (-5,-26,7) (floor: attached (-5,-27,7)), the park drive (3,-27,3) (wall east: attached the conductor (2,-27,3)), the slope tap (1,-29,2) (floor: attached (1,-30,2)), the R line's (x+2,17,1), the hold input (7,-1,8), the junction levers (x,26,9); the trapdoor and redstone-block stand-ins are set with the full update flags (a block's own neighbours: what a placement does)\n", LEVER_FULL_UPDATES.with(|n| *n.borrow())));
             s.push_str("the design controller's propagation delays as emulated (day-1's list rev 15:42; DESIGNED values owed to their benches): G1 a ridden press -> RS_ready + 10, its reset the queue release + 2; G2 the AND -> the release + 10 (NOT-ready's measured 4 + the dwell 6); G3 at the release / R's ridden press; G4 the tap lever at REL + phase + 2 (DAY-1's slope repeater + 2 in the world), held 10; G6 D -> R powered + 34 (the feed's input at + 26, the stack's measured 8); G7 string_l's fall -> AWAY reset + 14 (the string's ~10 + 4); G8 the gate -> REL + 6; G10 / G11 a D press -> the latch + 2, J's switch + 4; G14 K's writes at the window's start + 4 / end + 6, a held J's at + 6 / + 4; G16 a bed change -> SLEPT toggled + 6 (the observer 2 + 4); G17 -> SLEPT_ONCE + 4; G18 ARM -> ARMED70 + 70; G19 the AND's edge -> OPEN + 6; G20 OPEN -> the window open + 2, the release pulse -> close + 2, -> the park's release + 6; G21 P_STRING AND SLEPT_ONCE -> the release pulse + 6; G22 P_STRING released 10 gt after the box leaves\n");
         }
     }
