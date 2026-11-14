@@ -3524,17 +3524,20 @@ pub enum MobfarmCmd {
     /// settled design (a hook's and its support's neighbours, a plate's or detector's and the block under it, an
     /// attached string's and each of its hooks' footprints; a diode's output cell and that cell's other five
     /// neighbours, plus any observer watching the diode). DEFAULT-DENY: every block there that isn't inert to a
-    /// neighbour update (air, plain full blocks, glass, slime, slabs, ...) fails by name unless the design declares it
-    /// for that source (`# update-consumers: SX,SY,SZ=CX,CY,CZ ID+... (why)` in its header) or `--allow` names it; an
-    /// allow whose cell holds another block fails, and one nothing needs fails as stale, saying why (bar 0).
+    /// neighbour update (air, plain full blocks, glass, slime, slabs, ...; a waterlogged one never) fails by name unless
+    /// the design declares it for that source, one source per line, in its header: `# update-consumers: CLASS
+    /// SX,SY,SZ=CX,CY,CZ ID+CX,CY,CZ ID (why)`, CLASS `intended` or `by-code` (a by-code reason cites "26.3
+    /// Class.method: ..."), or `--allow x,y,z=ID` names it; every declared source is read too; an allow whose cell
+    /// holds another block fails, a declaration whose source cell holds no source fails, and an allow nothing needs
+    /// fails as stale, saying why (bar 0).
     UpdateReach {
         design: PathBuf,
         /// A cell x,y,z whose state changes (a string, a hook, a plate, a detector, a diode; repeatable).
         #[arg(long, allow_hyphen_values = true)]
         cell: Vec<String>,
-        /// (G1 Nov 14 07:14 / 07:59b, parts 56 / 60) A consumer x,y,z=ID the design means any cell's update to reach,
-        /// ID its block id (a cell holding another block fails; x,y,z alone allows any block, labelled so); repeatable.
-        /// Prefer the design's own `# update-consumers:` declaration (one state source).
+        /// (G1 Nov 14 07:14 / 07:59b / 08:52, parts 56 / 60 / 66) A consumer x,y,z=ID any cell's update may reach, ID
+        /// its block id, required (a cell holding another block fails); repeatable. Prefer the design's own
+        /// `# update-consumers:` declaration (one state source).
         #[arg(long, allow_hyphen_values = true)]
         allow: Vec<String>,
     },
@@ -10201,18 +10204,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
             anyhow::ensure!(!cells.is_empty(), "update-reach: NOT JUDGED: no --cell");
-            // (part 60) the design's own declarations, then the command line's allows (x,y,z=ID)
+            // (parts 60 / 66) the design's own declarations and the command line's `--allow x,y,z=ID`s, through the one
+            // function the tests drive
             let text = std::fs::read_to_string(&design)?;
-            let mut allows = crate::fleecheck::update_consumer_decls(&text).map_err(|e| anyhow::anyhow!(e))?;
-            for a in &allow {
-                let (c, id) = match a.split_once('=') {
-                    Some((c, id)) => (c, Some(id.trim().trim_start_matches("minecraft:").to_string())),
-                    None => (a.as_str(), None),
-                };
-                let p = cells_of(&[c.to_string()], "--allow")?[0];
-                allows.push(crate::fleecheck::UpdateAllow { source: None, cell: p, id, why: String::new() });
-            }
-            let (lines, n) = crate::fleecheck::update_reach_components_decl(&spec, &cells, &allows).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, n) = crate::fleecheck::update_reach_from_text(&spec, &text, &cells, &allow).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
