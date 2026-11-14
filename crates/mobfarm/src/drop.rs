@@ -373,9 +373,21 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
             } else {
                 b.set(x + 1, hold_y + 1, z + 1, "glass");
             }
-            b.set(x + 1, hold_y + 2, z + 1, "glass");
             b.set(x, hold_y + 2, z + 2, "rail[shape=ascending_south,waterlogged=false]");
             b.set(x, hold_y + 1, z + 2, "glass");
+            // (the slot-1 presence string over R_1, F1's input (day-1's G8: REL = the three slot-1
+            // strings pressed AND RE_ARMED; ironspec 11:46's form, 14:26 / 14:29: a cart on R_1
+            // presses it, ridden or empty; no non-cart entity does): the string at (x,18,1), its hooks
+            // (x-1,18,1) facing east and (x+1,18,1) facing west (the latter in the cell that held the
+            // glass over R_1's driver: a hook gives no golem a floor either), their supports glass at
+            // (x+-2,18,1) (no light, not solid-render, a sturdy hook face, no power; shared at x 1 and
+            // 5); read from the hooks by day-1's controller; the refill latch's sensor (B), ironspec
+            // 18:16 / G1 18:28)
+            b.set(x, hold_y + 2, z + 1, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
+            b.set(x - 1, hold_y + 2, z + 1, "tripwire_hook[attached=true,facing=east,powered=false]");
+            b.set(x + 1, hold_y + 2, z + 1, "tripwire_hook[attached=true,facing=west,powered=false]");
+            b.set(x - 2, hold_y + 2, z + 1, "glass");
+            b.set(x + 2, hold_y + 2, z + 1, "glass");
             // (the lanes' glass under R_3, a stand-in: R_2's high side; without it R_2 pops at
             // placement, which main's placement check (onechunk's 0f375d1c0) now refuses)
             b.set(x, hold_y + 2, z + 3, "glass");
@@ -1185,6 +1197,27 @@ pub fn farm_block(s: &str) -> Result<Block, String> {
 
 /// (G1's audit (1)) The sight check's reference from a design of record: its cells in the bench's
 /// frame (its frame + (6,0,6)), as the farm loader reads them.
+/// (ironspec 21:30: a record's station synced to the current station file before any station
+/// static cites it) The design of record (`record_reference`, bench frame) with the station as
+/// written (`station_reference`: the lever stand-ins and their glass left out) laid over it cell by
+/// cell, and the cells that differ from the record ("loop (x,y,z) block (the record: block)"): the
+/// station's own new cells are design, not stand-ins; a stand-in still reads as one.
+pub fn synced_reference(record_text: &str, station_text: &str, lo: DropLayout, hold_y: i32) -> Result<(std::collections::HashMap<[i32; 3], Block>, usize, Vec<String>), String> {
+    let mut r = record_reference(record_text)?;
+    let st = station_reference(station_text, lo, hold_y)?;
+    let mut keys: Vec<&[i32; 3]> = st.keys().collect();
+    keys.sort();
+    let mut differ: Vec<String> = Vec::new();
+    for c in keys {
+        let b = &st[c];
+        if r.get(c) != Some(b) {
+            differ.push(format!("loop ({},{},{}) {} (the record: {})", c[0] - 6, c[1], c[2] - 6, b.to_string().trim_start_matches("minecraft:"), r.get(c).map_or("air".to_string(), |x| x.to_string().trim_start_matches("minecraft:").to_string())));
+        }
+        r.insert(*c, b.clone());
+    }
+    Ok((r, st.len(), differ))
+}
+
 pub fn record_reference(text: &str) -> Result<std::collections::HashMap<[i32; 3], Block>, String> {
     let d = mctas::design::Design::parse(text).map_err(|e| format!("--record: {e}"))?.translated([6, 0, 6]);
     let mut reference = std::collections::HashMap::new();
@@ -1539,9 +1572,9 @@ pub struct DropOpts {
     /// (ironspec 13:04) The drive-integrity bar's slack j: each pocket drive's first powered tick
     /// within j of its clock slot REL + offset k (+ the bench's measured constant).
     pub drive_slack: i64,
-    /// (ironfarm 11:56, ironspec's forced-V row) Ridden carts (a villager in each) planted at
-    /// T + k: (the cart's position, k).
-    pub plant_carts: Vec<([f64; 3], i64)>,
+    /// (ironfarm 11:56, ironspec's forced-V row) Carts planted at T + k: (the cart's position, k,
+    /// ridden: a villager in it, or empty: ironspec 20:31 / 20:41's slot-1 empty-cart row).
+    pub plant_carts: Vec<([f64; 3], i64, bool)>,
     /// (ironfarm 11:56) Blocks planted at T + k (with their updates): (cell, state, k).
     pub plant_blocks: Vec<(BlockPos, Block, i64)>,
     /// (ironfarm's C-fix rows) Cells no cart may leave westward (each lane's C at the lip): a cart
@@ -2505,6 +2538,11 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut summon_events = 0u32;
     let mut rail_t_stop: Option<String> = None;
     let mut hold_press: [Option<i64>; 3] = [None; 3];
+    let mut slot1_was: [Option<bool>; 3] = [None; 3];
+    let mut slot1_edges: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut slot1_margin: [Option<f64>; 3] = [None; 3];
+    let mut slot1_last: [Option<String>; 3] = [None, None, None];
+    let mut slot1_ticks: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut hold_release: [Option<i64>; 3] = [None; 3];
     let mut hold_was: [bool; 3] = [false; 3];
     let mut hold_string_seen: [bool; 3] = [false; 3];
@@ -2522,8 +2560,11 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut rest_seen: Vec<u32> = Vec::new();
     let mut planted: Vec<String> = Vec::new();
     let mut plants_done = 0usize;
+    // (ironspec 22:28 (2): the empty carts planted, for the slot-1 rest bar: (id, the plant's k, its
+    // first tick over a slot-1 string's cell with that string pressed)
+    let mut empty_planted: Vec<(u32, i64, Option<i64>)> = Vec::new();
     // (G1 on e2d9333bc (B4): a plant at T + k past the run never fires: refused before the run)
-    if let Some(k) = o.plant_carts.iter().map(|(_, k)| *k).chain(o.plant_blocks.iter().map(|(_, _, k)| *k)).find(|k| *k < 0 || *k >= o.ticks) {
+    if let Some(k) = o.plant_carts.iter().map(|(_, k, _)| *k).chain(o.plant_blocks.iter().map(|(_, _, k)| *k)).find(|k| *k < 0 || *k >= o.ticks) {
         return Err(format!("--plant-cart / --plant-block at T+{k}: outside the run (T+0..T+{})", o.ticks.saturating_sub(1)));
     }
     let mut t_shapes: Vec<(BlockPos, String)> = Vec::new();
@@ -2982,18 +3023,26 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         // (ironfarm 11:56: the planted carts and blocks, at T + k before the tick; G1 on e2d9333bc
         // (B4): each write read back: a no-op, a mismatch or a cart without its rider refuses)
-        for (p, k) in o.plant_carts.iter().filter(|(_, k)| *k == dt) {
-            let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", *p, Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}"))?;
+        for (p, k, ridden) in o.plant_carts.iter().filter(|(_, k, _)| *k == dt) {
+            let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", *p, if *ridden { Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}") } else { Some("{Rotation:[0f,0f]}") })?;
             // (G1 on 407a29682 (N8): the planted cart's position read back)
             let at = run.world.entities.list.iter().find(|e| e.id == id).map(|e| e.pos);
             if at.is_none_or(|a| (a.x - p[0]).abs() > 1e-9 || (a.y - p[1]).abs() > 1e-9 || (a.z - p[2]).abs() > 1e-9) {
                 return Err(format!("--plant-cart {:.4},{:.4},{:.4}@{k}: the cart (id {id}) reads back at {at:?}", p[0], p[1], p[2]));
             }
             let rider = run.world.entities.list.iter().find(|e| e.id == id).and_then(|e| e.passengers.first().copied());
-            if rider.is_none_or(|r| !run.world.entities.list.iter().any(|e| e.id == r && e.vehicle == Some(id))) {
+            if *ridden && rider.is_none_or(|r| !run.world.entities.list.iter().any(|e| e.id == r && e.vehicle == Some(id))) {
                 return Err(format!("--plant-cart {:.2},{:.2},{:.2}@{k}: the cart (id {id}) has no villager riding it", p[0], p[1], p[2]));
             }
-            planted.push(format!("a ridden cart (id {id}, its rider {}) at ({:.2},{:.2},{:.2}) at T+{k}", rider.unwrap_or(0), p[0], p[1], p[2]));
+            if !*ridden && rider.is_some() {
+                return Err(format!("--plant-cart empty:{:.2},{:.2},{:.2}@{k}: the cart (id {id}) has a passenger", p[0], p[1], p[2]));
+            }
+            if *ridden {
+                planted.push(format!("a ridden cart (id {id}, its rider {}) at ({:.2},{:.2},{:.2}) at T+{k}", rider.unwrap_or(0), p[0], p[1], p[2]));
+            } else {
+                planted.push(format!("an empty cart (id {id}) at ({:.4},{:.4},{:.4}) at T+{k}", p[0], p[1], p[2]));
+                empty_planted.push((id, *k, None));
+            }
             plants_done += 1;
         }
         for (c, b, k) in o.plant_blocks.iter().filter(|(_, _, k)| *k == dt) {
@@ -3041,6 +3090,67 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             for (k, (x, _, z)) in pockets.iter().enumerate() {
                 if hold_press[k].is_none() && dt >= a && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("tripwire[") && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true") {
                     hold_press[k] = Some(dt + 1);
+                }
+            }
+        }
+        // (the slot-1 presence strings over R_1 (x,18,1), F1's input: each string's edges, and the
+        // least margin of its slab (y+1/16 .. y+2.5/16) inside the box of every resting rider over
+        // its cell (the slab inside the box by >= 0.05, ironspec 11:46); F1 needs a cart only, ridden
+        // or empty (ironspec 14:26), so the margin is printed for the riders, not judged)
+        if o.layout == DropLayout::Station && o.refill.is_some() {
+            for (k, (x, _, z)) in pockets.iter().enumerate() {
+                let sp = BlockPos::new(*x, o.hold_y + 2, *z + 1);
+                let s = run.world.get(sp).to_string();
+                if !s.contains("tripwire[") {
+                    continue;
+                }
+                let pressed = s.contains("powered=true");
+                if slot1_was[k] != Some(pressed) {
+                    slot1_edges[k].push(format!("T+{} {}", dt + 1, if pressed { "pressed" } else { "released" }));
+                    slot1_was[k] = Some(pressed);
+                }
+                let (lo, hi) = (sp.y as f64 + 1.0 / 16.0, sp.y as f64 + 2.5 / 16.0);
+                // (only boxes near the string's row count: a box reaching y - 1 .. y + 2, so a
+                // pocket's rider far below, under the same column, is not "over" it)
+                for e in run.world.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) && e.vehicle.is_some() && e.pos.y + 1.95 > sp.y as f64 - 1.0 && e.pos.y < sp.y as f64 + 2.0) {
+                    let over = e.pos.x + 0.3 > sp.x as f64 && e.pos.x - 0.3 < sp.x as f64 + 1.0 && e.pos.z + 0.3 > sp.z as f64 && e.pos.z - 0.3 < sp.z as f64 + 1.0;
+                    if over && e.delta_movement.x.abs() + e.delta_movement.z.abs() < 1e-4 {
+                        let m = (e.pos.y + 1.95 - hi).min(lo - e.pos.y);
+                        slot1_margin[k] = Some(slot1_margin[k].map_or(m, |p: f64| p.min(m)));
+                    }
+                }
+                // (ironspec 20:31 / 20:41, G1 20:35: every cart over the string's cell, ridden or
+                // empty, per tick: its box (half-width 0.49, height 0.70) against the string's band
+                // y + 1/16 .. y + 2.5/16, and the string pressed or not; a line whenever a cart's box
+                // or the string's state changes, so a press with the stored box below the band shows
+                // the raised move)
+                let mut now: Vec<String> = Vec::new();
+                for e in run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && e.pos.y + 0.7 > sp.y as f64 - 1.0 && e.pos.y < sp.y as f64 + 2.0) {
+                    let over = e.pos.x + 0.49 > sp.x as f64 && e.pos.x - 0.49 < sp.x as f64 + 1.0 && e.pos.z + 0.49 > sp.z as f64 && e.pos.z - 0.49 < sp.z as f64 + 1.0;
+                    if over {
+                        let (b0, b1) = (e.pos.y, e.pos.y + 0.7);
+                        if pressed {
+                            if let Some(ep) = empty_planted.iter_mut().find(|(id, _, t)| *id == e.id && t.is_none()) {
+                                ep.2 = Some(dt + 1);
+                            }
+                        }
+                        now.push(format!(
+                            "cart {} ({}) z {:.4} box y {:.4}..{:.4} {} the band",
+                            e.id,
+                            if e.passengers.is_empty() { "empty" } else { "ridden" },
+                            e.pos.z,
+                            b0,
+                            b1,
+                            if b1 > lo && b0 < hi { "meets" } else if b1 <= lo { "below" } else { "above" }
+                        ));
+                    }
+                }
+                let line = format!("{}; the string {}", if now.is_empty() { "no cart".to_string() } else { now.join(", ") }, if pressed { "pressed" } else { "not pressed" });
+                if slot1_last[k].as_deref() != Some(line.as_str()) {
+                    if slot1_ticks[k].len() < 60 {
+                        slot1_ticks[k].push(format!("T+{} {line}", dt + 1));
+                    }
+                    slot1_last[k] = Some(line);
                 }
             }
         }
@@ -4004,6 +4114,53 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         if let Some(b) = &stats.hold_lead_bad {
             out.push(format!("the hold-string leads under 2 gt (a diagnostic, the bar retired by name: its consumer was G8c, not bought at 20:24, ironspec 21:16): {b}"));
         }
+    }
+    if slot1_was.iter().any(|w| w.is_some()) {
+        out.push(format!(
+            "the slot-1 presence strings over R_1 (x,18,1) (F1's input, day-1's G8; ironspec 11:46 / 14:26: a cart presses it, ridden or empty): {}; the slab inside each resting rider's box over the string's cell by at least {} (ironspec 11:46: >= 0.05)",
+            (0..3).map(|k| format!("lane {k}: {}", if slot1_edges[k].is_empty() { "-".to_string() } else { slot1_edges[k].join(", ") })).collect::<Vec<_>>().join("; "),
+            (0..3).map(|k| format!("lane {k} {}", slot1_margin[k].map_or("- (no resting rider over it)".to_string(), |m| format!("{m:.4}")))).collect::<Vec<_>>().join(", ")
+        ));
+        for k in 0..3 {
+            out.push(format!(
+                "the slot-1 string over lane {k}'s R_1, per tick on each change (ironspec 20:31 / 20:41: every cart over its cell, ridden or empty, its END-OF-TICK box against the band y + 1/16 .. y + 2.5/16, and redsim's own press, which models the raised press inside move_along_track (cc767b78 22:43); redsim string-press figures carry this end-position label, and a figure within ~0.05 of z 1.30 doesn't cite until cc767b78's fixtures (ironspec 22:30 / 22:31); an empty cart planted at 1.28 behind a full hold is pushed to 1.3011, the game's rest too (tick-exact AM c9064c497); at most 60 lines): {}; at the end: {}",
+                if slot1_ticks[k].is_empty() { "-".to_string() } else { slot1_ticks[k].join(" | ") },
+                slot1_last[k].as_deref().unwrap_or("-")
+            ));
+        }
+    }
+    // (the empty carts planted: where each ends, a diagnostic: ironspec 22:28 (2)'s slot-1 rest bar
+    // is RETIRED BY NAME (ironspec 23:34): "its purpose ended when (C) was bought at 22:41"; its
+    // dependency recorded: an empty slot-1 cart is pushed to z 1.2590 / 1.2800 by the next arrival
+    // (tick-exact 23:25), F1 then held by slot 2's rider; if (C) is ever removed, the analysis
+    // starts there)
+    if !empty_planted.is_empty() {
+        let mut lines = Vec::new();
+        for (id, k, press) in &empty_planted {
+            let e = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed);
+            let verdict = match e {
+                None => "gone".to_string(),
+                Some(e) => {
+                    let lane = pockets.iter().position(|(x, _, _)| (e.pos.x - (*x as f64 + 0.5)).abs() < 0.5);
+                    let on_r1 = lane.is_some_and(|l| {
+                        let (x, _, z) = pockets[l];
+                        e.pos.x.floor() as i32 == x && e.pos.z.floor() as i32 == z + 1 && (e.pos.y.floor() as i32 == o.hold_y + 1 || e.pos.y.floor() as i32 == o.hold_y + 2)
+                    });
+                    let still = e.delta_movement.x.abs() + e.delta_movement.z.abs() < 1e-3;
+                    format!(
+                        "at the end ({:.4},{:.4},{:.4}) (loop z {:.4}), {}{}",
+                        e.pos.x,
+                        e.pos.y,
+                        e.pos.z,
+                        e.pos.z - 6.0,
+                        if on_r1 { format!("on lane {}'s R_1", lane.unwrap_or(0)) } else { "not on a lane's R_1".to_string() },
+                        if still { ", at rest" } else { ", moving" }
+                    )
+                }
+            };
+            lines.push(format!("cart {id} planted T+{k}: {verdict}; its slot-1 string first pressed with it over the cell T+{}", press.map_or("-".to_string(), |t| t.to_string())));
+        }
+        out.push(format!("the empty carts planted (a diagnostic: the slot-1 rest bar retired by name, ironspec 23:34: its purpose ended when (C) was bought at 22:41): {}", lines.join("; ")));
     }
     // (ironspec 13:04, the drive-integrity bar: each pocket drive's first powered tick against its
     // clock slot REL + offset k; the bench's constant DRIVE_SLOT_DELTA, the slack j = --drive-slack)

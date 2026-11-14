@@ -147,12 +147,35 @@ lanes' feed are emulated until the circuit is laid).
   T+70, none at rest off its rails; ridden carts planted in all three holds at T+55, so the R line
   launches each slot-1 cart north into a full hold: each rests on its R_1 at z 1.28, on the rail,
   none off its rails (the refill rows fail by design: the holds were full).
-- The slot-1 presence strings over R_1 (F1's input, day-1's G8; ironspec 11:46's form: the string
-  (x,18,1), its hooks (x-1,18,1) facing east and (x+1,18,1) facing west, their supports glass at
-  (x+-2,18,1)) land with the refill's evidence-keyed end, whose sensor (B) the string is (ironspec
-  18:16, G1 18:28), in their own commit.
+- The slot-1 presence strings over R_1 (F1's input, day-1's G8: REL = the three strings pressed AND
+  RE_ARMED; ironspec 11:46's form): the string (x,18,1), its hooks (x-1,18,1) facing east and
+  (x+1,18,1) facing west (in the cell that held the glass over R_1's driver), their supports glass at
+  (x+-2,18,1) (shared at x 1 and 5, each over that lane's driver input (x+2,17,1): 9fc3155f's
+  update-reach on a shared support covers both lanes' hooks, ironspec 20:12). A cart on R_1 presses
+  it, ridden or empty (ironspec 14:26 / 14:29: F1 needs a cart in each R_1; a riderless cart is a
+  counted fault in the fault note; ironspec 20:31 / 20:41: an empty cart at slot 1's measured rest is
+  cart-keyed by the raised move, a cart on the ascending R_1 meeting the band one block up each
+  move). The bench prints each string's edges, the least margin of its slab inside each resting
+  rider's box, and every cart over the string's cell per tick (its end-of-tick box against the band
+  and redsim's own press, which models the raised press inside move_along_track, cc767b78 22:43;
+  near-edge figures, within ~0.05 of z 1.30, don't cite until cc767b78's fixtures). The press
+  (D's bench, then tick-exact's game rows): an empty cart at the measured rests (z 1.79..1.89) meets
+  the band with its end box by ~0.5 (tick-exact AI); at the drawn 1.28 only the raised check presses
+  it, released 1 tick in 11 (tick-exact AH); an empty cart planted at 1.28 behind a full hold is
+  pushed to z 1.3011 on its first tick, in the game too (tick-exact AM c9064c497). (C) was bought at
+  22:41, so the slot-1 empty-cart rest bar (ironspec 22:28) is retired by name (ironspec 23:34: "its
+  purpose ended when (C) was bought at 22:41"), its dependency recorded: the next arrival pushes an
+  empty slot-1 cart to z 1.2590 (hold empty) / 1.2800 (hold full) (tick-exact 23:25), F1 then held
+  by slot 2's rider; if (C) is ever removed, the analysis starts there. The bench keeps
+  `--plant-cart empty:...` and `--plant-shift` (the refill phases), the empty carts' ends printed.
+  (The refill latch that would have read this string as its sensor (B) was cancelled, ironspec
+  20:24.) Against V rev 1 (vcompose fac314245, md5 297b5254d2ba), the station line's sight check
+  fails at loop (5,16,1): V's F3 r3 lanterns stand at (1,16,1) and (5,16,1), lanes -1 / 3's
+  R-line line-end support cells (x+2,16,1), where the bench's lever stand-in has its glass:
+  EXPECTED and LABELLED (ironspec 00:43): a pre-existing conflict between F3 r3 and day-1's line end
+  at (x+2,17,1), whose owners (9fc3155f / day-1) propose; lane 7's (9,16,1) is free.
 - R_1 (x,17,1): a powered rail ascending south on the ring's south glass, its power cell
-  (x+1,17,1) (glass over it at (x+1,18,1)): the
+  (x+1,17,1) (the slot-1 string's east hook over it at (x+1,18,1)): the
   built driver, laid in the file (farmopt 10:13), is a repeater (delay 1) there facing west into
   R_1, on glass (x+1,16,1), its input from the east (x+2,17,1) (the controller's cell)
   (never dust, nor a repeater or comparator reading from the north); the bench drives the
