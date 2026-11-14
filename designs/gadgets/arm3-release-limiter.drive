@@ -1,0 +1,25 @@
+# The ARM3 release line through its pulse limiter (dfb89499, F; G1 05:05 (1)(b)): L1 (ARM3) fires A,
+# the stone moves into B (t 4), the latch's comparator Q reads B: strength 1 (one stone in a 9-slot
+# dropper) at R1's input (t 6); C pulses once, 8 gt (t 10..17); L1 again (a rolled-back re-press)
+# fires A empty: nothing; L2 (the REL SET) fires B, the stone returns (t 54 after its flip), the
+# level falls: nothing on C.
+design designs/gadgets/arm3-release-limiter.txt
+probe_items b 2 1 0
+probe_items a 3 1 0
+probe q 2 1 1
+probe_signal qin 2 1 2
+probe c 2 1 4
+probe out 2 1 5
+use 4 1 0
+trace 6
+expect b 1
+expect qin 1
+expect_trace c 0001111111100000000
+use 4 1 0
+use 4 1 0
+expect_trace c 0000000000000000000000000
+expect b 1
+use 1 1 0
+expect_trace c 0000000000000000000000000
+expect a 1
+expect qin 0

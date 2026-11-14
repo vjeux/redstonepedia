@@ -1,0 +1,41 @@
+name: gadget-arm3-release-limiter
+# (dfb89499, ironspec 04:23 (4) / ironfarm 05:00, G1 05:05 (1)(b)) The ARM3 interlock's release line
+# with its pulse limiter, in the gadget frame (the station's loop frame = gadget + (1,5,8)): the
+# latch's droppers B (west, facing east) and A (east, facing west) hold ONE stone, built in A
+# (ARMED); lever L1 stands in for ARM3 (it fires A: the stone moves into B, the release); lever L2
+# for the REL SET (it fires B: the stone back in A). The comparator Q reads B: one stone in a 9-slot
+# dropper is strength 1, a LEVEL from the release to the next REL. R1 (the limiter's input,
+# (3,6,10) in the station) amplifies it; the dust D carries it south into the subtract comparator
+# C's back and round a delay branch (dust E F G into the delay-4 repeater R4) into C's west side,
+# so C's output (o, the release line's end (3,6,13)) is one pulse per rise of the level and
+# nothing on its fall. All supports glass (no conductor beside a diode).
+origin: 0 0 0
+nbt: 3 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+palette:
+  g minecraft:glass
+  l minecraft:lever[face=floor,facing=east,powered=false]
+  B minecraft:dropper[facing=east,triggered=false]
+  A minecraft:dropper[facing=west,triggered=false]
+  Q minecraft:comparator[facing=north,mode=compare,powered=false]
+  1 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  D minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  E minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  F minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  G minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  4 minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  C minecraft:comparator[facing=north,mode=subtract,powered=false]
+  o minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+layer 0:
+  .g..g
+  ..g..
+  ..g..
+  ggg..
+  ggg..
+  ..g..
+layer 1:
+  .lBAl
+  ..Q..
+  ..1..
+  FED..
+  G4C..
+  ..o..
