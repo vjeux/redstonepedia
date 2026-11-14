@@ -16,6 +16,15 @@ struct Cli {
     /// Minecraft version.
     #[arg(long, global = true, default_value = mctas::DEFAULT_VERSION)]
     version: String,
+    /// (ironspec Nov 14 01:58 / 02:35, the binary rule) The commit an evidence run cites: the binary's
+    /// stamped build tree must be that commit's build inputs and the worktree's, and the worktree that
+    /// commit (HEAD by default, only when the worktree is clean).
+    #[arg(long, global = true)]
+    cite: Option<String>,
+    /// (the binary rule) Run an evidence subcommand from a binary that isn't the cited commit's: it says
+    /// NOT EVIDENCE at its head and foot and exits 3, so no verdict of it can be cited.
+    #[arg(long, global = true)]
+    not_evidence: bool,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -190,7 +199,45 @@ enum SimCmd {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    use clap::{CommandFactory, FromArgMatches};
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches)?;
+    // (the binary rule's ONE call site (G1 Nov 14 02:44b): every evidence subcommand, named once in
+    // `mobfarm::provenance::is_evidence`, runs only from a binary stamped with the cited commit's build
+    // tree, or under --not-evidence, which heads and foots its output NOT EVIDENCE and exits 3)
+    let evidence = matches.subcommand().is_some_and(|(fam, sub)| sub.subcommand_name().is_some_and(|name| mobfarm::provenance::is_evidence(fam, name)));
+    use mobfarm::provenance::{Exit, finish};
+    let citable = if evidence {
+        match mobfarm::provenance::check(&std::env::current_dir()?, cli.cite.as_deref(), cli.not_evidence) {
+            Ok((header, citable)) => {
+                println!("{header}");
+                citable
+            }
+            Err(refusal) => {
+                println!("{refusal}");
+                finish(Exit::Refused);
+            }
+        }
+    } else {
+        true
+    };
+    if !evidence {
+        return run(cli);
+    }
+    // (an evidence run ends on the table's last line: NOT EVIDENCE under --not-evidence whatever the
+    // verdict, else PASS when the run returns Ok, FAIL (named above) when it errs; a lane whose runner
+    // exits by itself prints its own line from the same table)
+    match run(cli) {
+        Ok(()) if !citable => finish(Exit::NotEvidence),
+        Ok(()) => finish(Exit::Pass),
+        Err(e) => {
+            println!("{e:#}");
+            finish(if citable { Exit::Fail } else { Exit::NotEvidence })
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Cmd::Setup { vanilla_starts } => {
             let build = bridge::build(&cli.version)?;
@@ -382,4 +429,40 @@ fn sim(version: &str, command: SimCmd) -> Result<()> {
 #[allow(dead_code)]
 fn require_setup(version: &str) -> Result<()> {
     setup::install_server(version).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    /// G1 Nov 14 02:59 (the binary rule's default-deny): EVERY subcommand of the evidence families is
+    /// either checked at the dispatch or on the explicit NON_EVIDENCE list, and every listed entry names a
+    /// real subcommand (no stale exemption).
+    #[test]
+    fn every_evidence_family_subcommand_is_checked_or_listed() {
+        // (the whole command tree is large: built on a thread with a big stack, as a debug test thread's
+        // default overflows)
+        std::thread::Builder::new().stack_size(1 << 30).spawn(check_every_subcommand).expect("thread").join().expect("the enumeration");
+    }
+
+    fn check_every_subcommand() {
+        let cli = super::Cli::command();
+        let mut checked = 0usize;
+        for fam in ["mobfarm", "mobai"] {
+            let f = cli.find_subcommand(fam).unwrap_or_else(|| panic!("the {fam} family"));
+            let names: Vec<String> = f.get_subcommands().map(|s| s.get_name().to_string()).collect();
+            assert!(!names.is_empty(), "{fam} has subcommands");
+            for n in &names {
+                let listed = mobfarm::provenance::NON_EVIDENCE.contains(&(fam, n.as_str()));
+                assert!(mobfarm::provenance::is_evidence(fam, n) != listed, "{fam} {n}: checked xor listed");
+                checked += usize::from(!listed);
+            }
+            for (lf, ln) in mobfarm::provenance::NON_EVIDENCE {
+                if lf == fam {
+                    assert!(names.iter().any(|n| n == ln), "NON_EVIDENCE names {lf} {ln}, which isn't a subcommand");
+                }
+            }
+        }
+        assert!(checked > 0);
+    }
 }

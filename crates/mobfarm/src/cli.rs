@@ -6,6 +6,12 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
+    /// Git's tree id of this worktree's CODE (`crates/`, `Cargo.toml`, `Cargo.lock`) as it stands
+    /// (uncommitted edits and untracked files included): the value to build with as `MCTAS_SOURCE_TREE`
+    /// (ironspec Nov 14 01:58's binary rule: `MCTAS_SOURCE_TREE=$(mctas mobfarm source-tree) cargo build
+    /// --release`; an evidence runner then calls `mobfarm::provenance::check`, which refuses unless the
+    /// stamp is the cited commit's code and the worktree's current code, and the worktree is that commit).
+    SourceTree,
     /// The pausable timers' shared lockable chain (`chainbench.rs`): writes its design (`--stages`
     /// 1-tick repeaters with side lockers on a NOT-ALIVE bus) to `--out` and prints every stage's
     /// unfrozen delay, the lag after a `--freeze-len` gt freeze begun at every phase, the 200-gt
@@ -13671,6 +13677,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+        }
+        MobfarmCmd::SourceTree => {
+            println!("{}", crate::provenance::worktree_build_tree(&std::env::current_dir()?).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::CtlDaylightTable => {
             for l in crate::ctlcounter::daylight_table() {
