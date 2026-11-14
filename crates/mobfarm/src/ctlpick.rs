@@ -1593,28 +1593,39 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             lines.push(format!("  THE ONE-PICK-PER-REL FORMS (the sensed ring; the same nap model; (b') with the positional release and the +-2 gt corners too, {n_rows} rows): {}: (b')'s worst interval {a_worst} gt{b_extra}: {w}", form_rows.join("; ")));
             let n_pts = freeze_rows.len();
             // (THE RECORD's MEASURED DEPTH (ironspec 12:47p (4)): the most entries alive at once per tick (written at the pick's
-            // REL + 2, shifted at REL' + 61), under (b'+w), over the seven points and the true freezes, the stop -> (9,0,8)
-            // trip swept 40 / 80 / 120 gt until measured)
+            // REL + 2, shifted at REL' + 61), under (b'+w), over the seven points and the true freezes, each at the 27 +-2 gt leg
+            // corners, at the MEASURED stop -> (9,0,8) trip band (58f770cc's pickup -> stop out 35..48 gt + ironfarm's stop R ->
+            // (9,0,8) seated 78 gt on V's depth = 113..126 gt), each end +-2 gt)
             let mut depth = Vec::new();
-            for trip in [40i64, 80, 120] {
+            let mut depth_max = 0i64;
+            for trip in [111i64, 113, 115, 124, 126, 128] {
                 let mut m = 0i64;
-                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
-                    let mut c = sensed_cfg("the record's depth", false, cyc, extra);
-                    c.grant_form = 4;
-                    c.arm3_trip = trip;
-                    m = m.max(run(&c).max_open_measured);
+                for s0 in [-2i64, 0, 2] {
+                    for s1 in [-2i64, 0, 2] {
+                        for s2 in [-2i64, 0, 2] {
+                            for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                                let mut c = sensed_cfg("the record's depth", false, cyc, extra);
+                                c.grant_form = 4;
+                                c.arm3_trip = trip;
+                                c.leg_shift = [s0, s1, s2];
+                                m = m.max(run(&c).max_open_measured);
+                            }
+                            for &fz in &freeze_rows {
+                                let mut c = sensed_cfg("the record's depth, a true freeze", false, 333, 0);
+                                c.grant_form = 4;
+                                c.arm3_trip = trip;
+                                c.leg_shift = [s0, s1, s2];
+                                c.freeze = vec![fz];
+                                m = m.max(run(&c).max_open_measured);
+                            }
+                        }
+                    }
                 }
-                for &fz in &freeze_rows {
-                    let mut c = sensed_cfg("the record's depth, a true freeze", false, 333, 0);
-                    c.grant_form = 4;
-                    c.arm3_trip = trip;
-                    c.freeze = vec![fz];
-                    m = m.max(run(&c).max_open_measured);
-                }
+                depth_max = depth_max.max(m);
                 depth.push(format!("trip {trip} gt: {m}"));
             }
-            let sc = v.scope("ctl-pick: the record's measured depth (picks written minus ARM3 shifts, per tick)", "cc767b78's stage count reads it; the stop -> (9,0,8) trip is swept until 58f770cc / b8949c96 measure it");
-            lines.push(format!("  THE RECORD's MEASURED DEPTH under (b'+w) (the most entries alive at once, per tick; {} rows per trip): {}: {sc}", 7 + n_pts, depth.join(", ")));
+            let sc = v.scope("ctl-pick: the record's measured depth (picks written minus ARM3 shifts, per tick)", &format!("cc767b78's stage count reads it: at most {depth_max} over the measured trip band"));
+            lines.push(format!("  THE RECORD's MEASURED DEPTH under (b'+w) (the most entries alive at once, per tick; {} rows per trip: the seven points and the true freezes, each at the 27 leg corners; the trip = the measured 113..126 gt, each end +-2): {}: {sc}", 27 * (7 + n_pts), depth.join(", ")));
             // (THE TIMING CORNER (ironspec 12:02p (1)): every circuit entry processed after the same REL's pops (any shift of
             // an entry past a pop, 2 gt included), at every point of the sweep: the results and the ring's sync)
             let mut corner = Vec::new();
