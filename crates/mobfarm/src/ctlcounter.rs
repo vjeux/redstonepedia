@@ -150,6 +150,11 @@ pub struct CounterOpts {
     /// (ironspec 06:31 PT, the exposure rule's control) The queue's release ignores the stop's RS (R's ready): a
     /// release while the bed is occupied puts a second napper within 16 of it, which the exposure bar must count.
     pub ignore_stop: bool,
+    /// (the adopted stop) Every visit's entry -> R (and a held stop's cycle) this much longer than the measured bands
+    /// ([`RELEASE_SHIFT`]).
+    pub release_shift: i64,
+    /// (the adopted stop) A skip-woken sleeper's wake -> R ([`WAKE_TO_R`]).
+    pub wake_to_r: i64,
 }
 
 impl Default for CounterOpts {
@@ -202,9 +207,20 @@ impl Default for CounterOpts {
             lane_count: None,
             skip_at: None,
             ignore_stop: false,
+            release_shift: RELEASE_SHIFT,
+            wake_to_r: WAKE_TO_R,
         }
     }
 }
+
+/// (ironspec on f6e715e50 (a): the counter's stop moves to the adopted logic) The adopted stop's release against the
+/// measured bands' (58f770cc's rows released the park at about the wake + 8, close 4 / delta 8): ctl-shutter's
+/// sustained-presence release puts the park at the wake + 22 (RLS + 2, the trim), so every visit's entry -> R draws
+/// this much longer.
+pub const RELEASE_SHIFT: i64 = 14;
+/// The adopted stop's wake -> R (ctl-shutter 17:24: the departure at the wake + 38..44, R 13..15 after it; the worst):
+/// a skip-woken sleeper (class a) leaves through R this long after REST's end wakes it.
+pub const WAKE_TO_R: i64 = 59;
 
 /// A scripted event: a night skip (at the event's game time, after the 100 gt asleep: the day jumps
 /// to the next 24,000 and the weather flags clear), or the weather flags set (vanilla `raining` /
@@ -506,13 +522,14 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 // lie-down falls within 9 gt still lies down and naps: 58f770cc 10:07)
                 let rest_tail = 9;
                 let class = if since + rest_tail < o.stop_walk {
-                    stop_until = t + 12_000 + o.stop_cycle;
+                    stop_until = t + 12_000 + o.stop_cycle + o.release_shift;
                     // (G1's Y7: the occupant's own exit moves with its own wake, recorded apart from the gate)
                     occ_climb_out = stop_until + o.climb_exit;
                     b'b'
                 } else if since < o.stop_walk + o.stop_nap {
-                    // (G1: the sleeper wakes at REST's end, day time 10, `rest_tail` gt after the skip)
-                    stop_until = t + rest_tail + (o.stop_cycle - o.stop_walk - o.stop_nap).max(0);
+                    // (G1: the sleeper wakes at REST's end, day time 10, `rest_tail` gt after the skip; the adopted stop's
+                    // sustained-presence release takes it out through R `wake_to_r` later: ctl-shutter)
+                    stop_until = t + rest_tail + o.wake_to_r;
                     occ_climb_out = stop_until + o.climb_exit;
                     b'a'
                 } else {
@@ -825,11 +842,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                     let wait = (12_000 - dm_now).rem_euclid(24_000);
                     // (G1's Y7: the occupant's own R, recorded apart from the gate's hold; the gate frees the stop at
                     // R's RS, unless the planted gate defect `gate_at_liedown` frees it at the lie-down)
-                    let own_r = t + wait + o.stop_cycle;
+                    let own_r = t + wait + o.stop_cycle + o.release_shift;
                     occ_climb_out = own_r + o.climb_exit;
                     stop_until = if o.gate_at_liedown { t + o.to_entry + o.stop_walk } else { own_r };
                     stale_until = own_r;
-                    out.stale_admits.push((dm_now, (dm_now + wait + o.stop_cycle).rem_euclid(24_000)));
+                    out.stale_admits.push((dm_now, (dm_now + wait + o.stop_cycle + o.release_shift).rem_euclid(24_000)));
                     // (G1's audit hole 11: back in its lane from the measured round trip's R -> back part when `--back-hist`
                     // is given (the pick -> back less the entry and the cycle), else `back_after`)
                     let back = match &o.back_hist {
@@ -848,7 +865,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 } else {
                     // (ironspec 23:06 / 23:21 PT: the visit's entry -> R per visit from the measured distribution;
                     // ironspec 23:33 PT (2): one late return, the injected visit's cycle `add` longer)
-                    let base_cyc = o.stop_hist.as_ref().map_or(o.stop_cycle, |h| crate::napper::hist_pick(h, t as u64));
+                    let base_cyc = o.stop_hist.as_ref().map_or(o.stop_cycle, |h| crate::napper::hist_pick(h, t as u64)) + o.release_shift;
                     let mut cyc = base_cyc;
                     if let Some((at, add)) = o.inject_late
                         && out.late_at.is_none()
@@ -865,7 +882,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                     // (G1 on 9c081f615 (b): back in its lane from the measured round trip, the pick -> back, per
                     // visit, never before this visit's R; a late return comes back that much later)
                     let back = match &o.back_hist {
-                        Some(h) => (tp + crate::napper::hist_pick(h, (t as u64) ^ 0x5bd1_e995)).max(t + o.to_entry + base_cyc + 1) + (cyc - base_cyc),
+                        Some(h) => (tp + crate::napper::hist_pick(h, (t as u64) ^ 0x5bd1_e995) + o.release_shift).max(t + o.to_entry + base_cyc + 1) + (cyc - base_cyc),
                         None => t + o.to_entry + o.back_after + (cyc - base_cyc),
                     };
                     back_at.push(back);
@@ -2211,7 +2228,7 @@ const H_STATED_LIMIT: (i64, i64) = (500, 1_750);
 /// deferred picks, the post-skip night's naps), the back-pressure against a no-back-pressure control,
 /// and restarts. (The chain fix) every bar and control through `v`.
 fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut crate::verdict::Verdict) -> Vec<String> {
-    let mut lines = vec!["  (stop model before the 15:37 timeout removal: the stale branch and the skip classes a / b hold the stop by the older logic; the adopted stop (no T_nolie / T_fault / T_open, the release on sustained presence, rider-keyed RS_ready holding the next napper at R1) is ctl-shutter's, and this model moves to it next (ironspec on f6e715e50 (a)))".to_string()];
+    let mut lines = vec![format!("  (the adopted stop, ironspec 15:37 / 16:00 / 16:32 (4) and ironspec's note (a) on f6e715e50: no T_nolie / T_fault / T_open; every visit's entry -> R the measured band + {} (ctl-shutter's sustained-presence release: the park at the wake + 22 against the bands' about the wake + 8); a skip-woken sleeper (class a) out through R at its wake + {} (ctl-shutter's worst); class b (on foot at REST's end) holds the stop to the next REST + a visit; the next napper held at R1 until the occupant rides out past R (rider-keyed RS_ready))", base.release_shift, base.wake_to_r)];
     let o = CounterOpts { variant: Variant::Ff, ..base.clone() };
     // (G1's Z5 on 10bcdf661: the new bars' controls, each a planted defect through the same model run: a DAY line whose
     // level the curve never reaches leaves a skip's DAY rise pending to the run's end (skip_unresolved); a drawn
