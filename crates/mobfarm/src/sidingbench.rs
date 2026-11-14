@@ -811,6 +811,16 @@ pub struct SidingOpts {
     pub remove_cart: Option<(usize, i64, i64)>,
     /// --plant-shift C,T,DX (G1's D2 control): lane cart C moved DX blocks in x at tick T, in this row alone.
     pub plant_shift: Option<(usize, i64, f64)>,
+    /// ironspec Nov 13 23:04: the solo ride's DISPLACED form: `remove_cart`'s cart (and its rider, which
+    /// follows its vehicle) held 40 blocks over the cell it was in, motionless, every tick to the run's
+    /// end, instead of killed (the entity list intact); read back at the end.
+    pub solo_displace: bool,
+    /// ironspec 23:04, the FAR-DUMMY control: a minecart spawned 60 blocks over the lip at the first
+    /// tick, held there, and killed at tick T (no lane cart removed); read back.
+    pub dummy_kill: Option<i64>,
+    /// ironspec Nov 13 23:16 (4): at tick T, the shared state printed: the level random's state and each
+    /// villager's POI memories (home, job site, potential job site, meeting point, nearest bed) and vehicle.
+    pub state_at: Option<i64>,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -1520,6 +1530,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut lip_open: Vec<Option<(i64, u32, f64, bool)>> = vec![None; n];
     let mut lip_passes: Vec<(i64, usize, u32, f64, bool)> = Vec::new();
     let mut in_c: Vec<bool> = vec![false; n];
+    // (the compression chain's backup: the most carts at rest on C / D / J / the split row per tick, and the
+    // furthest class reached (1 C, 2 D, 3 J, 4 the split row west of J) with its tick and cart)
+    let mut backup_count: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+    let mut backup_reach: (u8, i64, usize) = (0, 0, 0);
     let mut c_arrivals: Vec<(i64, usize, f64, f64)> = Vec::new();
     // (the leader's descent from C past V (ironspec 11:05, day-1's counting answer): each arrival at C
     // (tick, cart, the queue depth then) until the cart's centre is under z 5.7 below y 23 (its rider's
@@ -1541,6 +1555,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // cart there: (cart, centre, box, rider's box, stored speed)))
     #[allow(clippy::type_complexity)]
     let mut lip_region: std::collections::BTreeMap<i64, (Option<usize>, Vec<(usize, (f64, f64, f64), [f64; 6], Option<[f64; 6]>, f64)>)> = std::collections::BTreeMap::new();
+    // (G1 Nov 13 23:47: every lane cart's position every tick, in the lip's region or not, so a path is
+    // compared over a FIXED tick window (the lip arrival - 10 ..= + 30) in both rides)
+    let mut pos_hist: std::collections::BTreeMap<i64, Vec<(usize, (f64, f64, f64))>> = std::collections::BTreeMap::new();
     let mut last_arrival_of: Vec<Option<usize>> = vec![None; n];
     let mut off_rest_class: Vec<(i64, usize, String)> = Vec::new();
     let mut in_j: Vec<bool> = vec![false; n];
@@ -1577,6 +1594,17 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap: Option<(usize, usize)> = None;
     // (G1's D2: the solo ride's kill and the planted shift, read back after the run)
     let (mut removed_at, mut planted_at): (Option<i64>, Option<i64>) = (None, None);
+    // (ironspec 23:04: the displaced cart held far (its id and world position) and the far dummy (its id,
+    // world position, kill tick))
+    let mut held_far: Option<(u32, [f64; 3])> = None;
+    let mut held_drift = 0.0f64;
+    let mut dummy: Option<(u32, [f64; 3])> = None;
+    let mut dummy_killed_at: Option<i64> = None;
+    // (ironspec 23:16 (4): the shared-state line at `state_at`)
+    let mut state_line: Option<String> = None;
+    // (the lane carts killed for a solo ride: gone for the rest of the run)
+    let mut suppressed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut kill_next_use: Option<i64> = None;
     let mut pred_pass: Option<i64> = None;
     let mut released_at: Option<i64> = None;
     // (--skip-release: releases skipped so far; G8c: the next trapdoor open and the cut ticks)
@@ -2450,6 +2478,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // nothing arrives while the bench is frozen)
         let due: Vec<(usize, bool)> = if frozen32.is_some() { Vec::new() } else { pending.iter().filter(|p| p.0 <= t).map(|p| (p.1, p.2)).collect() };
         for (c, is_nap) in due {
+            // (G1's D2, the run of Nov 13 22:19: a lane cart killed for a solo ride stays gone for the
+            // rest of the run: its due return (a fresh or a parked cart under its index) is dropped)
+            if suppressed.contains(&c) {
+                pending.retain(|p| p.1 != c);
+                continue;
+            }
             if is_nap {
                 // (--j-rail: the napper's own parked cart and rider set on K's cell moving north, as
                 // --nap-feed-v summons it; else a fresh napper)
@@ -2577,7 +2611,77 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             redsim::entity::mob::mob_mut(&mut run.world, ri).last_damage = Some((run.world.time, redsim::entity::mob::Damage::Cramming));
         }
         run.tick();
-        // (the interaction row's solo rides (ironspec 14:47 (a); the parent Nov 13 19:21): --remove-cart
+        // (ironspec 23:04: the displaced cart and the far dummy held in place, in world coordinates, after
+        // each tick: their position and old position set, no motion; the displaced cart's drift before
+        // the hold read back)
+        let hold = |w: &mut redsim::world::World, id: u32, p: [f64; 3]| -> Option<f64> {
+            let i = redsim::entity::index_of(w, id)?;
+            let q = w.entities.list[i].pos;
+            let drift = ((q.x - p[0]).powi(2) + (q.y - p[1]).powi(2) + (q.z - p[2]).powi(2)).sqrt();
+            w.entities.set_pos(i, redsim::entity::vec3::Vec3::new(p[0], p[1], p[2]));
+            let e = &mut w.entities.list[i];
+            e.x_old = p[0];
+            e.y_old = p[1];
+            e.z_old = p[2];
+            e.delta_movement = redsim::entity::vec3::Vec3::new(0.0, 0.0, 0.0);
+            e.fall_distance = 0.0;
+            Some(drift)
+        };
+        if let Some((hid, hp)) = held_far {
+            let d = hold(&mut run.world, hid, hp).ok_or_else(|| format!("--solo-displace: the displaced cart {hid} is gone at t {t}"))?;
+            held_drift = held_drift.max(d);
+        }
+        if let Some(dk) = so.dummy_kill
+            && dummy.is_none()
+            && dummy_killed_at.is_none()
+        {
+            let id = spawn_off(&mut run.world, "minecraft:minecart", [lx as f64 + 0.5, (m + 60) as f64, mzf(mz as f64 + 0.5)], None)?;
+            let i = redsim::entity::index_of(&run.world, id).ok_or("--dummy-kill: the dummy didn't spawn")?;
+            let q = run.world.entities.list[i].pos;
+            dummy = Some((id, [q.x, q.y, q.z]));
+            let _ = dk;
+        }
+        if let Some((did, dp)) = dummy {
+            if Some(t) == so.dummy_kill {
+                redsim::entity::kill(&mut run.world, did)?;
+                dummy_killed_at = Some(t);
+                dummy = None;
+            } else {
+                hold(&mut run.world, did, dp).ok_or_else(|| format!("--dummy-kill: the far dummy is gone at t {t}"))?;
+            }
+        }
+        // (ironspec 23:16 (4): the shared state at tick T: the level random's state and each villager's POI
+        // memories and vehicle, to compare the paired ride with its solo rides)
+        if Some(t) == so.state_at {
+            use redsim::entity::mob::ai::brain;
+            let w = &run.world;
+            let lr = w.level_random.as_ref().map_or("none".to_string(), |r| r.state().to_string());
+            let mut vs: Vec<String> = Vec::new();
+            for k in 0..w.entities.list.len() {
+                let e = &w.entities.list[k];
+                if e.removed {
+                    continue;
+                }
+                if let redsim::entity::EntityKind::Mob(m) = &e.kind
+                    && m.ty == redsim::entity::mob::types::MobType::Villager
+                    && m.brain.is_some()
+                {
+                    let b = brain::brain(w, k);
+                    let mem = brain::has_exact(w, k).then(|| &brain::ex(w, k).mem);
+                    vs.push(format!(
+                        "villager {}: home {:?}, job {:?}, potential {:?}, meeting {:?}, bed {:?}, vehicle {:?}",
+                        e.id,
+                        b.home,
+                        mem.and_then(|m| m.job_site),
+                        mem.and_then(|m| m.potential_job_site),
+                        mem.and_then(|m| m.meeting_point),
+                        mem.and_then(|m| m.nearest_bed),
+                        e.vehicle
+                    ));
+                }
+            }
+            state_line = Some(format!("state at t {t}: the level random {lr}; {} villagers: {}", vs.len(), vs.join("; ")));
+        }
         // C@T kills lane cart C and its rider at tick T, so another cart rides the lip alone)
         if let Some((rc, rt0, rt1)) = so.remove_cart
             && removed_at.is_none()
@@ -2585,13 +2689,37 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             && t <= rt1
             && let Some(id) = carts.get(rc).copied().flatten()
         {
-            if let Some(ri) = rider_index(&run.world, id) {
-                let rid = run.world.entities.list[ri].id;
-                redsim::entity::kill(&mut run.world, rid)?;
+            if so.solo_displace {
+                // (ironspec 23:04: displaced, not killed: held 40 blocks over its cell (its rider follows
+                // its vehicle) to the run's end, its index cleared so the lane never uses it again)
+                let i = redsim::entity::index_of(&run.world, id).ok_or_else(|| format!("--solo-displace: lane cart {rc} has no entity at t {t}"))?;
+                let q = run.world.entities.list[i].pos;
+                let hp = [q.x, q.y + 40.0, q.z];
+                hold(&mut run.world, id, hp);
+                held_far = Some((id, hp));
+            } else {
+                if let Some(ri) = rider_index(&run.world, id) {
+                    let rid = run.world.entities.list[ri].id;
+                    redsim::entity::kill(&mut run.world, rid)?;
+                }
+                redsim::entity::kill(&mut run.world, id)?;
             }
-            redsim::entity::kill(&mut run.world, id)?;
             carts[rc] = None;
             removed_at = Some(t);
+            // (G1 22:23: the killed cart's next scheduled use, so the solo comparison can end before it)
+            kill_next_use = pending.iter().filter(|p| p.1 == rc).map(|p| p.0).min();
+            // (the cart stays gone: its parked entity (if any) killed too, its returns suppressed)
+            suppressed.insert(rc);
+            if let Some(pid) = parked.get_mut(rc).and_then(|p| p.take())
+                && redsim::entity::index_of(&run.world, pid).is_some()
+            {
+                if let Some(ri) = rider_index(&run.world, pid) {
+                    let rid = run.world.entities.list[ri].id;
+                    redsim::entity::kill(&mut run.world, rid)?;
+                }
+                redsim::entity::kill(&mut run.world, pid)?;
+            }
+            pending.retain(|p| p.1 != rc);
         }
         // (G1's D2 control: --plant-shift C,T,DX moves lane cart C by DX in x at tick T, in this row
         // alone (the interaction row's departure-only negative: a displacement with no contact))
@@ -2944,6 +3072,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 j_settles.push((t, c, q));
             }
             in_j[c] = at_j;
+            // (G1 / ironspec Nov 14 00:34-00:37, the compression chain: a cart AT REST (speed < 0.001) on the
+            // lane's entry above its slots: C (lx,m,mz), D (z mz+1..mz+2), J (lx,m+1,mz+2), or west of J on
+            // the split row (z from mz+2, outside the lane's column): the backup's reach toward the lift mouth)
+            if csp < 0.001 && x > lx as f64 - 3.0 && x < (lx + 1) as f64 && y > m as f64 - 0.1 && z >= mz as f64 {
+                let class: u8 = if z >= (mz + 2) as f64 && x < lx as f64 {
+                    4
+                } else if z >= (mz + 2) as f64 {
+                    3
+                } else if z >= (mz + 1) as f64 {
+                    2
+                } else {
+                    1
+                };
+                *backup_count.entry(t).or_insert(0) += 1;
+                if class > backup_reach.0 {
+                    backup_reach = (class, t, c);
+                }
+            }
             if let Some(k) = j_settles.iter().position(|s| s.1 == c)
                 && csp < 0.001
                 && y < m as f64 - 1.0
@@ -3039,6 +3185,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     Some(crate::lipclass::CartObs { id: c as u32, pos: (x, y, z), speed: e.delta_movement.x.hypot(e.delta_movement.z), cart_box: [b.0, b.1, b.2, b.3, b.4, b.5], rider_box })
                 })
                 .collect();
+            pos_hist.insert(t, obs.iter().map(|c| (c.id as usize, c.pos)).collect());
             // (the interaction row (ironspec Nov 13 14:47 (a), day-1 14:45): every cart in the lip's
             // region this tick (x lx-2.5..lx+2.5, y over m-2.5, z mz-2..mz+3: R, the S-bend, C, the drop
             // and V), with its box, its rider's box and its stored speed, and which cart is the napper)
@@ -4058,8 +4205,44 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // silent no-op)
     if let Some((rc, rt0, rt1)) = so.remove_cart {
         match removed_at {
-            Some(t) => lines.push(format!("removed lane cart {rc} at t {t} (the interaction row's solo ride, the first tick in {rt0}..={rt1} it had an entity; G1's D2 read-back)")),
+            Some(t) => lines.push(format!(
+                "removed lane cart {rc} at t {t} (the interaction row's solo ride, the first tick in {rt0}..={rt1} it had an entity; G1's D2 read-back; gone for the rest of the run; {}its next scheduled use t {})",
+                if so.solo_displace {
+                    format!("DISPLACED, not killed: held 40 blocks over its cell to the run's end, its drift before each hold at most {held_drift:.2e} b; ")
+                } else {
+                    String::new()
+                },
+                kill_next_use.map_or("-".to_string(), |u| u.to_string())
+            )),
             None => return Err(format!("--remove-cart {rc}@{rt0}..={rt1}: no kill happened (lane cart {rc} had no entity in that window, or the run ended first; G1's D2)")),
+        }
+        // (the displaced cart's hold read back at the end: still there)
+        if let Some((hid, hp)) = held_far {
+            let i = redsim::entity::index_of(&run.world, hid).ok_or_else(|| format!("--solo-displace: the displaced cart {hid} is gone at the run's end"))?;
+            let q = run.world.entities.list[i].pos;
+            if (q.y - hp[1]).abs() > 1.0 || (q.x - hp[0]).abs() > 1.0 || (q.z - hp[2]).abs() > 1.0 {
+                return Err(format!("--solo-displace: the displaced cart {hid} left its hold ({:.2},{:.2},{:.2} vs {:.2},{:.2},{:.2})", q.x, q.y, q.z, hp[0], hp[1], hp[2]));
+            }
+        }
+    }
+    lines.push(format!(
+        "the backup's reach (G1 / ironspec Nov 14 00:34-00:37, the compression chain; a cart at rest, speed < 0.001, on the lane's entry): {}; the most at rest there at once {}",
+        match backup_reach.0 {
+            0 => "none (no cart at rest on C, D, J or the split row)".to_string(),
+            k => format!("{} (cart {} at t {})", ["", "C", "D", "J", "THE SPLIT ROW west of J"][k as usize], backup_reach.2, backup_reach.1),
+        },
+        backup_count.values().max().copied().unwrap_or(0)
+    ));
+    if let Some(dk) = so.dummy_kill {
+        match dummy_killed_at {
+            Some(t) => lines.push(format!("killed the far dummy at t {t} (ironspec 23:04's control: a minecart held 60 blocks over the lip from the first tick)")),
+            None => return Err(format!("--dummy-kill {dk}: the far dummy was never killed (the run ended first)")),
+        }
+    }
+    if let Some(ts) = so.state_at {
+        match state_line {
+            Some(l) => lines.push(l),
+            None => return Err(format!("--state-at {ts}: never reached (the run ended first)")),
         }
     }
     if let Some((pc, pt, dx)) = so.plant_shift {
@@ -4774,8 +4957,38 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // 1e-6 bar must see is never rounded away; G1's B8: the path window -10..=+30 gt around
                 // the lip arrival is the pairing window's own (ironspec 14:47 (a): the lip volume's
                 // occupancy before the arrival and the drop's 30 gt after it), the tool's choice)
-                let pts: Vec<String> = (-10..=30).filter_map(|k| snap_of(ta + k, *c).map(|e| format!("{k}:{},{},{}", e.1 .0, e.1 .1, e.1 .2))).collect();
+                // (G1 Nov 13 23:47: the path over the FIXED window, each tick's position whether in the lip's
+                // region or not; the region's entry and exit ticks printed on their own line)
+                let pts: Vec<String> = (-10..=30).filter_map(|k| pos_hist.get(&(ta + k)).and_then(|v| v.iter().find(|e| e.0 == *c)).map(|e| format!("{k}:{},{},{}", e.1 .0, e.1 .1, e.1 .2))).collect();
                 lines.push(format!("lip path t {ta} cart {c}: {}", pts.join(" ")));
+                let inr: Vec<i32> = (-10..=30).filter(|k| snap_of(ta + *k as i64, *c).is_some()).collect();
+                lines.push(format!(
+                    "lip region t {ta} cart {c}: {}",
+                    if inr.is_empty() { "none".to_string() } else { inr.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(" ") }
+                ));
+                // (ironspec / G1 Nov 13 23:47 / 23:58, THE HARM: where the cart comes to rest after the lip: the
+                // first of 5 consecutive ticks each moving under 1e-4 b (ironspec 10:42's stall window), within
+                // 400 gt of the arrival, and its position)
+                let at = |t: i64| pos_hist.get(&t).and_then(|v| v.iter().find(|e| e.0 == *c)).map(|e| e.1);
+                let mut rest: Option<(i64, (f64, f64, f64))> = None;
+                let mut still = 0;
+                for t in *ta..*ta + 400 {
+                    match (at(t), at(t + 1)) {
+                        (Some(p), Some(q)) if ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2) + (p.2 - q.2).powi(2)).sqrt() < 1e-4 => {
+                            still += 1;
+                            if still == 5 {
+                                rest = Some((t - 4, q));
+                                break;
+                            }
+                        }
+                        (Some(_), Some(_)) => still = 0,
+                        _ => break,
+                    }
+                }
+                lines.push(match rest {
+                    Some((tr, p)) => format!("lip rest t {ta} cart {c}: t {tr} at {},{},{}", p.0, p.1, p.2),
+                    None => format!("lip rest t {ta} cart {c}: none"),
+                });
             }
             // (G1's B8: a napper "from R" was on R's siding (x < lx - 0.9: west of the lane's column by
             // more than a cart's half-width) within the 60 gt before its lip arrival (the siding's
@@ -5728,6 +5941,12 @@ pub struct SidingRow {
     /// The refills seen, and a row whose refills never had a new slot-1 cart (no arrival: NOT JUDGED).
     pub refill_count: usize,
     pub refill_no_arrival: bool,
+    /// G1's D2 / 22:23: a solo ride's kill read back: (the kill tick, the killed cart's next scheduled use).
+    pub solo_kill: Option<(i64, Option<i64>)>,
+    /// ironspec 23:04's far-dummy control: the tick the dummy was killed, read back.
+    pub dummy_killed: Option<i64>,
+    /// ironspec 23:16 (4): the shared state at `--state-at` T (the level random, each villager's POIs).
+    pub state_dump: Option<String>,
     /// ironspec 19:22: trapdoor opens that found R_1 powered (the source-led cut's bar: 0), and releases
     /// of 2 or more carts (out of turn).
     pub open_r1_powered: usize,
@@ -5738,6 +5957,12 @@ pub struct SidingRow {
     pub pairs: Vec<(i64, usize, i64, usize, i64, usize, usize, i64)>,
     /// Every lip arrival's path through the lip: (arrival tick, cart, [(k, x, y, z)] for k -10..30).
     pub lip_paths: Vec<(i64, usize, Vec<(i32, f64, f64, f64)>)>,
+    /// G1 / ironspec Nov 13 23:47 / 23:54: per lip arrival (tick, cart), the window's ticks (k in
+    /// -10..=+30) the cart was inside the lip's region.
+    pub lip_regions: Vec<(i64, usize, Vec<i32>)>,
+    /// ironspec / G1 Nov 13 23:58, the harm: per lip arrival (tick, cart), where the cart first rests after
+    /// it (the rest's first tick and position; None within 400 gt).
+    pub lip_rests: Vec<(i64, usize, Option<(i64, (f64, f64, f64))>)>,
     /// L-d: (passes with a napper resting on R, box-contact ticks, push-contact ticks, its largest
     /// displacement).
     pub ld: (usize, usize, usize, f64),
@@ -6074,6 +6299,28 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
                 path.push((k.parse::<i32>().map_err(|e2| format!("siding_row: a lip path point {e:?}: {e2}"))?, v[0], v[1], v[2]));
             }
             r.lip_paths.push((ta, c, path));
+        } else if let Some(rest) = l.strip_prefix("lip region t ") {
+            let (head, ks) = rest.split_once(": ").ok_or(format!("siding_row: a lip region line without its ticks: {l}"))?;
+            let ta = req(l, "lip region t ")? as i64;
+            let c = req(head, "cart ")? as usize;
+            let ks: Vec<i32> = if ks.trim() == "none" { Vec::new() } else { ks.split_whitespace().map(|s| s.parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("siding_row: a lip region tick in {l:?}: {e}"))? };
+            r.lip_regions.push((ta, c, ks));
+        } else if let Some(rest) = l.strip_prefix("lip rest t ") {
+            let (head, what) = rest.split_once(": ").ok_or(format!("siding_row: a lip rest line without its rest: {l}"))?;
+            let ta = req(l, "lip rest t ")? as i64;
+            let c = req(head, "cart ")? as usize;
+            let r0 = if what.trim() == "none" {
+                None
+            } else {
+                let tr = req(what, "t ")? as i64;
+                let xyz = what.split(" at ").nth(1).ok_or(format!("siding_row: a lip rest without its position: {l}"))?;
+                let v: Vec<f64> = xyz.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| format!("siding_row: a lip rest position in {l:?}: {e}"))?;
+                if v.len() != 3 {
+                    return Err(format!("siding_row: a lip rest position in {l:?}"));
+                }
+                Some((tr, (v[0], v[1], v[2])))
+            };
+            r.lip_rests.push((ta, c, r0));
         } else if l.starts_with("the interaction row (ironspec Nov 13 14:47 (a))") {
             let n = req(l, "napper pairs ")? as usize;
             if n != r.pairs.len() {
@@ -6083,6 +6330,15 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
             r.ld = (req(after, ": passes ")? as usize, req(after, "contacts box ")? as usize, req(after, " push ")? as usize, req(after, "largest displacement ")?);
         } else if l.starts_with("the forced release (G1 17:00 B3)") {
             r.injected_cart = if l.ends_with(": none") { None } else { Some(req(l, "napper cart ")? as usize) };
+        } else if let Some(rest) = l.strip_prefix("state at t ") {
+            r.state_dump = Some(rest.to_string());
+        } else if let Some(rest) = l.strip_prefix("killed the far dummy at t ") {
+            r.dummy_killed = rest.split(' ').next().and_then(|s| s.parse::<i64>().ok());
+        } else if let Some(rest) = l.strip_prefix("removed lane cart ") {
+            // (the solo ride's kill, read back: "removed lane cart C at t T (...; its next scheduled use t U|-)")
+            let t = rest.split(" at t ").nth(1).and_then(|s| s.split(' ').next()).and_then(|s| s.parse::<i64>().ok()).ok_or_else(|| format!("the kill line doesn't parse: {l}"))?;
+            let u = rest.rsplit("its next scheduled use t ").next().and_then(|s| s.trim_end_matches(')').parse::<i64>().ok());
+            r.solo_kill = Some((t, u));
         } else if l.starts_with("the refill latch (G8c, ironspec 18:47") {
             r.open_r1_powered = req(l, "(ironspec 19:22, the bar: 0) ")? as usize;
             r.multi_releases = req(l, "releases of 2 or more carts ")? as usize;
@@ -6627,6 +6883,9 @@ mod official_row_tests {
             gb: false,
             remove_cart: None,
             plant_shift: None,
+            solo_displace: false,
+            dummy_kill: None,
+            state_at: None,
             d_slope: true,
             out: None,
             no_walkway: false,

@@ -5385,6 +5385,11 @@ pub enum MobfarmCmd {
         /// moved DX blocks in x 2 gt after its lip arrival (in the row alone, not its solo rides).
         #[arg(long)]
         interaction_plant: Option<f64>,
+        /// With --interaction-row (ironspec Nov 13 23:04): for the first N judged rows, the napper's paired
+        /// arrival beside its solo rides with the leader KILLED and DISPLACED (held far, read back) and a
+        /// FAR-DUMMY control (a far minecart killed at the kill window's start, no lane cart removed).
+        #[arg(long, default_value_t = 0)]
+        interaction_side_by_side: usize,
         /// With --interaction-row: the design's least C-gap (ironspec 12:39: Δ*_worst 13 + 10).
         #[arg(long, default_value_t = 23)]
         pair_least: i64,
@@ -12187,7 +12192,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, interaction_kill_at, interaction_plant, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, r2_powered, gb, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, interaction_kill_at, interaction_plant, interaction_side_by_side, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, r2_powered, gb, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
@@ -12301,7 +12306,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(0 <= a && a <= b, "--r-second {s}: 0 <= A <= B");
                         Some((a, b))
                     }
-                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, plant_shift: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, plant_shift: None, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
                 // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
                 // an explicit --seed other than the default)
@@ -12896,6 +12901,132 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for (j, rr) in solo_res.into_iter().enumerate() {
                         solo.insert(solo_jobs[j], rr);
                     }
+                    // (ironspec Nov 13 23:04: the solo ride's shift is a hypothesis: for the first N judged
+                    // rows, the napper's paired ride beside its solo rides with the leader KILLED and
+                    // DISPLACED (held far, the entity list intact, read back), and a FAR-DUMMY control (a
+                    // far minecart killed at the kill window's start, no lane cart removed): each with the
+                    // napper's arrival shift and its path's departure aligned on each arrival)
+                    if interaction_side_by_side > 0 {
+                        let sbs_rows: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| injected(r.1, &r.2).is_some()).map(|(i, _)| i).take(interaction_side_by_side).collect();
+                        // (four rides per row: 0 the paired ride again, 1 the leader killed, 2 the leader
+                        // displaced, 3 the far dummy killed; each prints the shared state (ironspec 23:16 (4))
+                        // at the napper's window start (its lip arrival - 10))
+                        let sbs_jobs: Vec<(usize, u8)> = sbs_rows.iter().flat_map(|&i| [(i, 0u8), (i, 1), (i, 2), (i, 3)]).collect();
+                        let sbs = crate::sidingbench::par_map(sbs_jobs.len(), jobs, |j| {
+                            let (i, kind) = sbs_jobs[j];
+                            let (key, t, r) = &rows[i];
+                            let p = injected(*t, r).expect("a row with its injected pair");
+                            let mut sso = so.clone();
+                            sso.seed = key.0;
+                            sso.pos_offset = key.1;
+                            sso.inject_release = Some(*t);
+                            sso.state_at = Some(p.0 - 10);
+                            match kind {
+                                1 => sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2)),
+                                2 => {
+                                    sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2));
+                                    sso.solo_displace = true;
+                                }
+                                3 => sso.dummy_kill = Some(p.2 + interaction_kill_at),
+                                _ => {}
+                            }
+                            crate::sidingbench::siding_row(&o, &sso)
+                        });
+                        let mut got: std::collections::HashMap<(usize, u8), Result<crate::sidingbench::SidingRow, String>> = std::collections::HashMap::new();
+                        for (j, rr) in sbs.into_iter().enumerate() {
+                            got.insert(sbs_jobs[j], rr);
+                        }
+                        let shift_of = |s: &Result<crate::sidingbench::SidingRow, String>, c: usize, ta: i64, a: &Option<Vec<(i32, f64, f64, f64)>>, r_paired_regions: &[(i64, usize, Vec<i32>)], r_paired_rests: &[(i64, usize, Option<(i64, (f64, f64, f64))>)]| -> String {
+                            match s {
+                                Err(e) => format!("errored ({e})"),
+                                Ok(s) => match s.lip_paths.iter().filter(|q| q.1 == c).min_by_key(|q| (q.0 - ta).abs()) {
+                                    None => "no arrival".to_string(),
+                                    Some(q) => {
+                                        // (BOTH readings (farmopt 23:54: ironspec's vs G1's): (i) G1's FIXED
+                                        // window: the largest distance over k -10..=+30, the positions taken in
+                                        // or out of the region; (ii) over the ticks BOTH rides have the napper in
+                                        // the lip's region, with the ticks only one has listed)
+                                        let fixed = a.as_ref().and_then(|a| crate::sidingbench::path_departure(a, &q.2)).map_or("-".to_string(), |d| format!("{d:.2e}"));
+                                        let reg_of = |rr: &crate::sidingbench::SidingRow, t0: i64| rr.lip_regions.iter().find(|e| e.0 == t0 && e.1 == c).map(|e| e.2.clone());
+                                        let ra = r_paired_regions.iter().find(|e| e.0 == ta && e.1 == c).map(|e| e.2.clone());
+                                        let rb = reg_of(s, q.0);
+                                        let region = match (a.as_ref(), ra, rb) {
+                                            (Some(a), Some(ra), Some(rb)) => {
+                                                let both: Vec<i32> = ra.iter().copied().filter(|k| rb.contains(k)).collect();
+                                                let mut d = 0.0f64;
+                                                for k in &both {
+                                                    if let (Some(p), Some(r)) = (a.iter().find(|e| e.0 == *k), q.2.iter().find(|e| e.0 == *k)) {
+                                                        d = d.max(((p.1 - r.1).powi(2) + (p.2 - r.2).powi(2) + (p.3 - r.3).powi(2)).sqrt());
+                                                    }
+                                                }
+                                                let only_a: Vec<i32> = ra.iter().copied().filter(|k| !rb.contains(k)).collect();
+                                                let only_b: Vec<i32> = rb.iter().copied().filter(|k| !ra.contains(k)).collect();
+                                                format!("{d:.2e} over the {} region ticks both have; in the region only paired {only_a:?}, only this {only_b:?}", both.len())
+                                            }
+                                            _ => "no region ticks".to_string(),
+                                        };
+                                        format!("arrival {:+} gt; the departure (i) fixed window {fixed}, (ii) common region ticks {region}; THE HARM (the rest after the lip vs the paired ride's): {}", q.0 - ta, {
+                                            let rp = r_paired_rests.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2);
+                                            let rs = s.lip_rests.iter().find(|e| e.0 == q.0 && e.1 == c).and_then(|e| e.2);
+                                            match (rp, rs) {
+                                                (Some((t1, p1)), Some((t2, p2))) => format!("rest {:+} gt, {:.2e} b (paired at t {t1} at {:.3},{:.3},{:.3}; this at t {t2} at {:.3},{:.3},{:.3})", t2 - t1, ((p1.0 - p2.0).powi(2) + (p1.1 - p2.1).powi(2) + (p1.2 - p2.2).powi(2)).sqrt(), p1.0, p1.1, p1.2, p2.0, p2.1, p2.2),
+                                                (None, None) => "neither rests within 400 gt".to_string(),
+                                                (Some(_), None) => "this ride doesn't rest within 400 gt".to_string(),
+                                                (None, Some(_)) => "the paired ride doesn't rest within 400 gt".to_string(),
+                                            }
+                                        })
+                                    }
+                                },
+                            }
+                        };
+                        for &i in &sbs_rows {
+                            let (key, t, r) = &rows[i];
+                            let p = injected(*t, r).expect("a row with its injected pair");
+                            let a = path_of(r, p.0, p.1);
+                            let ride = |k: u8| got.get(&(i, k)).cloned().unwrap_or_else(|| Err("no ride".to_string()));
+                            let (pair, kill, disp, dum) = (ride(0), ride(1), ride(2), ride(3));
+                            let read = |s: &Result<crate::sidingbench::SidingRow, String>| s.as_ref().ok().and_then(|s| s.solo_kill).map_or("-".to_string(), |(k, _)| format!("t {k}"));
+                            // (the shared state at the napper's window start, each ride's against the paired
+                            // re-run's: the level random's state and each villager's POIs and vehicle)
+                            let st = |s: &Result<crate::sidingbench::SidingRow, String>| s.as_ref().ok().and_then(|s| s.state_dump.clone());
+                            let st0 = st(&pair);
+                            let cmp = |s: &Result<crate::sidingbench::SidingRow, String>| -> String {
+                                match (&st0, st(s)) {
+                                    (Some(a0), Some(b0)) if *a0 == b0 => "the state SAME".to_string(),
+                                    (Some(a0), Some(b0)) => {
+                                        let lr = |x: &str| x.split(';').next().unwrap_or("").to_string();
+                                        let va: Vec<&str> = a0.split("; ").skip(1).collect();
+                                        let vb: Vec<&str> = b0.split("; ").skip(1).collect();
+                                        let diff: Vec<String> = vb.iter().filter(|v| !va.contains(v)).map(|v| v.to_string()).collect();
+                                        format!("the state DIFFERS ({}; villagers changed: {})", if lr(a0) == lr(&b0) { "the level random the same".to_string() } else { format!("the level random {} vs {}", lr(a0), lr(&b0)) }, if diff.is_empty() { "none (one fewer)".to_string() } else { diff.join(" | ") })
+                                    }
+                                    _ => "the state not printed".to_string(),
+                                }
+                            };
+                            println!(
+                                "side by side (ironspec 23:04 / 23:16) seed {} position {:?} t {t}: napper cart {} paired arrival t {}, leader cart {} t {} (C-gap {}); the paired ride again: {}; the leader KILLED ({}): {}, {}; DISPLACED ({}): {}, {}; the far dummy killed ({}): {}, {}; the state at t {}: {}",
+                                key.0,
+                                key.1,
+                                p.1,
+                                p.0,
+                                p.3,
+                                p.2,
+                                p.4,
+                                shift_of(&pair, p.1, p.0, &a, &r.lip_regions, &r.lip_rests),
+                                read(&kill),
+                                shift_of(&kill, p.1, p.0, &a, &r.lip_regions, &r.lip_rests),
+                                cmp(&kill),
+                                read(&disp),
+                                shift_of(&disp, p.1, p.0, &a, &r.lip_regions, &r.lip_rests),
+                                cmp(&disp),
+                                dum.as_ref().ok().and_then(|s| s.dummy_killed).map_or("never: the control failed".to_string(), |k| format!("t {k}")),
+                                shift_of(&dum, p.1, p.0, &a, &r.lip_regions, &r.lip_rests),
+                                cmp(&dum),
+                                p.0 - 10,
+                                st0.clone().unwrap_or_else(|| "-".to_string())
+                            );
+                        }
+                    }
                     // (G1's D2 control: --interaction-plant DX re-runs each judged row with the napper moved
                     // DX in x 2 gt after its lip arrival, in the row alone (not in its solo rides): a
                     // departure with no contact, which the verdict must fail)
@@ -12924,17 +13055,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             Some(Err(e)) => return Err(format!("the solo ride errored: {e}")),
                             None => return Err("no solo ride".to_string()),
                         };
+                        // (G1 22:23: the comparison window (the cart's lip arrival -10..=+30) ends before the
+                        // killed cart's next scheduled use, so a downstream divergence of the short lane
+                        // can't read as an interaction departure)
+                        match s.solo_kill {
+                            None => return Err("no kill read back in the solo ride".to_string()),
+                            Some((_, Some(u))) if u <= ta + 30 => return Err(format!("the killed cart's next scheduled use t {u} falls inside the comparison window (ends t {})", ta + 30)),
+                            _ => {}
+                        }
                         let a = path.as_ref().ok_or("no path in the row")?;
                         if nap && s.lip_paths.iter().any(|q| q.1 == other.0 && (q.0 - other.1).abs() <= 5) {
                             return Err(format!("the leader (cart {}) still rode the napper's solo ride", other.0));
                         }
-                        if !nap && s.lip_paths.iter().any(|q| q.1 == other.0 && q.0 <= ta + 30) {
+                        if !nap && s.lip_paths.iter().any(|q| q.1 == other.0 && (q.0 - ta).abs() <= 30) {
                             return Err(format!("the napper (cart {}) arrived within 30 gt of the leader in the leader's solo ride", other.0));
                         }
-                        // (the cart's lip arrival in its solo ride: the same tick, else an infinite departure)
+                        // (the cart's lip arrival in its solo ride: the same tick, else a departure (infinite)
+                        // printed with its shift and the path's departure aligned on each arrival)
                         match s.lip_paths.iter().filter(|q| q.1 == c).min_by_key(|q| (q.0 - ta).abs()) {
                             Some(q) if q.0 == ta => crate::sidingbench::path_departure(a, &q.2).ok_or_else(|| "no comparable path".to_string()),
-                            Some(_) => Ok(f64::INFINITY),
+                            Some(q) => Err(format!(
+                                "DEPARTED: the arrival shifted {:+} gt in the solo ride (the path aligned on each arrival departs {})",
+                                q.0 - ta,
+                                crate::sidingbench::path_departure(a, &q.2).map_or("-".to_string(), |d| d.to_string())
+                            )),
                             None => Err("no arrival in the solo ride".to_string()),
                         }
                     };
@@ -12962,11 +13106,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             let dl = solo_path(i, false, p.3, p.2, (p.1, p.0), &path_of(r, p.2, p.3));
                             let fmt = |d: &Result<f64, String>| match d {
                                 Ok(d) => format!("{d}"),
+                                Err(e) if e.starts_with("DEPARTED") => e.clone(),
                                 Err(e) => format!("NOT JUDGED ({e})"),
                             };
+                            // (G1 21:54 / 22:23: each pair's kill ticks and the comparison windows' ends, printed)
+                            let kill_of = |nap: bool| solo.get(&(i, nap)).and_then(|r| r.as_ref().ok()).and_then(|s| s.solo_kill).map_or("-".to_string(), |(k, u)| format!("t {k} (next use {})", u.map_or("-".to_string(), |u| u.to_string())));
                             println!(
-                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from the solo rides: napper {}, leader {}, the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened)",
-                                p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(&dn), fmt(&dl), p.7
+                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from the solo rides: napper {}, leader {}, the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened); the kills: the leader in the napper's solo ride {}, the napper in the leader's solo ride {}; the windows end t {} (napper) / t {} (leader)",
+                                p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(&dn), fmt(&dl), p.7, kill_of(true), kill_of(false), p.0 + 30, p.2 + 30
                             );
                             let departed = dn.as_ref().map_or(true, |d| *d > 1e-6) || dl.as_ref().map_or(true, |d| *d > 1e-6);
                             // (G1's D10: a solo ride that errored fails whatever the C-gap; below
