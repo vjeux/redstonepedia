@@ -5797,6 +5797,41 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-13, cc767b78 / ironspec 22:30 / dfb89499 22:32: the slot-1 push against the hold) rev 3's cells
+    // round lane 3's hold and slot 1 (slotholdcells.rs), three copies at dx 0 / 16 / 32, + 80 y; in each an EMPTY cart
+    // summoned on R_1 at z 1.28 (the drawn rest), y 17.3425 (+ 80), no motion; the hold cart on its trapdoor against the
+    // glass at z 0.49, y 16.1875 (+ 80): (dx 0) FULL (a villager rider: its box touches the slot cart's at z 0.79, by
+    // 2e-8 with the float half-widths 0.3F / 0.49F), (dx 16) the hold cart EMPTY, (dx 32) no hold cart
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, -16, 16, 62, stone);
+        for dx in [0, 16, 32] {
+            for (p, s) in crate::slotholdcells::SLOT_HOLD_CELLS {
+                b.push(([p[0] + dx, p[1] + 80, p[2]], s.to_string()));
+            }
+        }
+        let slot = |dx: f64| ("minecraft:minecart".to_string(), [3.5 + dx, 97.3425, 1.28], Some("{Motion:[0.0d,0.0d,0.0d]}".to_string()));
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), [3.5, 96.1875, 0.49], Some("{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())),
+            slot(0.0),
+            ("minecraft:minecart".to_string(), [19.5, 96.1875, 0.49], Some("{Motion:[0.0d,0.0d,0.0d]}".to_string())),
+            slot(16.0),
+            slot(32.0),
+        ];
+        v.push(Scene {
+            name: "slot1-hold".into(),
+            chunks: [0, -1, 2, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([1, 93, -2], [37, 101, 4]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) an IDLE
     // rider (day time 1000) in a cart on a rail at (4,64,4), a second villager free on the walled
     // stone floor (x 2..11, z 2..11) at (6.5,64,4.5), a zombie in a boat at (10.5,64,8.5) closed in
