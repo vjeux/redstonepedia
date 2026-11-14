@@ -8,8 +8,11 @@ Owner: session 58f770cc. Rulings: ironspec (3883f332), farmopt (ca87cf44), G1 (8
 
 - `bed-tier-fold.txt`: the stop of record for stack (b+), (A) with the run-up (G1's Q17, regenerated
   Nov 13): `mctas mobfarm bedtier --out bed-tier-fold.txt --eject-at-bed --runup --no-loop-booster
-  --exit-south --waker-south --exit-boost --hold-slope --wake-sensor` (local frame; loop = local +
-  (0,-27,-1)). No lever and no stand-in in it: (-5,1,8) (F's line output) and (3,0,4) (the park
+  --exit-south --waker-south --exit-boost --hold-slope --wake-sensor --rs-ready --park-sense` (local
+  frame; loop = local + (0,-27,-1)): the rider-keyed RS_ready string over R, the sensed park's
+  detector rail (0,0,3) with the activator rail (-1,0,4), and the four golem-floor guards (glass over
+  (-1,0,2), (-1,0,5), the cap (0,1,6) and Z1's shutter: 9fc3155f 17:21, ironspec 17:33). No lever and
+  no stand-in in it: (-5,1,8) (F's line output) and (3,0,4) (the park
   drive's input) are empty for DAY-1's cells, Z1's shutter (-5,1,9) is stored unpowered (its stable
   state with no drive), the slope hold's tap repeater (1,-2,4) is DAY-1's. The design A6 it replaced
   is in git history (cc17d2a8f) and the sections below.
@@ -553,17 +556,33 @@ emulation.
 
 ## The controller's terms, RS_ready and the 16-ball (Nov 13 evening)
 
-- **The stop's controller in the bench** (G1's B1): by default DAY-1's list of record (rev 15:42 +
-  the 16:00 form) emulated on the real cells (`--controller adopted`, `--adopted-terms` from
-  ctl-shutter's 16:27 logic level: SO from the first observer pulse after ARM, A70, OPEN on the edge
-  of (A70 and SO and not P_STRING) reset on RLS or P_STRING, RLS on P_STRING's sustained presence
-  from the latest pulse with PARKED, the park at RLS + 8, no timeouts; P_STRING and PARKED NAMED
-  STAND-INS: the awake napper's box meeting the band at (-2,1,4), the cart at rest in the park cell).
-  `--controller stand-in` keeps the old terms (F = max(the lie-down + 2, ARM's rise + 70), the close
-  at the wake + `--close-after`, the release at the wake + `--release-after`), labelled on every run;
-  `--latch` is the superseded 12:38 latch. Figures from the stand-in runs (park at the wake + 20 / 24
-  / 28: the hold delta's least margin 13 / 17 / 21 gt, the longest wake -> boarding 39..47 gt) carry
-  "(stand-in terms, pre-tick writes one tick late: re-run on the adopted emulation pending)".
+- **The stop's controller in the bench** (G1's B1): by default DAY-1's gate list rev 17:30 (artifact
+  1851943746153858, its stop block G16-G22) emulated on the real cells (`--controller adopted`,
+  `--adopted-terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG,ONSET`, default
+  52,0,12,50,6,6,2,6,2,10,1): SO set by any observer pulse, reset at RLS; SINCE set by a pulse with
+  P_STRING on at its head change and (G1's B2 onset, day-1 17:35) the press begun within 1 gt of that
+  change, reset on NOT P_STRING; WIN from the pulse + 12 (RLS's sample) to a new pulse or the pulse +
+  50; PARKED = the sensed park (the detector rail at (0,0,3), latched from ARM, reset at the release;
+  ironspec 17:35 / 17:39) AND COOL (ARM + 52, ironspec 17:53); OPEN on PARKED and SO and not
+  P_STRING (ironspec 17:32 (4)), reset on RLS or P_STRING; RLS = P_STRING and SINCE and WIN and
+  PARKED, 6 gt of logic after; the park at RLS + p, p = 2 (ironspec 17:53). P_STRING is a NAMED
+  STAND-IN (the awake napper's box meeting the band at (-2,1,4)). `--controller stand-in` keeps the
+  old terms, labelled; `--latch` is the superseded 12:38 latch.
+- **The stop's bars on the adopted controller** (ironspec 17:32-17:53, G1 17:33-17:49), each printed
+  per run: the first (-2,0,5) entry - (C + 19) >= 1 after k + j (C the shutter's first end-of-tick
+  shut, ONE definition; tick-exact 17:52: NEAREST_HOSTILE's worst clear; "close + 27" retired and
+  printed beside it); (the cart's first tick in P) - (the napper's boarding-cooldown end, 60 gt from
+  the eject's dismount) >= 2 after k + j; COOL's measured inputs; the park's rest against COOL's
+  timer; the sensed park's pass -> rest per speed (SENSED's delay d >= the worst + 2) and its presses
+  (only the arriving empty cart; none after RLS); the window's first open tick - the lie-down >= 4
+  (G1 17:40). k = 1 on the convention placement, 3 off it; j = 0 (the stop in one chunk).
+- **The sensed park** (`bedtier --park-sense`): a detector rail at (0,0,3), the last straight cell the
+  cart passes into the park that touches no powered rail ((1,0,3), the climb, sits beside the park's
+  powered rail). Its power reach: the inert glass under it and the plain rails (-1,0,3), (1,0,3),
+  (0,0,4), the air (0,1,3) and SENSED's read (0,0,2). Its updates reach the Ts (-1,0,3) and (1,0,3),
+  which re-settle to their own shapes (9fc3155f 17:47: update-only); the integrity line keys one
+  entry per arm (P, (-1,0,4), (1,0,4)); the mutual hold (-1,0,3) <-> (-1,0,4) (9fc3155f 17:49) is
+  broken by (-1,0,4) becoming an activator rail (straight-only, never powered, waterlogged as before).
 - **The rider-keyed RS_ready** (`bedtier --rs-ready`; ironspec 15:23, day-1 15:29): a tripwire string
   at (4,0,5) one cell over R's detector, hooks (4,0,4) facing south / (4,0,6) facing north on glass
   (4,0,3) / (4,0,7), off the rail line; a seated rider's box presses its band (y 0.0625..0.15625, the
