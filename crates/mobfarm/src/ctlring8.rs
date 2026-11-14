@@ -143,17 +143,23 @@ pub const TARGET: &str = "minecraft:wooden_shovel";
 /// quasi-connected fire of that step (the up-dropper sits under a ring hopper, powered at every step); it closes
 /// before the extractor's next possible pull (8 gt after the push). The filler's: P6's next item comes only with T.
 pub const T_WINDOW: i64 = 22;
-/// The step follows the pop by this many gt (the logic's delay on the POP line), and lasts STEP_WIDTH.
-pub const STEP_LAG: i64 = 6;
+/// The step follows the pop by this many gt (the logic's delay on the POP line: the edge comparator 2 + the step repeater
+/// 8), and lasts STEP_WIDTH; the interface states it once ("each lane's ring steps N gt after the lane's SENSED pop").
+pub const STEP_LAG: i64 = STEP_AFTER_POP;
 pub const STEP_WIDTH: i64 = 8;
 pub const F_WINDOW: i64 = 10;
 /// The bench's T start: P7, so T reaches the tap (P2) after 3 steps.
 pub const T_START: usize = 7;
 /// The bench's timed events after the grant's pop (lane -1's: the filler's unlock at REL + 40, the up-fire off the REL +
 /// 67 tap (ironspec 13:24p's widening); lanes 3 / 7 read REL + 57 / 67 and REL + 80, i.e. the pop + 40 and + 63 / 53).
-pub const F_AT: i64 = 40;
-pub const UP_AT: i64 = 67;
-// (F_AT / UP_AT count from the POP since the logic's step follows the pop by STEP_AFTER_POP)
+/// THE CORE's TAPS against the lane's POP: the station's D (x,0,2) press is REL + k + 8 (k = 0 / 17 / 27; dfb89499
+/// 14:51, F' rows), the filler taps REL + 40 / 57 / 67 and the up-fire taps REL + 67 / 80 / 95 (the core's chain; lane 7
+/// on the + 95 tap line E also reads: on + 80 its up-fire came only 13 gt after its filler's unlock and two +-2 corners
+/// put T into P6 beside the filler): the filler's at the pop + 32 on every lane, the up-fire's at the pop + 59 / 55 /
+/// 60. F_AT / UP_AT are lane -1's.
+pub const F_AT: i64 = 32;
+pub const UP_AT: i64 = 59;
+pub const LANE_TAPS: [(i64, i64, i64); 3] = [(-1, 32, 59), (3, 32, 55), (7, 32, 60)];
 
 /// The lock comparators' constant: a single chest holding one stone (the container-signal formula: floor(14 x (1/64)/27)
 /// + 1 = 1; any level >= 1 locks the hopper, and an unlock at 15 on the side takes the output to 0). A chest, not a
@@ -708,6 +714,32 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     }
     let w = v.bar_n("ctl-ring8: THE +-2 gt CORNERS (the filler's unlock and the up-fire each shifted -2..+2 gt): the end state matches the model", cn, cbad.is_empty());
     lines.push(format!("  THE +-2 gt CORNERS ({cn} rows){}: {w}", if cbad.is_empty() { String::new() } else { format!(": {}", cbad.join("; ")) }));
+    // (each lane's own taps against its pop, the core's laid chain: the reference and its 25 corners per lane)
+    let mut lbad = Vec::new();
+    let mut ln = 0usize;
+    let mut lsum = Vec::new();
+    for (lane, f_at, up_at) in LANE_TAPS {
+        let mut least_in = i64::MAX;
+        for df in -2i64..=2 {
+            for du in -2i64..=2 {
+                let (pc, eb, ec) = reference(16, f_at + df, up_at + du, false);
+                let rc = run_plan(&spec, &pc)?;
+                ln += 1;
+                let g = pc.t_unlock[0] + STEP_AFTER_POP;
+                let nxt = pc.steps.iter().copied().filter(|&x| x > g).min().unwrap_or(i64::MAX);
+                if let Some(&ti) = rc.t_in.first() {
+                    least_in = least_in.min(nxt - ti);
+                }
+                let reads_ok = rc.before.iter().zip(&eb).all(|(a, e)| a.0 == *e);
+                if !reads_ok || rc.end != ec || !rc.extra_items.is_empty() || !rc.stray.is_empty() || rc.up_triggered_before.iter().any(|t| *t) || rc.consts_end != (1, 1) {
+                    lbad.push(format!("lane {lane}: filler {:+}, up-fire {:+}: end {:?}", df, du, rc.end));
+                }
+            }
+        }
+        lsum.push(format!("lane {lane}: the filler tap at the pop + {f_at}, the up-fire at the pop + {up_at}, T in P6 at least {least_in} gt before the next step"));
+    }
+    let w = v.bar_n("ctl-ring8: EACH LANE's CORE TAPS (the filler's at the pop + 32, the up-fire's at the pop + 59 / 55 / 60 for lanes -1 / 3 / 7), each with its 25 +-2 gt corners: every read and the end match the model", ln, lbad.is_empty());
+    lines.push(format!("  EACH LANE's CORE TAPS (the D press at REL + k + 8; the filler taps REL + 40 / 57 / 67, the up-fire taps REL + 67 / 80 / 95; {ln} rows): {}{}: {w}", lsum.join("; "), if lbad.is_empty() { String::new() } else { format!("; FAILS {}", lbad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }));
     // (the cell count, by category)
     let d = design(T_START);
     lines.push(format!("  CELLS laid here: {} (the ring 16 + its dust 16 + the step repeater and its glass 2; T's extractor + the up-dropper 2; the tap comparator + the T lock block 2; the two lock comparators + their glass + their constant chests 6; the filler's extractor + its unlock repeater + glass 3, its path 7, the stock + its relay hopper 2; the up-fire chain 3 + the stock-fire repeater 1 + their glass 4); NOT YET: the logic (REQ, the spacing latch, the skip, the release's AND, the unlock edges / gates, the two fires' gates), the routes", d.blocks.len()));

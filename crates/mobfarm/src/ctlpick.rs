@@ -2652,7 +2652,10 @@ mod tests {
         // STEP_LAG) puts lane -1's circuit entry (D(-1) at REL' + 5) 1 gt BEFORE its ring's step (REL' + 6), against the REL
         // model's order (the entry after the lane's last step), and lane 3's entry (REL' + 43) on its ring's skip step (the
         // step + 20): both timing bars miss by name, PINNED)
-        let expected: [&str; 2] = ["THE PRESS / TAP MARGINS", "THE ENTRY / STEP SEPARATION"];
+        // (day-1 15:00: the interface now states the record's hardware shift, the napper's own ARM3 (the station detector's
+        // press + 4 gt, cc767b78 14:51), where the model still shifts at REL + 61: the read-back misses by name, PINNED until
+        // the model's shift is re-keyed to the arrival (job 5))
+        let expected: [&str; 3] = ["THE PRESS / TAP MARGINS", "THE ENTRY / STEP SEPARATION", "THE REL TAPS read back from the interface"];
         assert_eq!(fails.len(), expected.len(), "ctl-pick-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
         for e in expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e)).count(), 1, "ctl-pick-bench: the pinned miss \"{e}\" is not exactly once among {:#?}", fails);

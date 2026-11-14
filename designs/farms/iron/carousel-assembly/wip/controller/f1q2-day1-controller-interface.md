@@ -40,16 +40,23 @@ read them from here, and F′'s test links dfb89499's laid pulse to this one.
 - Line C's ports (x+2,17,-1) (the station's slot releases, `r-line:<lane>`) rise at REL + 0 / 17 / 27 - 4 (4 gt port ->
   R_1, loaderlay's line-bench, every lane).
 - THE PICKS (the (i-b) per-lane item ring, ironspec 11:56a / 12:02p; laid as the FLAT ring, crates/mobfarm/src/ctlring8.rs):
-  each lane's ring steps 6 gt after the lane's SENSED pop (the station's D (x,0,2) press, A6 stripped) and reads its circuit
-  entries at the S-bend seat detector D(x) (x,24,8) and the siding's presence; REQ_l is a level from the pop's step until
-  the lane's next pop; G_l is captured at REL + 92 and held until REL' + 85 (cc767b78 13:18, so the ring gates its later
-  taps with G directly); the ring's T extractor opens for 22 gt at the lane's POP edge while G_l is high (T leaves the
-  tap before the step); its filler extractor opens for 10 gt at REL' + 40 / 57 / 67 (lanes -1 / 3 / 7: the pop + 40;
-  dfb89499's REL + 40 tap and the existing 57 / 67) while G_l is high; its up-fire (T into the dropper the slot picked + 5
-  occupies) reads REL' + 67 for lane -1 (ironspec 13:24p's widening: T in place 18 gt before the next pop) and REL' + 80
-  for lanes 3 / 7, gated by G_l; the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
-- THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 only in a REL whose
-  ARM3 fired (the napper being taken; RLS is not read); HOME_l = its head (S1), read (latched) by the core at REL' + 57.
+  each lane's ring steps 10 gt after the lane's SENSED pop (the station's D (x,0,2) press, A6 stripped: REL + k + 8, k = 0 /
+  17 / 27, i.e. REL + 8 / 25 / 35 for lanes -1 / 3 / 7, the same at every REL in the +-2 corners, dfb89499 14:51 from F''s
+  rows; the edge comparator 2 gt + the step repeater 8 gt) and reads its circuit entries at the S-bend seat detector D(x)
+  (x,24,8) and the siding's presence. THE RELEASE READS PER LANE (ironspec 15:31c): lane -1's entry (REL' + 5) precedes its
+  step, so its ring reads P3 LIVE at the entry; lanes 3 / 7 (entries after their steps) read P4 through a memory sampled
+  before each step. REQ_l is a level from the pop's step until the lane's next pop; G_l is captured at REL + 92 and held
+  until REL' + 85 (cc767b78 13:18, so the ring gates its later taps with G directly); the ring's T window = POP AND G_l AND
+  NOT (POP 18 gt late): T's extractor opens 6 gt after the pop (4 before the step reaches the tap) and closes 20 gt after
+  it; its filler extractor opens for 10 gt on the core's filler tap REL' + 40 / 57 / 67 (lanes -1 / 3 / 7: the pop + 32)
+  while G_l is high; its up-fire (T into the dropper the slot picked + 5 occupies) is UNGATED, the core's tap firing it
+  every REL (empty except after a grant): REL' + 67 / 80 / 95 for lanes -1 / 3 / 7 (the pop + 59 / 55 / 60; lane 7 on the
+  + 95 tap line E also reads: on + 80 its up-fire came 13 gt after its filler's unlock and two +-2 corners put T into P6
+  beside the filler); the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
+- THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED by the napper's own ARM3 (the
+  station detector's press + 4 gt, cc767b78 14:51: a napper reaching (9,0,8) late in the REL is popped at its own arrival +
+  4, never before it; RLS is not read; the core's REL + 61 tap is not used for it); HOME_l = its head (S1), read (latched)
+  by the core at REL' + 57.
   Its depth: at most 3 entries alive at once, measured per tick over ctl-pick's (b'+w) rows (the seven points and the
   true freezes, each at the 27 leg corners) at the measured stop -> (9,0,8) trip, 113..126 gt (58f770cc's pickup -> the
   stop's out 35..48 + ironfarm's stop R -> (9,0,8) seated 78 on V's depth), each end +-2: 3 stages.
