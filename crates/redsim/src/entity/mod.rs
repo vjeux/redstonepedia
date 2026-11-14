@@ -338,7 +338,9 @@ fn snbt_keys(nbt: &str) -> Vec<String> {
 /// `summon <type> x y z [nbt]` as the judge summons a design's entities (`entity:` lines): the
 /// kind from the type id (payload defaults; the kinds' owners refine them from the NBT), the
 /// position, and `Rotation:[yaw, pitch]` from the NBT when given. Returns the entity's id. NBT
-/// redsim does not model (container contents...) is refused.
+/// redsim does not model (container contents...) is refused. It models `/summon` (the entity
+/// LOADED from its data): a summoned minecart starts with its first tick spent (26.3's
+/// "HasTicked"), where a cart a player places is constructed with its first tick still to come.
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Result<u32, String> {
     let id = type_id.strip_prefix("minecraft:").unwrap_or(type_id);
     // ironfarm: mobs, and a vehicle carrying one (`Passengers:[{id:"minecraft:zombie"}]`)
