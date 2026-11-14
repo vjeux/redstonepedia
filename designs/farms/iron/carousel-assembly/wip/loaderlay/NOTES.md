@@ -87,8 +87,31 @@ Controls:
 
 ## Verdicts (`mctas mobfarm loader-layout`, this tree; the commands and outputs under "Runs")
 
-`loader-x8.txt` is the candidate loader of record. It cites as the loader of record only after
-tick-exact's N = 2 / 4 game rows hold (ironspec, via G1 00:46).
+`loader-x8.txt` is the loader of record once this lands (G1 01:22, with tick-exact's game rows
+below), for the loader itself. The rows ran `--loader-only`; the module's own update-stability is
+V's item.
+
+**The game rows (tick-exact 01:20, official 26.3 server, `mobai loader-long` with the lines below,
+`--loader-only`; https://artifacts.internalmeta.com/a/3742200425927507):**
+- **loader-x8 HELD at N = 1, 2 and 4.** Each row ran these phases:
+  - 600 gt with the player at the farm;
+  - 600 gt in the Nether at the twin;
+  - 24,000 gt logged out, a restart, 24,000 gt more;
+  - a login.
+
+  In every phase every route chunk was entity-ticking on every tick (frozen 0), every Nether chunk
+  was at <= 31, and both PORTAL tickets were on every tick's line (least ticks left 240 at N = 1 / 2
+  while logged out). All arrivals landed in the loader's own chunks: overworld (1,1) and Nether
+  (0,0), about 1,190 per side per 24,000 gt. The control chunk (3,3) was caught at 32, block-ticking.
+- **loader-clock-x8 HELD at N = 4.** Its hopper clock runs about 196 gt: about 124 arrivals per side
+  per 24,000 gt, least ticks left 103.
+- **The 16:41 control failed as the tool reads it.** The overworld PORTAL ticket was never at (1,1),
+  and arrivals were CAPTURED at (2,0) (1) and (2,2) (2): copy2.pad2 and copy4.pad1. The run then
+  stopped on an unloaded Nether position.
+- Rev 3 isn't update-stable as pasted: 15 SHAPE cells per copy (tripwires, hooks, 3 rails). The rows
+  run `--loader-only`, and the loader bars don't read those cells.
+- G1 01:22 cites loader-x8 as the loader of record once it lands. farmopt asked ironspec for the
+  ruling at 01:20.
 
 - **The 16:41 control on rev 3** (copies as above, `control/loader-clock-1641.txt` at (6,80,-10)) FAILS by name:
   - the return leg: 22 of its 24 exit blocks pick copy4.pad1 (19) and copy2.pad2 (3); over one move
@@ -141,12 +164,156 @@ tick-exact's N = 2 / 4 game rows hold (ironspec, via G1 00:46).
 - loader-x8.txt md5 15fa75750894, loader-clock-x8.txt md5 c2cd0f8674c2,
   control/loader-clock-1641.txt md5 f97bad1379c5.
 
-`L="mctas mobfarm loader-layout --module $MOD"`:
+`L="mctas mobfarm loader-layout --module $MOD --positions wip/loaderlay/rev3-nonrail.positions.txt"`
+(every layout run carries rev 3's non-rail villager places):
 - `$L --module-offsets "6,80,6" --loader wip/loaderlay/loader-x8.txt --loader-offset 25,80,19`
-  (N = 1), the same with "6,80,6;38,80,6" (N = 2) and "6,80,6;38,80,6;6,80,38;38,80,38" (N = 4);
+  (N = 1), the same with "6,80,6;38,80,6" (N = 2) and "6,80,6;38,80,6;6,80,38;38,80,38" (N = 4,
+  with `--write-layout` for 9fc3155f's check on all four rods);
 - `$L --module-offsets "<N = 4>" --loader wip/loaderlay/loader-clock-x8.txt --loader-offset 10,85,-14`;
 - `$L --module-offsets "<N = 4>" --loader wip/loaderlay/control/loader-clock-1641.txt --loader-offset 6,80,-10`;
-- the N = 4 layout of record with each control flag above.
+- the N = 4 layout of record with each control flag above;
+- the redsim runs: each of loader-x8 at N = 1 / 2 / 4 and loader-clock-x8 at N = 4 with
+  `--redsim 24000 --seeds 1,2,3` (the world open at t 12,000).
+
+Every run first passes the shared provenance check in mctas's dispatch (ironspec 01:58 / 02:35;
+ironfarm's f99df6a0e, default-deny: `loader-layout` is evidence): the binary's stamp, the worktree
+and the cited commit must agree. Each run also prints the git blob ids of the design files it read;
+rev 3 reads as blob 88eea3fa1d7c, which is 685729e50's. The outputs end on the shared exit-code
+table's line: 0 PASS, 1 FAIL, 2 NOT MODELED (only loader-clock-x8's redsim row). The outputs, with
+their numbers, are the push's report artifacts. Results run before the binary rule (the 02:03 /
+02:04 lightning and redsim runs) cite nothing.
+
+## The lightning print (ironspec 01:17 (1b), G1 01:22 / 01:34; `loaderrods`)
+
+Every `loader-layout` report reads the settled, built overworld through redsim's own
+`findLightningRod`. That is tick-exact's 26.3 pin (01:28):
+- a 3-D sphere of 128 around the strike column's MOTION_BLOCKING top;
+- only rods topping their column;
+- the closest by 3-D distance.
+
+The site's surface sits at the copies' ground (copy y 80 + the module's ground layer -1 = 79;
+`--ground-y` sets it).
+
+Per part, every footprint column's strike goes to a rod, or FAILS naming the copy that needs its
+own rod. Every other column of the layout's box grown by 3 goes to a rod, or else its own bolt box
+must meet no villager or rider position: every part's entities, and a rider at every rail cell.
+Every rod's own bolt box must miss the loader's cells and those positions.
+
+Each rev-3 copy carries V's rod at (-6,29,-6) in its own frame, so at any N each copy's strikes go
+to its own rod; the loader's go to the nearest copy's.
+
+Every villager place is shown out of a strike's reach, place by place (G1 05:10 (2): a struck
+villager becomes a witch, and a witch at the stop stalls it; ironspec 05:18 (3): every villager
+place). The places, printed by part, kind and level y:
+- every rail cell (a rider seated in a cart there);
+- every cart the design holds;
+- every place of `--positions` files in the module's written frame, moved onto every copy. The
+  files are 9fc3155f's non-rail villager places (05:27b / 05:28, byte-identical to its artifacts):
+  - `rev3-nonrail.positions.txt` for rev 3, the module these layouts use (a/1190241670091420, md5
+    08c333129f01, 73 cells: the bed head, P, the set-down, (-2,-27,4), the lift (6,-28..-3,4), the
+    way-in drop (9,-23..-15,-1), the line → queue drop (9,-12..21,-5));
+  - `v-nonrail.positions.txt` for V (a/2417599305677157, md5 a7aba1db5440, 64 cells), for when V
+    replaces rev 3.
+
+For each place:
+- coverage: every column within 3 of it sends its strike to a rod that tops its column, so no
+  strike lands beside it, and none is redirected to an entity (the rod search runs first);
+- clearance: the gap between its box and the hit box around every rod's strike point (rodPos + 1).
+  A villager converts whether it sees the sky or not, so the check makes no exposure test.
+
+THE STRIKE AREA (ironspec 05:25 (iii)) is every chunk holding a layout cell or a villager place, plus
+4 columns beyond its edges. Every column in it is judged: its strike goes to a credited rod, or else
+its own bolt box must meet no villager place.
+
+So a strike on a villager needs a second fault, a rod gone.
+
+THE ROD LIST OF RECORD (ironspec 05:27): copy k is the module at its offset, so its rod at the
+module's (-6,29,-6) is at offset + (-6,29,-6). For copy1 that is 9fc3155f's rod at (6,80,6) +
+(-6,29,-6):
+
+| copy | offset | rod | chunk | level (the loader's PORTAL ticket at (1,1)) |
+|---|---|---|---|---|
+| copy1 | (6,80,6) | (0,109,0) | (0,0) | 31, loaded |
+| copy2 | (38,80,6) | (32,109,0) | (2,0) | 31 |
+| copy3 | (6,80,38) | (0,109,32) | (0,2) | 31 |
+| copy4 | (38,80,38) | (32,109,32) | (2,2) | 31 |
+
+N = 1 has copy1's rod only, N = 2 copy1's and copy2's. Each copy's places go to its own rod.
+
+9FC3155F's every-place check on this 4-rod list met condition (ii) (06:00). It ran on the N = 4
+layout file written by `--write-layout` (a/1711726887220920, md5 bef2972ae0d9; places
+a/1425208226270087, md5 c8bc37b7e421), with the declared stand-in ground at y 79 (part 50
+`--ground 79`; ironspec 05:52 accepted it as a model layer): 3,906 of 3,906 strike columns go to a
+rod, the 4 strike targets are these rods, and its 972 riders + 68 entities had 0 struck, 0 hits, 0
+fires: https://artifacts.internalmeta.com/a/4260158720941388 (md5 fc591dee3a67). Before the stand-in,
+the file's empty columns sat at the world's bottom, so "every column to a rod" is claimed only with
+the ground materialized (G1 05:51). The `--lightning-ready` variant comes after train 16b.
+
+The two tables join copy by copy: the module check judges one copy alone, and this one adds the
+neighbours, the loader and the ground between. `--write-layout FILE` writes the overworld layout as
+one design (world coordinates; no Nether part), so 9fc3155f's `lightning-check FILE --rails
+--positions=…` can run on all its rods. Each copy's places, moved by its offset, make that run's
+positions file.
+
+Thunder needs a player within 128 blocks (`ServerLevel.tickThunder`, docs/mechanics.md), and that
+player's own tickets load the farm's chunks. With nobody online no strike falls at all.
+
+What the check takes from the game. These are the 26.3 lines tick-exact quoted (05:26), which it
+checked against the values used here item by item at 05:27, all correct:
+- THE STRIKE: `ServerLevel.tickThunder` 550–583. While it rains and thunders, `nextInt(100000) == 0`
+  per chunk tick picks a column (`getBlockRandomPos`), and the bolt goes to
+  `findLightningTargetAround` at `atBottomCenterOf(pos)` (576) when `isRainingAt(pos)`.
+- THE ROD SEARCH: `findLightningRod` 619–629 → `PoiManager.findClosest` 167–178 → `getInRange`
+  97–102 → `getInSquare` 87–95.
+  - `getInRange` keeps distSqr = dx² + dy² + dz² <= 128²: a 3-D sphere, never cut by getInSquare's
+    square.
+  - The center is the strike column's MOTION_BLOCKING top (`findLightningTargetAround` 632).
+  - A rod counts only where `rodPos.getY() == getHeight(WORLD_SURFACE, x, z) - 1`, the topmost
+    non-air block of its column. A rod under a roof, glass, a rail or a carpet catches nothing.
+  - The nearest rod wins, and the strike goes to `rodPos.above(1)`.
+
+  Redsim's `lightning::rods` / `rod_targets` keep exactly these; the print names each rod "tops /
+  does NOT top its column". The credit is equal to the game's test, so stricter than or equal (G1
+  05:26). A credited rod's chunk must be loaded (the POI search reads loaded sections): the print
+  gives each rod's chunk and level, and a level over 33 fails.
+- THE ENTITY TARGET (no rod in range): `encapsulatingFullBlocks(center, center.atY(getMaxY() +
+  1)).inflate(3.0)` (ServerLevel 637), filtered to LivingEntity && isAlive && canSeeSky (638), one
+  picked at random (640).
+- THE HIT BOX: `LightningBolt.tick` 147–151 (143–157): x and z ±3, y −3..+9 around the bolt, on
+  every tick while its life is >= 0, plus 1–3 re-strikes. Redsim's `lightning::hit_box_at`.
+- THE CONVERSION: `Villager.thunderHit` 746–760. Every villager whose box meets the hit box converts
+  to a witch unless the difficulty is PEACEFUL, with no sky or exposure test.
+
+## The redsim runs (farmopt 21:44; `loaderrun`, `--redsim`)
+
+The layout's portal skeleton runs in redsim, both worlds: the loader's cells whole, plus each copy's
+portal cells with their frame obsidian.
+- The loader's clocks start as the build starts them: an observer pair's O2 out and back, read back.
+  A hopper clock starts as built.
+- Each world's level random and drop seed are set before the settle.
+- 3 golems go into each pad at t 400.
+- A world open (`liveness::restart`, save order, 2 idle ticks) happens mid-run. The reload model
+  keeps the Nether part in memory (unmodelled there).
+
+The bars:
+- every item arrival at the loader's own portal;
+- each side's worst gap within the 300-gt ticket, the world open included;
+- the loop's items kept;
+- every golem at its own copy's twin;
+- no world error.
+
+The row says how it differs from the reference timing row (ironfarm's flags: ±2 gt per clocked event
+and a world open at every phase): one world open, no event shift. The game's 01:20 restart rows
+remain the loader's world-open evidence. loader-clock-x8's redsim verdict is "not modeled", and the
+official game row (tick-exact 01:20) is its evidence. Two things in redsim cause it:
+- its self-starting hopper clock fires in the Nether while `Run::start` settles the Nether part,
+  before any caller can seed that world's dropper random. The spit is a model error and the item is
+  lost.
+- redsim's light model lacks the extended sticky piston and the piston head.
+
+The runner reads any world error as NOT MODELED: the run judges nothing, its bars print as
+information, and the command exits 2 by name, never as a bar failure (ironspec 02:45 (3)). A failed
+bar exits 1 by name.
 
 ## loader-long command lines (tick-exact's rows; the module from explore/onechunk 685729e50)
 
@@ -173,6 +340,24 @@ printed), which this note will cite when it reports:
 - each rider whose CANT_REACH stamp was armed at the unload comes back with the absence as its age;
 - its first HOME check erases HOME;
 - under survival linking only one villager re-claims the bed, and the rest need the relink procedure.
+
+The loader's chunks are also the lightning rods' operating condition (ironspec 05:33 (5)). A rod's POI
+is found only while its chunk is loaded. The loader's overworld PORTAL ticket at chunk (1,1) sits at
+level 30:
+- chunks within Chebyshev 1 are entity-ticking (31), which takes in the four rods' chunks (0,0),
+  (2,0), (0,2) and (2,2);
+- Chebyshev 2 is block-ticking (32);
+- Chebyshev 3 is border-loaded (33).
+
+So a loader that stops (this fault) also leaves the rods' chunks to the player's own tickets. Thunder
+only falls within 128 blocks of a player, whose tickets load the farm anyway.
+
+THE WITCH CASE IS TWO-FAULT (ironspec 06:04 (3), G1 05:10 (2)). Every strike column goes to a rod,
+and every villager place is clear of the rods' bolt boxes (9fc3155f's check, condition (ii) met). So
+a struck villager needs TWO faults: a rod removed (or its chunk unloaded), plus lightning. Such a
+strike on a seated rider destroys its cart in the same bolt (cc767b78 06:03: 5 × 10 = 50 > 40,
+VehicleEntity 47 / 50), so the farm sees a cart lost in transit plus a witch at the strike point, not
+a witch riding into the stop. What the player sees: a cart and a rider missing from the loop.
 
 ## For vcompose's site record and the build guide
 

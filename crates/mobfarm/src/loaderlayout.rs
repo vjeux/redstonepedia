@@ -87,7 +87,7 @@ pub const GOLEM_MARGIN: f64 = 0.7;
 const ITEM_DIMS: (f32, f32) = (0.25, 0.25);
 
 /// One part laid as loader-long lays it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Laid {
     pub name: String,
     pub file: String,
@@ -102,6 +102,16 @@ pub struct Laid {
     pub block_entities: BTreeMap<C, String>,
     /// Its Nether block entities' data (`nether nbt:`), placed like its Nether cells.
     pub nether_block_entities: BTreeMap<C, String>,
+    /// The world y of its ground layer (the offset's y plus the design's `ground:`, the design y
+    /// lying at the ground layer, default -1 as the farm judge's site reads it): the site's surface.
+    pub ground: i32,
+    /// Its villager places beyond its rail cells and carts (feet cells, world coordinates): a
+    /// positions file in the design's written frame, moved like its cells (`--positions`).
+    pub positions: Vec<C>,
+    /// Its entities' NBT (`entity:` lines' data: a cart's passenger), parallel to `entities`.
+    pub entity_nbt: Vec<Option<String>>,
+    /// Its `port output`, moved like its cells.
+    pub output: Option<C>,
 }
 
 /// mobai `freeze::recipe_part`'s placement of `d` at `offset` (the Nether part at the anchor's image, its
@@ -122,7 +132,34 @@ pub fn lay(name: &str, file: &str, d: &Design, offset: C, ybase: i32) -> Result<
         entities: d.entities.iter().map(|e| (e.kind.clone(), [e.pos[0] + offset[0] as f64, e.pos[1] + offset[1] as f64, e.pos[2] + offset[2] as f64])).collect(),
         block_entities: d.block_entities.iter().map(|(p, s)| (mv(p), s.clone())).collect(),
         nether_block_entities: d.nether_block_entities.iter().map(|(p, s)| ([image[0] + p[0], image[1] + p[1] - ybase, image[2] + p[2]], s.clone())).collect(),
+        ground: offset[1] + d.meta.get("ground").map(|v| v.trim().parse::<i32>().map_err(|e| format!("{file}: ground: {e}"))).transpose()?.unwrap_or(-1),
+        positions: Vec::new(),
+        entity_nbt: d.entities.iter().map(|e| e.nbt.clone()).collect(),
+        output: d.ports.get("output").map(mv),
     })
+}
+
+/// (9fc3155f / ironspec Nov 14 05:27: the module lightning check run on the whole layout, all its
+/// rods) The overworld layout as one design, world coordinates: every part's overworld cells as the
+/// layout builds them (a later part's cell over an earlier one's), its block entities and entities
+/// (with their NBT), the first copy's `port output`, `ground:` the copies' ground. The Nether parts are
+/// left out (`--write-layout`).
+pub fn compose(parts: &[Laid]) -> Result<Design, String> {
+    let (ow, _) = built(parts, false, &[])?;
+    let first = parts.iter().find(|p| p.name != "loader").ok_or("no copy")?;
+    let mut d = Design { name: format!("loader-layout ({} parts, the overworld)", parts.len()), ..Default::default() };
+    d.blocks = ow.iter().map(|(c, (s, _))| (*c, s.clone())).collect();
+    for p in parts {
+        d.block_entities.extend(p.block_entities.iter().map(|(c, s)| (*c, s.clone())));
+        for (k, (kind, e)) in p.entities.iter().enumerate() {
+            d.entities.push(mctas::design::EntitySpec { kind: kind.clone(), pos: *e, nbt: p.entity_nbt.get(k).cloned().flatten() });
+        }
+    }
+    if let Some(o) = first.output {
+        d.ports.insert("output".into(), o);
+    }
+    d.meta.insert("ground".into(), first.ground.to_string());
+    Ok(d)
 }
 
 /// A planted portal (a control): its cells, framed or not.
@@ -966,6 +1003,12 @@ pub fn report(parts: &[Laid], plants: &[Plant], golem_margin: f64) -> Result<(St
     let (ct, cok, got) = chunks_text(parts, &ev);
     s.push_str(&ct);
     ok &= cok;
+    // (ironspec 01:17 (1b), G1 01:22: the lightning-rod coverage across the tiled copies; the rods'
+    // load status from the loader's overworld PORTAL chunk, when its legs pass)
+    let portal = if ev.legs.iter().take(2).all(|l| l.pass()) && ev.ow_portal_chunks.len() == 1 { ev.ow_portal_chunks.iter().next().copied() } else { None };
+    let (rt, rok) = crate::loaderrods::rods_text(parts, portal)?;
+    s.push_str(&rt);
+    ok &= rok;
     // (ironspec 21:54 / 21:55: the loader's portal cells and full frames, world and farm frame, and its
     // farm-frame offset, for vcompose's site record)
     let first = parts.iter().find(|p| p.name != "loader").map(|p| p.offset).unwrap_or([0, 0, 0]);
@@ -1017,7 +1060,7 @@ pub fn report(parts: &[Laid], plants: &[Plant], golem_margin: f64) -> Result<(St
             ));
         }
     }
-    s.push_str(&format!("verdict: {}\n", if ok { "PASS (every link lands on its partner, no clash, no broken frame, every chunk holding a rail or an entity at <= 31 and every other at <= 32 from the loader's tickets, the control chunk free)" } else { "FAIL" }));
+    s.push_str(&format!("verdict: {}\n", if ok { "PASS (every link lands on its partner, no clash, no broken frame, every chunk holding a rail or an entity at <= 31 and every other at <= 32 from the loader's tickets, the control chunk free, every strike column going to a rod topping its column)" } else { "FAIL" }));
     Ok((s, ok))
 }
 
@@ -1187,6 +1230,17 @@ mod tests {
         parts[1].nether.insert([1, 94, 0], "minecraft:hopper[enabled=true,facing=south]".into());
         let ev = evaluate(&parts, &[], GOLEM_MARGIN).unwrap();
         assert!(!ev.ok && ev.text.contains("claim (Nether): 1 FAIL") && ev.text.contains("the game breaks this portal"), "{}", ev.text);
+    }
+
+    #[test]
+    fn the_composed_layout_holds_every_parts_cells_and_reads_back() {
+        let parts = layout(-24, [25, 80, 19], &[[38, 92, 24], [70, 92, 24]]);
+        let d = compose(&parts).unwrap();
+        let (ow, _) = built(&parts, false, &[]).unwrap();
+        assert_eq!(d.blocks.len(), ow.len());
+        assert!(parts.iter().all(|p| p.blocks.keys().all(|c| d.blocks.contains_key(c))));
+        let back = Design::parse(&d.to_text()).unwrap();
+        assert_eq!(back.blocks, d.blocks);
     }
 
     #[test]

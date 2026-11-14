@@ -2084,6 +2084,33 @@ pub enum MobfarmCmd {
         /// A golem's centre anywhere over a pad cell grown this much on x and z.
         #[arg(long, default_value_t = 0.7)]
         golem_margin: f64,
+        /// Also run the layout's portal skeleton in redsim this many gt (`mobfarm::loaderrun`): every
+        /// crossing by the portal it came out of, a golem put in each pad, the items kept, the gaps.
+        #[arg(long)]
+        redsim: Option<i64>,
+        /// The redsim runs' seeds, "1,2,3".
+        #[arg(long, default_value = "1")]
+        seeds: String,
+        /// When the golems are put in the pads (gt into the redsim run).
+        #[arg(long, default_value_t = 400)]
+        golem_at: i64,
+        /// The tick of the redsim run's world open (`liveness::restart`, save order, 2 idle ticks), the
+        /// gap bar's world-open row (ironspec 01:50b); default half the run.
+        #[arg(long)]
+        world_open_at: Option<i64>,
+        /// The site's ground (the world y of the surface's top block) under the layout's open columns,
+        /// for the lightning print; default each copy's y plus its module's `ground:` layer (-1).
+        #[arg(long, allow_hyphen_values = true)]
+        ground_y: Option<i32>,
+        /// Villager-place files in the module's written frame (x y z per line, feet cells, `#`
+        /// comments: the format `lightning-check --positions` reads), moved onto every copy: the
+        /// lightning print's places beside the rail cells and carts (ironspec Nov 14 05:18 (3)).
+        #[arg(long)]
+        positions: Vec<PathBuf>,
+        /// Also write the overworld layout as one design (world coordinates, every part's cells,
+        /// block entities and entities; no Nether part), for `lightning-check` on all its rods.
+        #[arg(long)]
+        write_layout: Option<PathBuf>,
     },
     /// (onechunk 2026-11-11/12; farmopt 22:22, tick-exact's code reads, G1's CHANGES 4) L1‴, the
     /// item-loop loader, benched in redsim (`mobfarm::l1items`): a same-axis portal pair; on each
@@ -8427,7 +8454,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
         }
-        MobfarmCmd::LoaderLayout { module, module_offsets, module_nether_ybase, loader, loader_offset, loader_nether_ybase, plant, plant_unframed, golem_margin } => {
+        MobfarmCmd::LoaderLayout { module, module_offsets, module_nether_ybase, loader, loader_offset, loader_nether_ybase, plant, plant_unframed, golem_margin, redsim, seeds, golem_at, world_open_at, ground_y, positions, write_layout } => {
+            // (ironspec 01:58 / 02:35, the binary rule: the shared provenance check runs first in mctas's
+            // dispatch; default-deny, `loader-layout` is evidence (`provenance::is_evidence`))
             let i3 = |s: &str| -> Result<[i32; 3]> {
                 let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<std::result::Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
@@ -8435,6 +8464,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
             let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
+            // (ironspec 02:46 (3): the design files read at run time are INPUTS, checked by git blob id
+            // against the commit the evidence cites)
+            let blob = |p: &std::path::Path| -> String {
+                std::process::Command::new("git")
+                    .arg("hash-object")
+                    .arg(p)
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map_or_else(|| "unreadable".to_string(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            };
+            println!("inputs (git blob ids, to check against the cited commit): module {} {}; loader {} {}", module.display(), blob(&module), loader.display(), blob(&loader));
             let mut parts = Vec::new();
             for (k, o) in module_offsets.split(';').enumerate() {
                 // (G1 00:46: an empty entry is refused, never dropped)
@@ -8442,15 +8483,86 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 parts.push(crate::loaderlayout::lay(&format!("copy{}", k + 1), &module.display().to_string(), &m, i3(o)?, module_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
             }
             anyhow::ensure!(!parts.is_empty(), "--module-offsets names no copy");
+            if let Some(g) = ground_y {
+                for p in parts.iter_mut() {
+                    p.ground = g;
+                }
+            }
+            // (the villager places of the module, its written frame, moved onto every copy; read back:
+            // an empty file refuses)
+            for f in &positions {
+                let text = std::fs::read_to_string(f)?;
+                let mut cells = Vec::new();
+                for (n, line) in text.lines().enumerate() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    let v: Vec<i32> = line.split_whitespace().map(str::parse).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("{}:{}: {e}", f.display(), n + 1))?;
+                    anyhow::ensure!(v.len() == 3, "{}:{}: x y z, got {line:?}", f.display(), n + 1);
+                    cells.push([v[0], v[1], v[2]]);
+                }
+                anyhow::ensure!(!cells.is_empty(), "{}: no place (an empty positions file refuses)", f.display());
+                println!("positions: {} places from {} (blob {}) onto every copy", cells.len(), f.display(), blob(f));
+                for p in parts.iter_mut() {
+                    p.positions.extend(cells.iter().map(|c| [c[0] + p.offset[0], c[1] + p.offset[1], c[2] + p.offset[2]]));
+                }
+            }
             parts.push(crate::loaderlayout::lay("loader", &loader.display().to_string(), &l, i3(&loader_offset)?, loader_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
+            if let Some(w) = &write_layout {
+                let d = crate::loaderlayout::compose(&parts).map_err(|e| anyhow::anyhow!(e))?;
+                std::fs::write(w, d.to_text())?;
+                // (read back: the written file parses to the same cells and entities)
+                let back = mctas::design::Design::parse(&std::fs::read_to_string(w)?)?;
+                anyhow::ensure!(back.blocks == d.blocks && back.entities.len() == d.entities.len(), "{}: the written layout does not read back", w.display());
+                println!("wrote the overworld layout {} ({} cells, {} entities; read back; blob {})", w.display(), d.blocks.len(), d.entities.len(), blob(w));
+                // (its villager places beside it, world coordinates: every copy's `--positions` places,
+                // for `lightning-check <layout> --rails --positions=<this>`)
+                let all: Vec<[i32; 3]> = parts.iter().flat_map(|p| p.positions.iter().copied()).collect();
+                if !all.is_empty() {
+                    let pw = w.with_extension("positions.txt");
+                    let mut text = format!("# the villager places of {} (every copy's --positions places, world coordinates; rail cells come from --rails)\n", w.display());
+                    for c in &all {
+                        text.push_str(&format!("{} {} {}\n", c[0], c[1], c[2]));
+                    }
+                    std::fs::write(&pw, text)?;
+                    println!("wrote its villager places {} ({} places; blob {})", pw.display(), all.len(), blob(&pw));
+                }
+            }
             let mut planted: Vec<crate::loaderlayout::Plant> = plant.iter().map(|s| crate::loaderlayout::parse_plant(s, true)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             for s in &plant_unframed {
                 planted.push(crate::loaderlayout::parse_plant(s, false).map_err(|e| anyhow::anyhow!(e))?);
             }
-            let (rep, ok) = crate::loaderlayout::report(&parts, &planted, golem_margin).map_err(|e| anyhow::anyhow!(e))?;
+            let (rep, mut ok) = crate::loaderlayout::report(&parts, &planted, golem_margin).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
+            let mut not_modeled = 0;
+            if let Some(ticks) = redsim {
+                anyhow::ensure!(planted.is_empty(), "--redsim runs the layout as written (no --plant)");
+                for (k, sd) in seeds.split(',').enumerate() {
+                    // (an empty entry is refused, never dropped)
+                    anyhow::ensure!(!sd.trim().is_empty(), "--seeds \"{seeds}\": entry {} is empty", k + 1);
+                    let o = crate::loaderrun::Opts { ticks, seed: sd.trim().parse()?, golem_at, world_open: world_open_at.unwrap_or(ticks / 2) };
+                    let (t, v) = crate::loaderrun::run(&parts, &o).map_err(|e| anyhow::anyhow!(e))?;
+                    print!("{t}");
+                    match v {
+                        crate::loaderrun::Verdict::Pass => {}
+                        crate::loaderrun::Verdict::Fail => ok = false,
+                        crate::loaderrun::Verdict::NotModeled => not_modeled += 1,
+                    }
+                }
+            }
+            // (ironspec 02:45 (3) / 02:57 (4), the shared exit-code table: a failed judged bar returns an
+            // error, which mctas's dispatch ends as 1 FAIL (3 NOT EVIDENCE under --not-evidence); a redsim
+            // run that can't be modeled judges nothing: 2 NOT MODELED, by name; Ok ends as 0 PASS)
             if !ok {
-                std::process::exit(1);
+                anyhow::bail!("FAIL: a judged bar failed (named above)");
+            }
+            if not_modeled > 0 {
+                println!("NOT MODELED: {not_modeled} redsim run(s) hit redsim's model errors (above); no judged bar failed");
+                // (the dispatch ends every --not-evidence run as NOT EVIDENCE: this runner's own exit does
+                // the same)
+                let not_evidence = std::env::args().any(|a| a == "--not-evidence");
+                crate::provenance::finish(if not_evidence { crate::provenance::Exit::NotEvidence } else { crate::provenance::Exit::NotModeled });
             }
         }
         MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, far_rows, floor, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, restart_order, piglin, mob_jump, trace } => {

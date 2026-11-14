@@ -19,6 +19,8 @@ pub mod ticketcheck;
 pub mod holdcheck;
 pub mod portallinks;
 pub mod loaderlayout;
+pub mod loaderrods;
+pub mod loaderrun;
 pub mod comb;
 pub mod components;
 pub mod headperm;

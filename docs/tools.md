@@ -646,7 +646,8 @@ grown `--margin` on x and z (a golem: 0.7; an item: 0.125).
 A loader layout's links, as tick-exact's loader rows lay it (loaderlay, Nov 13): `mctas mobfarm
 loader-layout --module M --module-offsets "x,y,z;..." --loader L --loader-offset x,y,z
 [--module-nether-ybase 64] [--loader-nether-ybase 0] [--plant DIM:NAME=box]... [--plant-unframed
-DIM:NAME=box]...` (`mobfarm::loaderlayout`).
+DIM:NAME=box]... [--ground-y Y] [--positions FILE]... [--write-layout FILE] [--redsim TICKS --seeds 1,2 --golem-at 400 --world-open-at T]` (`mobfarm::loaderlayout`,
+`loaderrods`, `loaderrun`).
 It lays the parts as `mobai loader-long` does (each Nether part at its anchor's /8 image). The search
 is tick-exact's 26.3 pins: the exit block `BlockPos.containing(x·s, y, z·s)`; every lit portal cell
 within 16 into the Nether or 128 into the overworld, at any y; the least integer distSqr, then the
@@ -660,11 +661,35 @@ lowest y. It prints:
 - each leg's exclusion zone;
 - the chunks with their levels from the loader's two PORTAL tickets (a chunk with a rail or an
   entity at <= 31, any other at <= 32), and the control chunk;
+- the lightning-rod coverage across the tiled copies (`mobfarm::loaderrods`). It reads the settled,
+  built overworld through redsim's `findLightningRod`, which is tick-exact's 01:28 pin: a 3-D sphere
+  of 128 around the strike column's MOTION_BLOCKING top, only rods topping their column, the closest
+  wins. The site's surface sits at the copies' ground (`--ground-y` sets it). It prints:
+  - per part, every footprint column's strike and the rod it goes to, with the worst column. A
+    column with no rod FAILS, naming the copy that needs its own rod;
+  - every other column of the layout's box grown by 3: to a rod, or judged by its own bolt box
+    against every villager and rider position (the parts' entities, a rider at every rail cell);
+  - every villager place (each rail cell, each cart, each place of `--positions` files in the
+    module's written frame, moved onto every copy), by part, kind and level: every column within 3
+    of it goes to a rod, and its clearance from the rods' bolt boxes, so a strike on a villager needs
+    a second fault (G1 05:10 (2), ironspec 05:18 (3));
+  - the strike area: every chunk holding a layout cell or a villager place, plus 4 columns beyond
+    (ironspec 05:25 (iii)); each rod's chunk and its level from the loader's ticket (a credited rod's
+    chunk must be loaded);
+  - `--write-layout FILE` writes the overworld layout as one design, so `lightning-check` can run
+    on all its rods;
+  - every rod's own bolt box against the loader's cells and those positions;
 - the loader's portal cells and frames in the farm frame;
 - loader-long's command line.
 
 `--plant` / `--plant-unframed` are its controls: read back; the unframed one is skipped and its
-framed twin must move picks; one that moves nothing refuses.
+framed twin must move picks; one that moves nothing refuses. `--redsim` runs the portal skeleton in
+redsim: every crossing by portal, a golem in each pad, the items kept, the gaps against the 300-gt
+ticket across a world open (`liveness::restart` at `--world-open-at`, default half the run; the row
+says how it differs from the reference timing row). A run with a redsim model error (a world error)
+is NOT MODELED: it judges nothing, and the command exits 2 by name; a failed bar exits 1 by name.
+It is an evidence subcommand (`provenance::is_evidence`): the shared provenance check runs first, and
+every run prints the git blob ids of the design files it read.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick
