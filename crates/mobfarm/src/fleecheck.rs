@@ -6938,30 +6938,59 @@ pub fn string_classes_from_header(text: &str) -> Result<Vec<(BlockPos, String)>,
     Ok(out)
 }
 
-/// (ironspec Nov 14 07:50r, part 61) The string registry beside string-audit's verdicts: each `# string-class:`
-/// declaration's cells, its class and the evidence row its REASON names (`evidence: ...`, e.g. "evidence: tick-exact
-/// 05:23"), or that it names none. Returns the lines and the count naming none.
+/// (ironspec Nov 14 07:50r, part 61; G1 08:32, part 63) The string registry beside string-audit's verdicts: each
+/// `# string-class:` declaration's cells, its class and the evidence row its REASON names in an `evidence:` field, which
+/// must be RESOLVABLE: an artifact id (`a/<digits>`), a named test (`test <fn name>`), or a recording with its md5
+/// (`recording <path> md5 <hex, 12 or more>`). A placeholder (TODO, TBD, pending, FIXME, XXX, ?) is refused by name; a
+/// field naming none of the three is NOT RESOLVABLE; no field is NONE NAMED. Each of the three is a gap: returns the
+/// lines and their count (string-audit fails on it under `--require-evidence`, the train gate's flag).
 pub fn string_registry(text: &str) -> Result<(Vec<String>, usize), String> {
     let mut lines = Vec::new();
-    let mut missing = 0usize;
+    let mut gaps = 0usize;
     for e in crate::pushscan::header_entries(text, "string-class:") {
         let (cells, rest) = e.split_once('=').ok_or_else(|| format!("# string-class: {e}: x,y,z[+x,y,z...]=CLASS (REASON)"))?;
         let class = rest.split_whitespace().next().unwrap_or("").to_string();
         let reason = rest.trim_start_matches(class.as_str()).trim();
-        let evidence = reason
-            .find("evidence:")
-            .map(|i| reason[i + "evidence:".len()..].trim().trim_end_matches(')').split(';').next().unwrap_or("").trim().to_string())
-            // (a declaration citing its game run in prose: "tick-exact AI / AH", "tick-exact 05:23")
-            .or_else(|| reason.find("tick-exact").map(|i| reason[i..].trim_end_matches(')').split(';').next().unwrap_or("").trim().to_string()));
-        match evidence {
-            Some(ev) if !ev.is_empty() => lines.push(format!("registry {}: {class}; evidence: {ev}", cells.trim())),
-            _ => {
-                missing += 1;
-                lines.push(format!("registry {}: {class}; evidence: NONE NAMED (its reason names no `evidence:` row)", cells.trim()));
+        let field = reason.find("evidence:").map(|i| reason[i + "evidence:".len()..].trim().trim_end_matches(')').split(';').next().unwrap_or("").trim().to_string());
+        let verdict = match field {
+            None => Err("NONE NAMED (its reason names no `evidence:` field)".to_string()),
+            Some(ev) => evidence_ref(&ev).map(|kind| format!("{ev} ({kind})")),
+        };
+        match verdict {
+            Ok(ok) => lines.push(format!("registry {}: {class}; evidence: {ok}", cells.trim())),
+            Err(why) => {
+                gaps += 1;
+                lines.push(format!("registry {}: {class}; evidence: {why}", cells.trim()));
             }
         }
     }
-    Ok((lines, missing))
+    Ok((lines, gaps))
+}
+
+/// (G1 08:32, part 63) The string registry's gate: under `--require-evidence` (the train gate's flag) any declaration
+/// without a resolvable evidence row fails the audit, naming the count; without it the gap is a visible note.
+pub fn evidence_gate(gaps: usize, require: bool) -> Result<(), String> {
+    if require && gaps > 0 {
+        return Err(format!("string audit: {gaps} string-class declaration(s) without a resolvable evidence row (--require-evidence)"));
+    }
+    Ok(())
+}
+
+/// (G1 08:32, part 63) Whether an `evidence:` field names a resolvable reference: the kind it names, or why not.
+fn evidence_ref(ev: &str) -> Result<&'static str, String> {
+    let words: Vec<&str> = ev.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
+    if ev.is_empty() || words.iter().any(|w| ["todo", "tbd", "pending", "fixme", "xxx", "?", "tba"].contains(&w.trim_matches(|c: char| !c.is_alphanumeric() && c != '?').to_ascii_lowercase().as_str())) {
+        return Err(format!("PLACEHOLDER {ev:?} (a placeholder is no evidence)"));
+    }
+    let artifact = words.iter().any(|w| w.strip_prefix("a/").is_some_and(|d| d.len() >= 6 && d.chars().all(|c| c.is_ascii_digit())));
+    let test = words.windows(2).any(|p| p[0] == "test" && p[1].chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') && p[1].contains('_'));
+    let recording = words.windows(4).any(|p| p[0] == "recording" && p[2] == "md5" && p[3].len() >= 12 && p[3].chars().all(|c| c.is_ascii_hexdigit()));
+    match (artifact, test, recording) {
+        (true, _, _) => Ok("an artifact"),
+        (_, true, _) => Ok("a named test"),
+        (_, _, true) => Ok("a recording with its md5"),
+        _ => Err(format!("NOT RESOLVABLE {ev:?} (name an artifact a/<digits>, a test <fn name>, or a recording <path> md5 <hex>)")),
+    }
 }
 
 pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[(BlockPos, String)], allow_empty: bool) -> Result<(Vec<String>, usize, usize), String> {
@@ -12213,17 +12242,33 @@ mod gate_tests {
         assert!(of("1,2,2").contains("under it the empty cart's box top clears the band's bottom by 0.300 at its closest (on the rail 1,1,2 t "), "{l:?}");
         assert!(of("7,3,2").contains("clears the band's bottom by 1.300"), "{l:?}");
         assert!(!of("4,2,2").contains("clears the band"), "{l:?}");
-        // the registry's evidence rows: one declaration names its row, one names none
-        let (reg, missing) = super::string_registry("# string-class: 1,2,2=rider-keyed (band 0.300 above the resting cart box; evidence: tick-exact 05:23); 4,2,2=cart-keyed (a cart on the slot presses it); 7,3,2=never-pressed (above every box: tick-exact AI / AH)\n").unwrap_or_else(|e| panic!("{e}"));
+        // (G1 08:32, part 63) the registry's evidence rows must be RESOLVABLE: an artifact a/<digits>, a named test, a
+        // recording with its md5; a placeholder ("evidence: TODO", "pending tick-exact") is refused by name; prose
+        // naming none of the three is NOT RESOLVABLE; no `evidence:` field is NONE NAMED; each one a counted gap
+        let (reg, gaps) = super::string_registry(concat!(
+            "# string-class: 1,2,2=rider-keyed (band 0.300 above the resting cart box; evidence: a/1458936443005840); ",
+            "4,2,2=cart-keyed (a cart on the slot presses it); ",
+            "7,3,2=never-pressed (evidence: test string_audit_rider_keyed_cart_keyed_and_never)\n",
+            "# string-class: 9,2,2=cart-keyed (evidence: recording designs/x/slot1.trace md5 0123456789abcdef); 9,3,2=rider-keyed (evidence: TODO); ",
+            "9,4,2=rider-keyed (evidence: pending tick-exact); 9,5,2=rider-keyed (evidence: tick-exact 05:23)\n"
+        ))
+        .unwrap_or_else(|e| panic!("{e}"));
         assert!(
-            missing == 1
+            gaps == 4
                 && reg == vec![
-                    "registry 1,2,2: rider-keyed; evidence: tick-exact 05:23".to_string(),
-                    "registry 4,2,2: cart-keyed; evidence: NONE NAMED (its reason names no `evidence:` row)".to_string(),
-                    "registry 7,3,2: never-pressed; evidence: tick-exact AI / AH".to_string()
+                    "registry 1,2,2: rider-keyed; evidence: a/1458936443005840 (an artifact)".to_string(),
+                    "registry 4,2,2: cart-keyed; evidence: NONE NAMED (its reason names no `evidence:` field)".to_string(),
+                    "registry 7,3,2: never-pressed; evidence: test string_audit_rider_keyed_cart_keyed_and_never (a named test)".to_string(),
+                    "registry 9,2,2: cart-keyed; evidence: recording designs/x/slot1.trace md5 0123456789abcdef (a recording with its md5)".to_string(),
+                    "registry 9,3,2: rider-keyed; evidence: PLACEHOLDER \"TODO\" (a placeholder is no evidence)".to_string(),
+                    "registry 9,4,2: rider-keyed; evidence: PLACEHOLDER \"pending tick-exact\" (a placeholder is no evidence)".to_string(),
+                    "registry 9,5,2: rider-keyed; evidence: NOT RESOLVABLE \"tick-exact 05:23\" (name an artifact a/<digits>, a test <fn name>, or a recording <path> md5 <hex>)".to_string(),
                 ],
             "{reg:?}"
         );
+        // the gate: under --require-evidence those 4 gaps fail by count; without it they pass as a note; 0 gaps pass
+        assert!(super::evidence_gate(gaps, true).is_err_and(|e| e.contains("4 string-class declaration(s) without a resolvable evidence row (--require-evidence)")), "the train gate fails");
+        assert!(super::evidence_gate(gaps, false).is_ok() && super::evidence_gate(0, true).is_ok(), "a note without the flag, a pass with no gap");
         // (G1 21:38 H9) the bar: a string meant rider-keyed but found CART-KEYED fails by name; an
         // undeclared string fails
         let (l2, _, bad2) = super::string_audit(&spec, &[], &[(b(1, 2, 2), "rider-keyed".to_string()), (b(4, 2, 2), "rider-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
