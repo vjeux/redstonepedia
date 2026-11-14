@@ -372,19 +372,6 @@ fn spit_first_wait(d: f64) -> i32 {
     crate::entity::mth::floor(crate::entity::mth::lerp(d, SPIT_ATTACK_INTERVAL_MIN as f64, SPIT_ATTACK_INTERVAL_MAX as f64))
 }
 
-#[cfg(test)]
-mod spit_wait_tests {
-    /// (ironspec 09:26a (3)) the trader llama's RangedAttackGoal waits with attackIntervalMin = attackIntervalMax = 40: 40 gt
-    /// at every distance, after a spit and the first one (the values the old (INTERVAL - INTERVAL) form computed)
-    #[test]
-    fn the_spit_waits_stay_40() {
-        for dist in [0.0f32, 0.25, 0.5, 0.99, 1.0] {
-            assert_eq!(super::spit_wait_after_spit(dist), 40, "after a spit at {dist}");
-            assert_eq!(super::spit_first_wait(dist as f64), 40, "the first wait at {dist}");
-        }
-    }
-}
-
 /// `LlamaHurtByTargetGoal.canContinueToUse()`: a llama that just spat lets go of its revenge
 /// target (and forgets the spit); else HurtByTargetGoal's.
 pub fn llama_hurt_by_can_continue(w: &mut World, i: usize) -> Option<bool> {
@@ -793,4 +780,17 @@ pub fn set_trader_home(w: &mut World, id: u32, reference: BlockPos) {
     s.despawn_delay = 48000;
     s.wander_target = Some(reference);
     ai_mut(w, i).home = Some((reference, 16));
+}
+
+#[cfg(test)]
+mod spit_wait_tests {
+    /// (ironspec 09:26a (3)) the trader llama's RangedAttackGoal waits with attackIntervalMin = attackIntervalMax = 40: 40 gt
+    /// at every distance, after a spit and the first one (the values the old (INTERVAL - INTERVAL) form computed)
+    #[test]
+    fn the_spit_waits_stay_40() {
+        for dist in [0.0f32, 0.25, 0.5, 0.99, 1.0] {
+            assert_eq!(super::spit_wait_after_spit(dist), 40, "after a spit at {dist}");
+            assert_eq!(super::spit_first_wait(dist as f64), 40, "the first wait at {dist}");
+        }
+    }
 }
