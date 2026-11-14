@@ -1,5 +1,76 @@
 # Iron farm: the villager carousel (brief, G1)
 
+## Scope and critical path (Nov 14, binding)
+
+This section supersedes every fault-handling section below.
+
+### Normal operation only (vjeux's rule, Nov 12)
+
+In scope:
+- the player leaving and coming back: whole and partial unloads and freezes, chunk borders, save/quit and reload, and the sensor phases and load orders they cause;
+- day and night;
+- weather;
+- natural spawns and lightning around the farm;
+- real timing variation (±2 gt).
+
+Out of scope unless vjeux asks:
+- fault injection (missed or extra pulses, and self-recovery from them);
+- villager death;
+- riderless or empty loop carts;
+- the player's abnormal actions (breaking or covering blocks, hitting villagers, raids, repairs);
+- long-term erosion;
+- jams, a blocked lift top or bottom, long pauses, server crashes.
+
+Nothing is added for an out-of-scope case: no blocks, latches, alarms, holds, test rows or guide procedures.
+
+A requirement counts as normal only when a normal-operation run shows the problem happening: reload and unload at every phase, ±2 gt corners, weather and lightning.
+
+### Superseded
+
+These go in the next brief pass:
+- the halts scope and the halts table;
+- the ONE TABLE of holds and fault roots;
+- the soft-rail SAFETY list and every repair procedure (merge C, the arrival detector, the front rails);
+- gate G (the dry buffer) and the lift-top stack analysis (stack positions, the (−5,24,6) question);
+- the lift-bottom bounce guards (the ramp brake, the admission bound, the eastbound-join bar);
+- one credit per release and the premature-release bar;
+- lost-credit recovery, including the token's recovery (unless a normal run shows a reload dropping a departure press);
+- the crash guards;
+- the queue-seat deadline;
+- the empty-cart catch;
+- restart after a halt;
+- the station's A-series (A, A4, A6, A6b) and its timing regression: dropped Nov 14, because the original landing showed 0 rollbacks over 1,500 runs at REL 3–7 with ±2 gt corners and a world open at every phase.
+
+### Kept design decisions
+
+- The original station (D at (x,0,2), boosters (x,0,3..6)) with the release offsets 0 / 17 / 27.
+- The pick-rate rule: at most one pick per REL, with fair deferral. A cold start bunches nappers.
+- R6 = 14 / K_HALF = 10, stated once in day-1's interface file.
+- (B)'s P1 sensor (the hold at (9,24,7), its latch and detector), with its normal RESET / SET timing.
+- Z1 lowered 2 blocks (waker 6.0986 against 6, zero boat play), subject to 58f770cc's spread-tracked runs.
+- The stop's own designed empty cart (riderless by design, from its park to the pickup) is normal operation.
+- The footprint inside the chunk, with the latch, the cage and the boat.
+- The joins held north_west by LIFT's slime and torch.
+- Lightning rods, the 16-block zone and the nap schedule.
+- Build-order, settle and raw-paste checks (shapes as built).
+
+### Critical path, in order
+
+| Step | What | Owner |
+|---|---|---|
+| a | V rev 3.1 composed fully inside the chunk, with 58f770cc's sleep stop and the pick-rate rule. Every part runs on its own wiring: the controller is laid in the design file, and no model reads simulator truth. | vcompose (composition, as each part lands); 58f770cc (the stop); day-1 (the controller netlist, and the picks); b8949c96 (the way-in: (B)'s latch, hold and read, the token, the P1 trigger); dfb89499 (the REL / store / credit core and the K windows); loaderlay (the drive lines) |
+| b | Normal battery in redsim: full nights at 4 positions, with a world reload and unload at every phase, weather and lightning. 0 lost beds; golems per night printed; wired vs bench stated per part. | ironfarm (dry run on V rev 2 now) |
+| c | The whole farm in the real game on its own wiring: at least one full day and night, including a reload. | tick-exact (dry run now on V rev 2 with the scripted controller, disclosed as bench-driven; the real run on V rev 3.1) |
+| d | Mobviewer renders it. | mobviewer |
+
+Each controller subsystem is its own small car with its slice and interface (G1, then ironspec's read). V rev 3.1 composes as soon as the stop, LIFT and way-in files are in, with any controller subsystem not yet laid as a declared `emulated:` stand-in (owner named); the subsystems fold in as they land, and step a closes when the last one is laid and composed.
+
+Figures for step a cite WIRED runs only. Bench-driven runs are labelled as such and cite nothing.
+
+Tooling and evidence hygiene (the 16b runner, lint, clippy, declarations, settle scope) continue only where steps a–c need them. Nothing else gates a–c. Critical-path design commits board their own small cars without waiting for the 16b tool train.
+
+Dry runs label every bench-driven part, and switch from rev 2 to rev 4 (the record fold, no bench stand-ins) once rev 4 is pushed.
+
 > **This state of the brief: next26, its figures as of Nov 14 02:10 platform** (ironspec Nov 14 02:08: farmopt commits it in train 15, with ironspec's and G1's edits). The section "Next26" below carries every cell-level ruling since next25, with the commit that applied each, and the standing rules; it wins wherever an older paragraph disagrees, "Next25: the module of record" coming next; NEXT27 folds the older paragraphs and carries everything later.
 
 ## Scope: normal operation
@@ -138,6 +209,8 @@ cart broken on R_1, with its rider left standing in the queue, halts the station
 cart lost or late in transit: b17 (pending); the SEEN3_OLD form fails day-1's sweep." WITHDRAWN until b17: r13's "a lost
 cart with its rider costs no credit", the late-slot slips, r14 / r15 as an in-transit fault.
 
+SUPERSEDED Nov 14 by 'Scope and critical path'
+
 THE CREDIT LEDGER (ironspec 01:57, on G1 01:56): the record is CORRECTED: day-1's "late lane −1 / 3 carts cost cadence
 only" came from an exclusion (`judged = rels.len() − 1`) that hid a lost credit: every pinned cadence row ends one
 credit short for good ("20 RELs, periods 100..191, credits 19"): today's form LOSES a credit on those rows. Rules: the
@@ -168,8 +241,12 @@ credit, the normal nights show 0 resyncs, and the margin from every legitimate l
 the fix leaves needs an observable symptom (the store's state visible, or a cheap indicator) and the repair in its fault
 note (G1 02:08: a player won't otherwise notice a half-rate farm).
 
+SUPERSEDED Nov 14 by 'Scope and critical path'
+
 ⚑ THE ORDER-STATE RULE (ironspec 01:28): every order-state machine (the lane record, the J arming, the credit FIFO)
 resyncs on evidence; no single missing event may desync one for good.
+
+SUPERSEDED Nov 14 by 'Scope and critical path'
 
 THE HALT BAR (ironspec 01:01, standing 01:31): a halt of any cause and any length costs golems, never HOMEs. The
 design never ACTS to harm a rider during a halt, whatever the cause (a hold dropping onto an occupied pocket);
@@ -188,6 +265,8 @@ villager on sealed P from dawn through dusk) runs, its fault note reads "a misse
 HOME by dusk at the latest" (ironspec 02:09b; a dusk self-heal makes it a fault outcome with its golem cost; HOME lost
 without a self-heal from any single non-player root needs a completing target by day, or the fault prevented at its
 cause); (5,−1,5) is transit.
+
+SUPERSEDED Nov 14 by 'Scope and critical path'
 
 THE STAMP EVIDENCE RULES (ironspec 01:41b / 01:42 / 01:44): the seated-rider row (tick-exact, official 26.3,
 a/1153931040413536) settles the mechanism: a seated rider's completing HOME path clears its stamp while it stays in
@@ -231,12 +310,16 @@ causes are a player or an explosion (the pillagers are unarmed, ironspec 17:13; 
 classes: a pushable stall misroutes 1–2 carts (a routing fault: note, repair row); an immovable jam is the credit
 cascade the re-keyed completion fail-stops. REL = one pulse per golem request.
 
+SUPERSEDED Nov 14 by 'Scope and critical path'
+
 LIFT TOP (ironspec Nov 14 00:56 wording): "Normal running is jam-free (game: open exit, every integer follower gap
 1–14 gt exits). The lift jams for good only (a) when two risers sit 0.70–0.85 b apart with the upper not south of the
 lower, which only lane 7's side entry can cause (gate G keeps its entry ≥ 3 gt from any foot cart's pass at y 12), or
 (b) when a leader is HELD at the top ≥ G + 2 gt (the mouth bar)." The never-skip gate is bought; the foot spacer is
 priced (the foot stall a halt with its repair note); a jam is a halt under the halt bar: it costs golems until
 cleared, plus any stranded riders' HOMEs, which cc767b78's planted rows print. [table row 30]
+
+SUPERSEDED Nov 14 by 'Scope and critical path'
 
 THE PICK RULE (ironspec 23:48 / Nov 14 00:07): the pointer form; first entry with the rejoin counted (max interval
 21,633, bed wait ≤ 466 gt, 0 deferred, 24 / 24); three in flight, one per lane (one in flight fails even on the measured
@@ -299,6 +382,7 @@ Coordinates here are the record / loop frame; 58f770cc's are labelled "the fold'
 - **C1 is not a verdict:** "(controller F's C1: ~30 % of napper arrival phases fail a bar on 7b90c3f1's bench at k + j 4; the per-row bar and the design-term verdict are pending)", judged at k + j = 2, ironfarm's per-row press-keyed bar first.
 - **The standing checks on every emulation:** "RELs fired with F1 false: N" with the start path per REL; an "RS_ready reset" at every queue departure; "R1 releases before the previous napper passed R: N"; every logged state change prints the state it read, never a fixed string; the planted SEEN3-stuck-reset row (expected: REL waits, 0 releases, 0 16-ball exposures, the HOME clock printed per calm rider). Each check fails a night, shown firing on its planted defect. The NOT-BOUGHT audit tests behaviour, not names.
 - **The empty-cart cascade: PROTECTION BOUGHT (ironspec 18:55).** F1's slot-1 strings are rider-keyed, so an empty cart from the stop's faults (the step-off, the refused centred sleeper) reaches its lane's slot 1 about 600 gt later and withholds REL: the station stops, and every calm rider's HOME ages out within ~1,200 gt (day-1 18:51). (C), CONTAINMENT, is bought on the napper's return leg (ironfarm 19:50, ironspec 19:51): a rider-height string at (7,−2,4), one cell over E's approach detector (7,−3,4), hooks N–S at (7,−2,3) / (7,−2,5) on glass supports (7,−2,2) / (7,−2,6), inside the module's chunk and none face-adjacent to a rail, its hook read as one more input of H2's AND at the approach sample E + 2 (day-1's form (i), no latch; ~6–7 blocks). The seated rider's box meets the band at E; the empty cart presses the string only on the ascending rail (8,−3,4), at E + 13 (redsim's per-tick run; a string presses only when an entity's box meets its band, tick-exact's 26.3 lines; the game row is pending), 11 gt after H2's sample at E + 2, so an empty cart from the stop's faults parks on the napper hold (9,0,8) and is never launched. The departing napper leaves along z 7 and never passes (7,−3,4). A string over the hold cell itself can't be built inside the chunk (its hooks would power the T (9,0,7) or the hold rail, or hang outside the chunk). Owed: the game pin of a seated villager's height and of its string press; the empty cart's box per tick through the lift exit, never meeting the band; the string's press within E − 7 .. E + 1 per visit after k + j; 9fc3155f's statics on the hooks, string and supports. F1 stays rider-keyed, so G8c's cut stays defence in depth under sensor (B). Bars: no villager on foot can reach a position whose box meets the string; the hold's occupancy printed per night (cell, duration, the same cart), the lane one cart short and AWAY_x set; the row runs ≥ 5 batches past the empty departure with REL every batch, stamps < 1,200, 0 HOME losses, the stop's local halt, and no empty cart passing the gate (printed); a second cart, empty and ridden, arriving behind the parked one at the design speed and at the worst arrival speed the return route can produce (the maximum over the launch sweep and the lift's exit band) must not push it off the hold onto the station row (position per tick; else a dead stop, priced by ironfarm), and a ridden napper stranded behind it prints both villagers' states; the string's press within E − 7 .. E + 1 after k + j per visit at every set position; RETURN_x's timeout and H2's held state printed.
+  SUPERSEDED Nov 14 by 'Scope and critical path'
 
 ### The refill: under test (ironspec 20:00)
 
@@ -327,6 +411,8 @@ The size study (https://artifacts.internalmeta.com/a/1433441251757750) chose opt
 The UNARMED route is the route of record: wear the crossbow out against a shield (about 465 shots; Unbreaking takes 2–4×). The guide's test is an empty hand, the pick a pillager whose crossbow doesn't shimmer. "(requires commands)" is retired. #3's two glass at (−4,−1,−5) and (−4,−3,−4) are kept. The vindicator is banked only.
 
 ### Fault notes added at next25 (build guide)
+
+SUPERSEDED Nov 14 by 'Scope and critical path'
 
 - **The shutter fails open:** "If the shutter's drive fails (a lost torch or repeater), the window stays open, every napper is scared awake, and napping, and with it the golems, stops until it's repaired."
 - **Class B:** "A batch cart delayed after its release by a fault (a stall or a slowed cart) can misroute the returning napper: by ~18 gt or more for lanes −1 and 3, measured from the release; for lane 7, measured from its press at (5,0,7) [thresholds: the press-keyed re-run; ~18 gt provisional]. The misrouted napper's own lane then stops napping for good, and the other lane takes a 9th cart, which can stall that lane's drop. Repair: re-seat the napper in its own lane's siding, remove the extra cart, and reset that lane's AWAY latch."
