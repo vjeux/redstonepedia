@@ -632,7 +632,9 @@ emulation.
 
 ## The re-laid stop (Nov 13-14, ironspec 21:42 -> 00:08)
 
-`mctas mobfarm bedtier [--bench] --relaid 1 --seal-p ...` on the flags of record. The files:
+`mctas mobfarm bedtier [--bench] --relaid 1 --seal-p ...` on the flags of record (since the no-hold car:
+`--eject-at-bed --runup --no-loop-booster --exit-south --waker-south --exit-boost --wake-sensor --rs-ready
+--park-sense --relaid 1 --seal-p [--latch-b]`, no `--hold-slope`). The files:
 `relaid/bed-tier-relaid.txt` (+ `-bench.txt`), and `relaid/bed-tier-relaid-latch.txt` (+ `-bench.txt`)
 with day-1's latch laid (`--latch-b`); the bench rows below are redsim, the 408 band (0.05..0.55/0.01 x 8
 seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 (Villager's requiredPathLength
@@ -698,9 +700,9 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   at y -3; the OR line climbs (0,-2,1) -> (1,-1,1) -> (2,0,1) into the drive repeater; Q's tap line
   along x 8 and z 2 into the slope's tap repeater (1,-2,4); RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5)
   the logic block's inputs (the bench's floor levers: RLS held `--latch-rls-width`, ARM 3 gt).
-  On the 408 band the park rail is lit [RLS + 2, RLS + 26) on every visit (the standing start-of-tick
-  frame); that claim cites after the timing row (ironspec 01:50b: worst jitter + a k + j = 3 world
-  open at every phase).
+  The latch-b hold figures of the cars before the no-hold car are NOT EVIDENCE: every one of those runs
+  passed `--tap 265,10`, whose lever overwrote Q's own tap wire (1,-2,3) (G1 04:08a item 5); the hold
+  itself is removed in the no-hold car (below). The PARK window is judged there.
 - **The header's declarations** (Nov 14): `contacts:` re-declared from the re-laid reference run (the
   siding's flush run along the sealed glass (-1,0,4), 416 events over 400 visits, the deepest 0.3795;
   the cart in P flush with the bed foot's and head's east faces, 336 over 336, the deepest 0.0850),
@@ -710,22 +712,91 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   order of the slime and the park rail ends east_west (main's build-order, and the game's
   `RailState.place`): the build is the slime (2,0,3), a TEMPORARY rail at (2,1,3), the park rail
   (1,0,3), the temporary rail out; laid before its slime the rail pops. The header's `build-order:`
-  states that sequence (dfb89499's declared-sequence mode reads it from train 16).
+  states that sequence; nothing in this tree reads it yet: dfb89499's declared-sequence mode (its commit
+  G, train 16) read it on car 3's file (5b25a04da, md5 c5e53c4dd218): `build-order --declared` exit 0
+  (the "park" sequence reads its 3 cells back as designed; the park rail ascending_east by 0 of 8 plain
+  builds, laid only by "park"), `--declared --without park` exit 1, failing (1,0,3) by name; "buildable"
+  is not yet a claim: commit G is under G1's CHANGES (07:56: the read-back covers only the named cells,
+  declared steps skip the game's placement check, the plain-order bar is per rail, not one global order).
 - **The park string flickers** (tick-exact 02:45, G1 02:47): with the empty cart resting below x 1.30
   the string releases one tick every 11 gt (its 10-gt re-check finds the end box under the band); the
   rests aren't monotonic in speed, so it is normal operation. Every consumer reads SENSED's latch (the
   visit's first press): the bench's K reset and PARKED do; the bench prints the re-check releases per
-  rest position and the consumers per visit (one K reset, PARKED set, one park lighting). Redsim
-  reproduces the game's edge and cadence: rests 1.15..1.30 flicker (a released tick every 11 gt),
-  1.30..1.65 steady, 408 visits.
-- **Car 3 (Nov 14)**: glass at (2,2,3) over the park slime's top, which was a golem floor off the pad
-  (9fc3155f 03:34): one block of room left, glass no golem floor itself, clear of the parked cart's
-  box (top y 1.41 at the highest rest) and of a seated rider's (x <= 1.95); the build's temporary rail
-  at (2,1,3) and the park rail's ascent unchanged under it (main's build-order, the sequence read back
-  ascending_east). The bed column's keep-clear starts at (-3,2,4): the hook at (-3,1,4) is P_STRING's,
+  rest position and the consumers per visit (one K reset, PARKED set, one park lighting). The no-hold
+  car judges the game's cadence: every released-to-released interval over the 408 band is 11 gt
+  ({11: 894}, off-cadence 0), rests 1.15..1.30 flicker and 1.30..1.65 hold steady; the consumers read
+  the latch on every visit, and the `--consumers-raw` twin fails by name in 28 of seed 1's visits.
+- **Car 3 (Nov 14)**: glass over the park slime's top, which was a golem floor off the pad (9fc3155f
+  03:34); the fixes car moved it from (2,2,3) to (2,3,3) (9fc3155f 05:07: straight over the slime it cut
+  the night path of (7,0,3) through (2,1,3)): the slime's top keeps 2 blocks of room (a standing
+  villager's box top 2.95 under 3.00; a golem's 2.7 box can't spawn), and the no-hold car judges the
+  glass's clearance per tick: the cart's box least 1.6265 over the 408 band, a seated rider's least
+  0.5600 on the `--plant-e-off` row (the only row a rider reaches the park). The bed column's
+  keep-clear starts at (-3,2,4): the hook at (-3,1,4) is P_STRING's,
   by design (no collision box, the riders' HOME route completes onto it), the fold's old keep-clear
   was wrong (vcompose 03:28). `stand-up:` names the two places the stop leaves a villager on foot, as
   the bench measures them: the eject's landing (-2.4986,0.5625,4.4868; the band's -2.4974..-2.4988 /
-  4.4867..4.4884) and the wake's stand-up (-1.5,0,4.5) exact; the bench fails on any measured
-  position more than 0.01 from a declared one (the box stays in its cell, getStart's start node the
-  same).
+  4.4867..4.4884) and the wake's stand-up (-1.5,0,4.5) exact; the no-hold car's bar judges both ways
+  (every measured position declared, every declared one measured, NOT JUDGED with no sample) at 0.01,
+  each position's box 0.1868 / 0.2000 inside its cell's walls (getStart's start node the same).
+- **The no-hold car (Nov 14 morning; ironspec 05:33 / 06:04 / 06:11, day-1's confirmation of record)**:
+  the exit hold is gone. It sat at (1,-1,5), 4.7 from the bed head, inside the 16-ball; under day-1's
+  form (b) Q's tap launched it at the NEXT visit's RLS, so each napper waited there through the next
+  napper's lie-down (an erase: HOME's ValidateNearbyPoi runs in REST); lane 7's braked R, outside the
+  ball, does the phasing now. The exit slope (1,-1,5) is a plain rail on glass; no tap repeater, no
+  tap slime, no Q tap line (Q drives only the park); R (4,-1,5) is a plain rail (its detector powered
+  only the plain rails beside it; day-1's gate list read RS_ready through the string). (B), bought
+  (ironspec 07:30, vcompose 07:12): RS_ready's evidence is V's ball-exit detector (7,-3,4), outside the
+  16-ball, so the stop lays no RS string, hooks or glass backings ((4,0,3..7)); the bench keys R on the
+  cart crossing R's centre, an INSTANT position read (labelled; a detector would press 1 gt later and
+  hold up to 20 gt). The exit run on the 408 band: the cart passes R at 0.6473..0.7027 b/t (median
+  0.6609), leaves the stop a block past R at 0.6415..0.6985, R -> out 2..3 gt (so R -> the napper
+  lift's foot ~3-4 gt). Cycle terms: the summon at ENTRY -> the lie-down 27..37 (median 29), the nap
+  56..76 (median 66), the wake (the bed empty) -> R 69..85 (median 74). The napper's stamp: on its last
+  awake tick before the lie-down 408 of 408 visits carry one, the oldest 34 gt (margin 1,166 to 1,200),
+  and the lie-down clears it (SleepInBed.start, 26.3 lines 97-98; tick-exact 07:14): the risk is the
+  awake approach, judged (an age of 1,200 or more fails). The laid latch: PARK lit [RLS + 2, RLS + 26)
+  on all 408, its dark tick 19..21 gt after the cart leaves the park; the timing row (a k + j = 3 world
+  open at every phase RLS + 1..30, `--restart-at-rls 1..30,save/stress:2`, 12,240 visits): all clean,
+  HOME lost 0, PARK dark from RLS + 23..26, its margin to the cart leaving the park 16..21 gt (the worst
+  at RLS + 1); ARM_IN follows ARM's real
+  detector power (its late press and 20-gt recheck hold included). The latch's cells against day-1's
+  game-verified laid
+  latch (a/2636161620236283, the 120 cells tick-exact's car-5 `latch-rig --laid` ran on; 118 distinct),
+  compared position by position (block states; the latch carries no block entities, ports or
+  entities): 87 identical, 31 absent and 2 added, so 33 cells differ and the game evidence does NOT
+  transfer: tick-exact's `latch-rig --laid` on this file is owed before the latch's figures cite. The 31
+  absent, all Q's tap branch, which drove the removed exit hold's launch: the dust from Q's torch (6,-2,-2)
+  east and around to the slope, (7,-2,-2), (8,-2,-2), (8,-2,-1), (8,-2,0), (8,-2,1), (8,-2,2), (7,-2,2),
+  (6,-2,2), (5,-2,2), (4,-2,2), (3,-2,2), (2,-2,2), (2,-2,3), (1,-2,3); the glass under each at y -3;
+  the tap repeater (1,-2,4) (facing north: its input (1,-2,3)) and its glass (1,-3,4); the slope's slime
+  support (1,-2,5), the repeater's output into the hold rail (glass now, under a plain rail). The 2
+  added: glass over the stones (2,-1,-2) / (5,-1,-2) (9fc3155f 05:00). Its OR line's climb is declared
+  one-way UP (`one-way:`). OPEN (vcompose 07:59): the latch's reset delay line at local z -6 (the
+  repeaters (0..4,-2,-6), the wire (-1,-2,-6) / (5,-2,-6), their glass) lands at loop z -7 with the
+  stop's offset, outside the column bound z -6..9; a pulled-in re-lay (z >= -5) waits on ironspec's
+  ruling.
+- **A backup reaching the exit** (ironspec 06:20 / 06:28 / 07:28): with (B) a napper held anywhere
+  between the bed and (7,-3,4) sets nothing, so the occupied-bed erase is closed by construction. The
+  planted row (`--set-cell 5,-1,5=minecraft:glass`, the run-out blocked a cell past R): the cart stops
+  in R's cell (R crossed at t 173..184), and the waiting napper's own CANT_REACH stamp ages unreachable
+  to its HOME's loss (1,277..1,335 gt at a calm REST tick; HOME lost at t 1,417..1,477) with the bed
+  empty: a HALT-BAR (a) FAILURE at that waiting place (G1 06:58 (2)(b)). The
+  stop's exit has no blocking root of its own (no hold, no gate: plain rails and two always-on
+  boosters); its root is downstream, on V's route (vcompose rev 3): a jam on the station row (y 0, z 7)
+  or at the main lift's foot backing up the napper lift into the stop's exit, V's to bound (the room
+  interlock (A), its reservation at release counting the nappers in transit; RS_ready's evidence at the
+  ball exit (B)). A block at the exit itself is a player's act: priced, its time limit ~1,277 gt (the
+  waiting napper's HOME lost to its own stamp; repair within that: clear the block).
+- **Faults** (ironspec 06:07 / 06:11): an empty cart at the stop is a priced player fault (its roots: an
+  empty at the front sent on by R1, b8949c96's PE8, or a player). The riderless arrival (`--empty`)
+  strands on the siding on 3 of 5 speeds (into the park at 0.0192..0.0565 b/t on the other 2) and the
+  stop idles: no napper, no release. The next visit past an empty left on the siding (`--plant-empty
+  0.5 0.0625 3.5`) still completes, the planted cart shoved to (-0.53,0.06,3.50), but K's return margin
+  falls to 5 gt against its bar 6: a FAILURE under a player-rooted fault, PRICED (b) (the empty left
+  on the siding is reachable from an empty front sent on by R1, b8949c96's PE8, whose root upstream is
+  a player's). What a margin of 5 risks: K flips south_east 5 gt after the arriving cart's last tick in
+  it; a misroute needs the flip while that cart is still in K (margin <= 0), so after a k + j = 3 world
+  open 2 gt remain. Symptom: the stop idle with an empty cart on the siding; repair: break the cart
+  (relink any HOME lost). A witch-ridden cart can't reach the stop (lightning destroys the rider's cart:
+  tick-exact's VehicleEntity quote).

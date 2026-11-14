@@ -1,17 +1,17 @@
-# The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).
-# E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its gate list rev 20:00, artifact 1608254923947368) opens it once the napper sleeps (OPEN on PARKED and SO and not P_STRING, PARKED the sensed park AND COOL), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); RLS (P_STRING and SINCE and WIN and PARKED) releases the park (RLS + p, p = 2, ironspec 17:53) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.
-# The drives, no lever and no stand-in in this file (G1 C13 / 11:52 / Q16; ironspec 09:57) -- (-5,1,8) is the cell DAY-1's SHUT output (OPEN's torch, rev 20:00 G20) drives, EMPTY in this file (DAY-1's cells; a bench lays its stand-in lever there as a declared override); the shutter (-5,1,9) is stored UNPOWERED (its one stable state with no drive: the plate in the cell's top half, the window OPEN); DAY-1's SHUT (NOT OPEN) holds it POWERED at night (the plate standing open across the window's face: the window SHUT, no line from the zombie to anyone) except during the open window: OPEN unpowers it (the sleeper's line passes under the plate), the woken napper's P_STRING press resets OPEN and powers it again (the window SHUTS: the 'close' of the clear - close figures); (2,-1,4) DAY-1's P_HOLD Q torch on its base (2,-2,4) (ironspec 21:15 (g)), both empty here: the torch strongly powers the slime (2,0,4) from below, and so the park rail (1,0,4); (3,0,4) and (3,-1,4) stay empty; until those lines are built, rows on this file name the bench's stand-ins.
+# The bed stop (A), re-laid (ironspec 21:42 -> 00:08; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, the slope down, the capped flat, the curve south, the flats), the arming detector ARM (-2,0,1), the activator E (-2,0,2) (always on: its torch (-3,0,2) on glass), K (-2,0,3) the driven T (north_east for the arrival onto the siding, south_east for the return to P), the siding (-1,0,3) / (0,0,3) out and back, the park (1,0,3) a braked powered rail ascending east on its slime (2,0,3) under glass (2,3,3), its drive a plain repeater (2,0,2) facing north, the pickup cell P (-2,0,4) straight north_south, A6's exit (the cap (-2,1,5), the curve, the capped booster, the slope (1,-1,5) a plain rail (no exit hold: lane 7's braked R holds outside the bed's 16-ball, ironspec 05:33 / 06:04), R (4,-1,5) a plain rail (RS_ready's evidence is V's ball-exit detector (7,-3,4), outside the 16-ball: ironspec 07:30), the napper lift's foot (6,-1,5) two cells on).
+# E sets the rider down on the bed head's top (the landing in `stand-up:`): SleepInBed fires at once. The empty cart runs E -> K -> the siding and brakes on the park; DAY-1's controller (rev 20:00) opens the window once the napper sleeps; the zombie wakes it; it stands up on P (its only stand-up cell) and presses P_STRING; RLS releases the park (PARK [RLS + 2, RLS + 26) by day-1's form-(b) latch in the -latch file, the bench's named stand-in in the plain file); the cart runs back through K (south_east) into P, seats the napper and runs on through R to the napper lift (RS_ready is V's: the ball-exit detector (7,-3,4)). One cart per visit, the park released once per visit.
+# The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's (-5,1,8) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.
 # always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); -1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles; -2,-2,5=the hand-off booster's redstone torch, on glass (-2,-3,5), under its slime support (-2,-1,5): it never toggles
 # a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the physical event it stands for: the woken napper waiting on P re-sleeps at the wake + ~100, LAST_WOKEN's cooldown, and once re-asleep the visit is stranded; 60 keeps 40 gt before that; the longest wake -> boarding on DAY-1's controller is 42 gt over 408 visits; the merged lie-down + wake path is a fault path judged by boarding before the re-sleep, ironspec 19:09)
 # The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears C + 19 (NEAREST_HOSTILE's worst clear after the shutter's flip C, tick-exact 17:52) by >= 1 after k + j, ironspec 17:53) start; the bench prints its pulses against the napper's own edges.
-# The rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire string at (4,0,5), one cell over R's detector (4,-1,5), its hooks at (4,0,4) facing south and (4,0,6) facing north on glass (4,0,3) / (4,0,7), off the rail line: a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band (y 0.0625..0.156); hooks and string have no collision and block no sight line; DAY-1 reads the north hook by a repeater at (5,0,4) on (5,-1,4) (its cells, not laid here)
 # Seal-P (ironspec 00:05 / 00:08): the exit's first cap (-2,1,5) is glass, not an iron trapdoor: (-2,0,5) keeps no standing headroom, so no walker leaves P by the exit channel (K's head (-2,1,3) glass, (-1,0,4) sealed, the bed top's jump blocked by P's cap (-2,2,4)): the reach-sweep's closure from P is {P}; riders pass it seated (no suffocation: glass).
 # The P_HOLD latch (day-1's form (b), a/1902620467569082; latching in 26.3, tick-exact a/1841767613704681), transplanted one level down (rig (x,0,z) -> stop (x+2,-2,z-2), every wire and repeater on glass at y -3): B2 (2,-2,-2) stone, QBAR (3,-2,-2) wall torch, BASE (5,-2,-2) stone, Q (6,-2,-2) wall torch; the branch repeater (2,-2,-3) and the reset repeater (5,-2,-3) facing north; the reset chain five delay-2 repeaters (0..4,-2,-6) facing west (20 gt); Q's feedback along z 0 into B2's south face; the OR line RLS + Q climbs (0,-2,1) -> (1,-1,1) on glass (1,-2,1) -> (2,0,1) on glass (2,-1,1) into the drive repeater (2,0,2); Q's tap line along x 8 and z 2 into the slope's tap repeater (1,-2,4) (TAP = Q + 2); RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) are the logic block's inputs (ARM held >= 3 gt; RLS's source a component, never a torch on a block: Q backfeeds the OR line); expected PARK lit [RLS + 2, RLS + 26).
-# contacts: -1,0,4=the sealed glass's north face, met flush by the cart's south face on the siding (-1,0,3) as it leaves K's curve east and returns west into it | class=design | face=north | ticks<=1 why=a second tick is the cart stopped against the glass | events<=2 why=the out-and-back siding: the arriving empty cart once, the released one once | depth<=0.3795+eps=0.0001 why=main's depth is the clipped amount of the cart's southward request at K's turn that the face stops, the deepest 0.3795 over the 408 visits | speed_out>=0.1440+eps=0.0001 why=the least 0.1440 over the 408 visits (never a stall) | ref=58f770cc Nov 14 `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 416 events over 400 of 408 visits (50 of 51 entry speeds), 1 tick, at most 2 per cart, speed_in 0.2033..0.5657, speed_out 0.1440..0.5611; -3,0,3=the bed foot's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=58f770cc Nov 14 `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346; -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=58f770cc Nov 14 `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346
+# one-way: 2,0,1=the OR line's climb into the drive repeater (2,0,2): the latch's signal (RLS / Q on y -2) flows UP over glass into the drive, never down (the PARK window lit [RLS + 2, RLS + 26) on every bench visit carries it end to end); 1,-1,1=the same climb's first up-step, from (0,-2,1) and (1,-2,0) below it
+# contacts: -1,0,4=the sealed glass's north face, met flush by the cart's south face on the siding (-1,0,3) as it leaves K's curve east and returns west into it | class=design | face=north | ticks<=1 why=a second tick is the cart stopped against the glass | events<=2 why=the out-and-back siding: the arriving empty cart once, the released one once | depth<=0.3795+eps=0.0001 why=main's depth is the clipped amount of the cart's southward request at K's turn that the face stops, the deepest 0.3795 over the 408 visits | speed_out>=0.1440+eps=0.0001 why=the least 0.1440 over the 408 visits (never a stall) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 416 events over 400 of 408 visits (50 of 51 entry speeds), 1 tick, at most 2 per cart, speed_in 0.2033..0.5657, speed_out 0.1440..0.5611; -3,0,3=the bed foot's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346; -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346
 # contact-speeds: -1,0,4=meets 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55; of 0.05..0.55/0.01
 # contact-speeds: -3,0,3=meets 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.31,0.32,0.33,0.34,0.35,0.36,0.38,0.39,0.40,0.41,0.42,0.44,0.45,0.47,0.48,0.49,0.50; of 0.05..0.55/0.01
 # contact-speeds: -3,0,4=meets 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.31,0.32,0.33,0.34,0.35,0.36,0.38,0.39,0.40,0.41,0.42,0.44,0.45,0.47,0.48,0.49,0.50; of 0.05..0.55/0.01
-# stand-up: -2.4986,0.5625,4.4868=the eject's landing: E sets the napper down on the bed head's top (-3,0,4) on every visit (measured over the 408 band: -2.4974..-2.4988, 4.4867..4.4884, the bench's check tolerance 0.01: the villager's box stays inside the same cell, so getStart's start node is the same); -1.5,0,4.5=the wake's stand-up on P (-2,0,4) (the bed's stand-up position, exact on all 408 visits; the napper's only on-foot cell after a wake)
+# stand-up: -2.4986,0.5625,4.4868=the eject's landing: E sets the napper down on the bed head's top (-3,0,4) on every visit (measured over the 408 band: -2.4974..-2.4988, 4.4867..4.4884, the bench's check tolerance 0.01: the villager's box stays inside the same cell, so getStart's start node is the same); -1.5,0,4.5=the wake's stand-up on P (-2,0,4) (the bed's stand-up position, exact on all 408 visits, the napper's only on-foot cell after a wake)
 # build-order: park=2,0,3=minecraft:slime_block;~2,1,3=minecraft:rail[shape=north_south,waterlogged=false];1,0,3=minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false];2,1,3=air
 # build-order-note: the slime (2,0,3) first, then a TEMPORARY rail on it at (2,1,3), then the park's powered rail (1,0,3) (it ascends east to meet the temporary rail), then the temporary rail removed (the park keeps ascending_east): every plain placement order of the slime and the park rail ends east_west (main's build-order: 2 orders x 2 facings, all east_west), and the park rail laid before its slime pops (tick-exact's laid-latch rig 02:17); the check: `mctas mobfarm build-order <this file> --t 1,0,3 --cell 2,0,3=minecraft:slime_block --cell 1,0,3=<the park rail> --want ascending_east --sequence 'the build|ascending_east|2,0,3=minecraft:slime_block;2,1,3=minecraft:rail[shape=north_south,waterlogged=false];1,0,3=<the park rail>;2,1,3=air' --sequence 'the park rail before its slime (the positive control)|ascending_east|1,0,3=<the park rail>;2,0,3=minecraft:slime_block'` (the build sequence ends ascending_east; the control fails by name; the plain orders end east_west, the expected finding until build-order's declared-sequence mode)
 # allow-powered: -3,0,2=E's always-on redstone torch, on glass (-3,-1,2): it powers the activator (-2,0,2) on every tick; -2,0,1=ARM's detector rail beside E: it also powers the activator while a cart presses it, redundant (E is always powered by its torch), so it never toggles E (declared, not moved: moving ARM would shift the edge COOL, the latch's ARM_IN and K's SET key on)
@@ -24,8 +24,8 @@ name: bed-tier-a2
 circuit: mob-farm iron_ingot
 keep-block: -5,3,10=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof (-5,2,10): its eye cell (-5,1,10) at sky light 14, no burning by day)
 keep-clear: -3,2,4 -3,3,4
-riderless: -2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+2,1,3+2,1,4+1,0,4+0,0,4+-1,0,4+-2,0,4=the stop's empty cart from E (the napper set down on the bed foot's top) round the loop and the U-turn to its park, then down the run-up to P (the napper seated again at P)
-unreachable: -1,1,2=E's east trapdoor top under its lone guard string (no hooks: nothing reads a press): no walker reaches it from P or the bed (K's head (-2,1,3) glass, (-1,0,4) glass, seal-P's (-2,1,5) glass); it is a node of the riders' HOME route from K's siding, a rider-only start (the riders stay seated); -1,1,5=the hand-off's east trapdoor top under its lone guard string: diagonal to P, (-1,0,4) glass, (-2,0,5) under seal-P's glass cap, (0,1,5) the curve's cap
+riderless: -2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+-2,0,4=the stop's empty cart from E (the napper set down on the bed head's top) through K onto the siding to the park, then back through K to P (the napper seated again at P)
+unreachable: -1,1,2=E's east trapdoor top under its lone guard string (no hooks: nothing reads a press): no walker reaches it from P or the bed (K's head (-2,1,3) glass, (-1,0,4) glass, seal-P's (-2,1,5) glass); it is a node of the riders' HOME route from K's siding, a rider-only start (the riders stay seated); -1,1,5=the hand-off's east trapdoor top under its lone guard string: diagonal to P, (-1,0,4) glass, (-2,0,5) under seal-P's (-2,1,5) glass, (0,1,5) the curve's cap
 waker-places: -3,0,4=asleep in the bed, woken once DAY-1's OPEN opens the window (6.36 eye to eye; the window open only from OPEN's set to the woken napper's press on P)
 port home: -3 0 4
 port output: 12 0 6
@@ -33,9 +33,9 @@ entity: minecraft:oak_boat -4.5 0 10.5 {Passengers:[{id:"minecraft:zombie",Persi
 origin: -6 0 -6
 palette:
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
-  B minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  C minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  C minecraft:rail[shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
   E minecraft:rail[shape=north_east,waterlogged=false]
   F minecraft:rail[shape=north_south,waterlogged=false]
   G minecraft:glass
@@ -61,19 +61,18 @@ palette:
   a minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
   b minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
   c minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=side]
-  d minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
-  e minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  f minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
-  g minecraft:stone
-  h minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
-  i minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
-  j minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  k minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  l minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  m minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  d minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  e minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  f minecraft:stone
+  g minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  h minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  i minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  j minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  k minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  l minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   o minecraft:observer[facing=up,powered=false]
-  p minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
-  r minecraft:rail[shape=east_west,waterlogged=false]
+  p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  r minecraft:rail[shape=ascending_west,waterlogged=false]
   s minecraft:slime_block
   t minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
 layer -3:
@@ -81,13 +80,13 @@ layer -3:
   .....G.....G
   .....GGGG..G
   .....G..G..G
-  ......GG..G..GG
-  .....G..G...G.G
-  .....GGGGGGGG.G
-  ......G.......G
-  ........GGGGGGG
-  .......GG
-  .......G
+  ......GG..G
+  .....G..G...G
+  .....GGGGGGGG
+  ......G
+  .
+  .
+  .
   ....G
   .
   .
@@ -96,18 +95,18 @@ layer -3:
   .
   .
 layer -2:
-  .....VfffffQ
+  .....VeeeeeQ
   .....T.....a
   .....aUUQ..T
-  .....T..e..e
-  ......UUgNUgNUQ
-  .....T..T...T.T
-  .....YWXZUUUS.T
-  ......bG......T
-  ........VUUUUUS
-  .......VS
-  .......e
-  ....M..sGGG
+  .....T..d..d
+  ......UUfNUfN
+  .....T..T...T
+  .....YWXZUUUS
+  ......bG
+  .
+  .
+  .
+  ....M..GGGG
   .
   .
   .
@@ -119,14 +118,14 @@ layer -1:
   .
   ....GGG
   ....G
-  ....G
+  ....G...G..G
   ....G
   ....G
   ....G..cG
   ...GG...G
   ...GsGGG
   ...oGG
-  ....s.GprrD
+  ....s.GrCCC
   ....GGG
   .....G
   .
@@ -136,18 +135,18 @@ layer -1:
 layer 0:
   .
   .
-  ....JrRG
+  ....JCRG
   ....F
   ....F
   ....F
   ....F
-  ...GdG..Q
-  ...MAI..e
-  ..GKErrPs.G
-  ..GLFG....l
-  ....CIJ...h
-  ....EBH...k
-  .....M....G
+  ...GDG..Q
+  ...MAI..d
+  ..GKECCPs
+  ..GLFG
+  ....BIJ
+  ....EpH
+  .....M
   .G
   .G
   G.G
@@ -161,9 +160,9 @@ layer 1:
   .
   .
   .......G
-  ...GIt.l
-  ..G.G..h
-  ..GjimGk
+  ...GIt.k
+  ..G.G..g
+  ..GihlGj
   ...GGtIG
   ...GIII
   ...GGG
@@ -174,14 +173,14 @@ layer 1:
 layer 2:
   .
   .........M
-  .....F..rB
+  .....F..Cp
   .
   .
   .
   .
   .
   ....F
-  ...I....G
+  ...I
   ..G.GG
   ....G.F
   ....GFG
@@ -200,7 +199,7 @@ layer 3:
   .
   .
   .
-  ...F
+  ...F....G
   .
   .
   .
