@@ -1208,8 +1208,10 @@ fn invariants(o: &Out) -> Vec<String> {
         bad.push(format!("RLS {:?} gt after its pulse, past W {W_LINE} + {W_SLACK}", o.rls_after_pulse));
     }
     if let (Some(ap), Some(mb)) = (o.cart_at_p, o.may_board_from) {
-        if o.departed.map(|d| d.1).unwrap_or(false) && ap < mb + 2 {
-            bad.push(format!("the cart at P {ap} before the napper may board + 2 ({mb})"));
+        // (ironspec 23:55: the boarding cooldown's margin, ONE value everywhere (G1 CHANGES 8 (5)): the pickup >= the
+        // cooldown's end + BOARD_CD_MARGIN)
+        if o.departed.map(|d| d.1).unwrap_or(false) && ap - mb < BOARD_CD_MARGIN {
+            bad.push(format!("the cart at P {ap} less than {BOARD_CD_MARGIN} gt after the napper's boarding cooldown ends ({mb})"));
         }
         if o.departed.map(|d| !d.1).unwrap_or(false) && ap < mb {
             bad.push(format!("the cart at P {ap} inside the napper's boarding cooldown (to {mb}): it passes empty"));
@@ -2406,6 +2408,32 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let d_ok = kind_bars(&d, kind, late).is_empty() && first_window_miss(&d, kind).is_none();
         let c = v.control("ctl-shutter CONTROL (the kind's negative, failing on \"first window\"): BoardsEarly: the + 9 row's launch delayed 30 gt boards past its first window's bound (the design passes at this point)", 1, d_ok && b.iter().any(|x| x.contains("first window"))).to_string();
         lines.push(format!("  CONTROL (BoardsEarly's negative: the launch delayed 30 gt; the design at this point {}): {} [{}]: {c}", if d_ok { "passes" } else { "FAILS" }, describe(&o), b.join("; ")));
+    }
+    // (G1 CHANGES 8 (5): THE BOARDING COOLDOWN's negative: the normal visit's cart launched EARLY so it reaches P 3 gt
+    // after the napper's boarding cooldown ends (inside the 60 + 5 bar): the margin bar fails by name)
+    {
+        // (the forced row with the least boarding-cooldown margin on the design: its cart launched early by (margin - 3))
+        let mut best: Option<(i64, Row)> = None;
+        for (fr, _, _) in forced_rows() {
+            let d = run(&fr, Defects::default());
+            if let (Some(ap), Some(mb), Some(true)) = (d.cart_at_p, d.may_board_from, d.departed.map(|x| x.1)) {
+                if best.as_ref().is_none_or(|(bm, _)| ap - mb < *bm) {
+                    best = Some((ap - mb, fr.clone()));
+                }
+            }
+        }
+        let (m0, r) = best.map(|(m, r)| (Some(m), r)).unwrap_or((None, Row::normal("the boarding cooldown's negative", 5, 10, 40, 16)));
+        let m = m0;
+        // (the cart can't reach P before its launch, so the pickup is PLANTED on the run's record: the same visit with its
+        // pickup moved to 3 gt after the cooldown's end (the bar's own negative))
+        let d = run(&r, Defects::default());
+        let mut o = d.clone();
+        if let Some(mb) = o.may_board_from {
+            o.cart_at_p = Some(mb + 3);
+        }
+        let b = invariants(&o);
+        let c = v.control(&format!("ctl-shutter CONTROL (G1 CHANGES 8 (5), the boarding cooldown's negative): the least-margin forced row's pickup planted 3 gt after the cooldown's end: \"less than {BOARD_CD_MARGIN} gt after the napper's boarding cooldown ends\" fails by name (the design's margin there {:?}, passing)", m), 1, m.is_some_and(|m| m >= BOARD_CD_MARGIN) && invariants(&d).iter().all(|x| !x.contains("boarding cooldown ends")) && b.iter().any(|x| x.contains(&format!("less than {BOARD_CD_MARGIN} gt after the napper's boarding cooldown ends")))).to_string();
+        lines.push(format!("  CONTROL (the boarding cooldown's negative, on {}): the design's margin {m:?}; the pickup planted at the cooldown's end + 3: [{}]: {c}", r.name.chars().take(60).collect::<String>(), b.join("; ")));
     }
     // (G1's N5 control: a planted box pressing P while the window is open (on the late lie-down's sleeper), with P
     // removed from OPEN's reset: the press never closes the window in time)
