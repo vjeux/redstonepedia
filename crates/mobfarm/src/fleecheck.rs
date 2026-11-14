@@ -93,6 +93,13 @@ pub struct Source {
     pub physical: Vec<(BlockPos, Vec<(BlockPos, String)>)>,
 }
 
+/// (ironspec Nov 14 02:58 (1), part 42) A found path's nodes after its start whose type is BLOCKED: a REACHED
+/// through them is no walkable path (redsim chains them down a column four blocks a node); the start's
+/// own type is the mob's cell, whatever it is.
+pub fn blocked_after_start(p: &redsim::entity::mob::ai::path::path::Path) -> Vec<BlockPos> {
+    p.nodes.iter().skip(1).filter(|n| n.ty == redsim::entity::mob::ai::path::path_type::PathType::Blocked).map(|n| BlockPos::new(n.x, n.y, n.z)).collect()
+}
+
 /// (part 37; tick-exact Nov 14 02:05, part 40) A found path's nodes a villager can't physically pass: each
 /// node cell whose own collision shape tops out at 10/16 or more (a top-half trapdoor's cap: over the 0.6
 /// step, never stood under), and each node on a low shape (a bottom trapdoor's 3/16, a slab's 8/16, a
@@ -157,6 +164,9 @@ pub struct Place {
     pub stroll: Source,
     pub others: Source,
     pub home_reached: Option<bool>,
+    /// (part 42) The HOME path's BLOCKED-typed nodes after its start, when it reached the bed (empty: a
+    /// walkable path, or not reached).
+    pub home_blocked: Vec<BlockPos>,
     /// The nearest hostile's distance: the least and the greatest over the place's points, and
     /// the hostile nearest at the least (None: no hostile in the design).
     pub near: Option<(f64, f64, Vec3)>,
@@ -405,6 +415,14 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
                 p.nodes.len(),
                 p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
             ));
+            // (ironspec Nov 14 02:58 (1), part 42) a REACHED through BLOCKED-typed nodes is no walkable path
+            if matches!(r, Reach::Reached { .. }) {
+                let bl = blocked_after_start(p);
+                lines.push(format!(
+                    "  BLOCKED-typed nodes after the start: {}",
+                    if bl.is_empty() { "none".to_string() } else { format!("{} ({}): no walkable path: NOT JUDGED", bl.len(), bl.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")) }
+                ));
+            }
             // (ironspec Nov 14 00:48, G1 01:07: each step's height between the nodes' floors, two ways: the
             // PATHFINDER's floor, 26.3's getFloorLevel (the top of the shape in the cell below, that cell's own
             // y when it is empty; the node's own cell ignored), which the search used; and the PHYSICAL
@@ -1873,7 +1891,17 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
         }
         let others = judge(w, others);
-        let home_reached = home.map(|h| reaches(w, h).is_some());
+        // (ironspec Nov 14 02:58 (1), part 42: the HOME path itself, so a REACHED whose nodes after the
+        // start are BLOCKED-typed (a chain down a column, no walkable path) is told apart)
+        let (home_reached, home_blocked) = match home {
+            Some(h) => {
+                let (path, r, _, _, _) = probe_path(w, i, h, NavBounds::default());
+                let reached = matches!(r, Reach::Reached { .. });
+                let blocked = if reached { path.as_ref().map(blocked_after_start).unwrap_or_default() } else { Vec::new() };
+                (Some(reached), blocked)
+            }
+            None => (None, Vec::new()),
+        };
         // (the least distance over the continuous track path, ironspec Nov 11 12:23: the cart's
         // path through the cell as a segment (a curve's between its two exits, a slope's rising),
         // the rider's seat offset added, the exact least distance to each zombie's seated position;
@@ -1914,7 +1942,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
         }
         let panic_declared = panic_boxes.iter().any(|(a, b)| (a[0]..=b[0]).contains(&cell.x) && (a[1]..=b[1]).contains(&cell.y) && (a[2]..=b[2]).contains(&cell.z));
-        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok, near_seen, near_pill });
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, home_blocked, near, worst, panic_declared, panic_ok, near_seen, near_pill });
         let _ = redsim::entity::kill(w, vid);
         if let Some(c) = cart {
             let _ = redsim::entity::kill(w, c);
@@ -5200,6 +5228,11 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
             // resting rider's stamp clears only by its HOME walk completing; the day class is no evidence
             // for a night halt)
             match p.home_reached {
+                Some(true) if !p.home_blocked.is_empty() => row.push_str(&format!(
+                    "; NIGHT (REST's HOME walk to the bed): the bed REACHED ONLY THROUGH {} BLOCKED-typed node(s) after the start ({}): no walkable path: NOT JUDGED (counted as unreached; tick-exact's game row decides)",
+                    p.home_blocked.len(),
+                    p.home_blocked.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")
+                )),
                 Some(true) => row.push_str("; NIGHT (REST's HOME walk to the bed): the bed reached, a HOME path completes: clears"),
                 Some(false) => row.push_str("; NIGHT (REST's HOME walk to the bed): the bed UNREACHED: a resting rider's stamp arms and nothing at night clears it (arms, never clears)"),
                 None => {}
@@ -5217,11 +5250,12 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
     // (part 41) the night's counts, when the design's bed is known
     let homed: Vec<&Place> = places.iter().filter(|p| p.home_reached.is_some()).collect();
     if !homed.is_empty() {
-        let reached = homed.iter().filter(|p| p.home_reached == Some(true)).count();
+        let reached = homed.iter().filter(|p| p.home_reached == Some(true) && p.home_blocked.is_empty()).count();
+        let through = homed.iter().filter(|p| p.home_reached == Some(true) && !p.home_blocked.is_empty()).count();
         lines.push(format!(
-            "night classes (REST runs no stroll: a resting rider's stamp clears only by its HOME walk to the bed): the bed reached from {reached} of {} places (clears); UNREACHED from {} (arms, never clears at night): the day class is no evidence for a night halt",
+            "night classes (REST runs no stroll: a resting rider's stamp clears only by its HOME walk to the bed): the bed reached from {reached} of {} places (clears); reached only through BLOCKED-typed nodes from {through} (NOT JUDGED, counted as unreached); UNREACHED from {} (arms, never clears at night): the day class is no evidence for a night halt",
             homed.len(),
-            homed.len() - reached
+            homed.len() - reached - through
         ));
     }
     lines.extend(rows);
@@ -10411,6 +10445,23 @@ mod gate_tests {
             rh.iter().filter(|r| r.starts_with("  STAMP")).all(|r| r.contains("; NIGHT (REST's HOME walk to the bed): the bed UNREACHED") && !r.contains("REST's HOME walks not modeled"))
                 && rh.iter().any(|r| r.starts_with("night classes") && r.contains("the bed reached from 0 of")),
             "a bed no rider reaches: {rh:?}"
+        );
+        // (ironspec Nov 14 02:58 (1), part 42) a path's BLOCKED-typed nodes after its start (the start's own
+        // type ignored); a place whose HOME path reached the bed only through them is NOT JUDGED at night
+        use redsim::entity::mob::ai::path::path::{Path, PathNode};
+        use redsim::entity::mob::ai::path::path_type::PathType;
+        let n = |x: i32, y: i32, ty: PathType| PathNode { x, y, z: 0, ty };
+        let chain = Path::new(vec![n(0, 10, PathType::Blocked), n(0, 9, PathType::Walkable), n(0, 5, PathType::Blocked), n(0, 1, PathType::Blocked)], b(0, 1, 0), true, 1);
+        assert!(super::blocked_after_start(&chain) == vec![b(0, 5, 0), b(0, 1, 0)], "the chain's blocked nodes");
+        let mut hb = homed.clone();
+        hb[0].home_reached = Some(true);
+        hb[0].home_blocked = vec![b(0, 5, 0), b(0, 1, 0)];
+        let rb = super::stamp_classes(&hb, true);
+        let c0 = hb[0].cell;
+        assert!(
+            rb.iter().any(|r| r.starts_with(&format!("  STAMP {},{},{}", c0.x, c0.y, c0.z)) && r.contains("the bed REACHED ONLY THROUGH 2 BLOCKED-typed node(s) after the start (0,5,0 0,1,0): no walkable path: NOT JUDGED"))
+                && rb.iter().any(|r| r.starts_with("night classes") && r.contains("the bed reached from 0 of") && r.contains("reached only through BLOCKED-typed nodes from 1")),
+            "reached through blocked nodes: {rb:?}"
         );
         assert!(rows.iter().any(|r| r.starts_with("physical hazards (G1 01:16b; not a bar): 0 place(s)") && r.ends_with("0 such node(s) (none)")), "no cap: {rows:?}");
         // (part 37) a reached target whose found path enters a cap: the place's row names it (counted as
