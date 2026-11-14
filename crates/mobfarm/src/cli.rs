@@ -3333,7 +3333,8 @@ pub enum MobfarmCmd {
     /// block that powers or could power them (--allow-activator names the design's own emptying rail's
     /// sources; a stale one fails), (c) zombies whose attack box (a boat's zombie at its seat) meets a
     /// rider with sight, (d) portal cells the cart's swept 0.98 x 0.7 box meets, (e) free falls with the
-    /// landed-on block's fallOn and water along the column (a rail landing UNCONFIRMED pending the pin);
+    /// landed-on block's fallOn and water along the column; a landing in a rail cell is cleared by
+    /// moveAlongTrack's reset, pinned by tick-exact 22:29);
     /// fails on any; no route is NOT JUDGED.
     Riderless {
         design: PathBuf,
