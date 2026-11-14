@@ -5983,8 +5983,36 @@ pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(V
             && let Some((name, fp)) = crate::pushscan::update_reach(*c, &b)
         {
             (format!("a {name}: its footprint, {} cells", fp.len()), fp)
+        } else if matches!(id.as_str(), "repeater" | "comparator" | "observer") {
+            // (ironspec Nov 14 06:07 (2), part 52) a diode's update set: 26.3 DiodeBlock / ObserverBlock
+            // updateNeighborsInFront: neighborChanged at the cell its output faces, then every neighbour of
+            // that cell but the diode itself (updateNeighborsAtExceptFromFacing): 6 cells
+            let prop = |k: &str| here.split_once(&format!("{k}=")).map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+            let d = match prop("facing").as_str() {
+                "north" => (0, 0, -1),
+                "south" => (0, 0, 1),
+                "east" => (1, 0, 0),
+                "west" => (-1, 0, 0),
+                "up" => (0, 1, 0),
+                "down" => (0, -1, 0),
+                f => return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (a facing \"{f}\" read as no direction)", c.x, c.y, c.z, here.trim_start_matches("minecraft:"))),
+            };
+            // (a repeater's or comparator's facing names its input, an observer's its watched face: the
+            // output cell is behind it for all three)
+            let front = BlockPos::new(c.x - d.0, c.y - d.1, c.z - d.2);
+            let mut fp = vec![front];
+            fp.extend(n6(front).into_iter().filter(|q| q != c));
+            // (G1 06:07 (1): every block in the set shown, so the owner reads the members it means)
+            let set: Vec<String> = fp
+                .iter()
+                .map(|q| {
+                    let s = w.get(*q).to_string();
+                    format!("{},{},{} {}", q.x, q.y, q.z, if s.contains("air") && !s.contains("stairs") { "air".to_string() } else { s.trim_start_matches("minecraft:").to_string() })
+                })
+                .collect();
+            (format!("a diode: the cell its output faces {},{},{} and that cell's other five neighbours [{}]", front.x, front.y, front.z, set.join("; ")), fp)
         } else {
-            return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (no string, hook, plate or detector)", c.x, c.y, c.z, here.trim_start_matches("minecraft:")));
+            return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (no string, hook, plate, detector or diode)", c.x, c.y, c.z, here.trim_start_matches("minecraft:")));
         };
         let mut hits = Vec::new();
         for q in footprint.into_iter().filter(|q| q != c) {
@@ -11113,6 +11141,16 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+        // (ironspec Nov 14 06:07 (2), part 52) a diode's update set: a repeater facing north (input north,
+        // output south) updates its front (2,1,3) and that cell's other neighbours: an observer at (2,1,4),
+        // beside the front, fails by name; one behind the repeater (2,1,1) is outside the set; the set is
+        // printed cell by cell
+        let rep = p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
+        let obs = p("minecraft:observer[facing=up,powered=false]");
+        let (dl, dn) = super::update_reach_components(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 4), obs)]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(dn == 1 && dl[0].contains("a diode: the cell its output faces 2,1,3") && dl[0].contains("2,1,4 observer[") && dl[0].contains("observer[facing=up,powered=false] at 2,1,4") && dl[0].ends_with("(FAIL)"), "an observer in a repeater's update set: {dl:?}");
+        let (dl2, dn2) = super::update_reach_components(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 1), obs)]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(dn2 == 0 && !dl2[0].contains("2,1,1") && dl2[0].contains("2,0,3 stone") && dl2[0].ends_with("(PASS)"), "an observer behind the repeater: {dl2:?}");
     }
 
     /// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager standing on a rail paths onto
