@@ -200,6 +200,32 @@ NAME=x,y,z..x,y,z[..]` declares an off-rail rider path (a drop shaft, a bubble-c
 a hold with no cart placed; each consecutive pair a straight run of cells), added to
 `--positions-out` and judged by `--bed` like a part; `--notes-file F`; every
 run lists each slope without a sturdy block below or on its high side (it pops when placed).
+The composer keeps every rail as stored (`--settle` checks each junction against its as-placed
+power and fails naming every cell the game would re-settle), carries its parts' meta lines moved
+like their cells (an unknown kind fails the compose; an `# integrity:` line moves whole), fails a
+part off the 16-block chunk grid under `--assert-aligned`, and `--clear-part FILE@dx,dy,dz` clears
+that file's cells one by one (onechunk, Nov 13). It traces every cell (vcompose, G1 Nov 13 21:53):
+each clear prints every non-air block and entity it takes out, and a `--clear` box or a delta's
+remove line that takes out nothing refuses by name; two parts writing different states to one cell
+fail the compose by name unless `--precedence x,y,z=PART:REASON` names the part the cell takes
+(written as a `# precedence:` line; one that settles no clash refuses; a reserved box over a part's
+cells fails too); `--stale NAME` makes a part
+(an old composed record) give only the cells no other part holds, each listed as uncovered with the
+count in the header (one line per cell, the Nether part's too, counted by kind; its cells an owner
+holds are dropped, judged against the winning state after the precedence lines: the same state
+counted, another listed as superseded), its declarations carried only where they name no owner's,
+cleared or (for the kinds naming blocks) empty cell, unless `--keep-stale x,y,z=REASON` keeps one by
+name, each dropped one printed and each carried one listed with its count (G1 Nov 13 23:21); `--delta NAME=FILE` lays an owner's cell list (`x,y,z STATE` lines added as a
+re-laying part, bare `x,y,z` lines removed; its entry declarations such as `# contacts:` carried
+at a zero move, its other `#` lines read as prose; `--absent x,y,z=REASON` acknowledges by name a remove
+line the parts don't hold, written as a `# absent:` line); `--ledger-out F` writes every cleared, superseded and
+uncovered cell, the stale declarations carried and every declaration dropped; `--outside-portals NAME=FILE[@dx,dy,dz]` lists a structure's portal cells outside
+the record in a `# outside-portals:` header line; each part's header line names its file's md5.
+`--verify FILE` added to the very command that wrote FILE re-composes it and judges, besides the
+assembly check: each part file's md5 against the one its `# +` line names, the Nether part, the
+whole file text (every header line) and the ledger text against a scratch re-compose (nothing is
+written), and the flee bar; `--plant x,y,z=STATE` (with `--verify`) judges the statics on a planted
+twin of FILE instead (each planted cell read back, a no-op refusing).
 The golem chance per summon from a file: `mctas mobfarm summon-chance <design> --pad BOX --stand
 x,y,z...` runs the game's summon search (redsim's port of SpawnUtil's LEGACY_IRON_GOLEM scan, 289
 columns, floors y+5..y-7, `checkSpawnObstruction` with the file's carts placed) from each villager
@@ -464,10 +490,16 @@ feet) IN SIGHT (a failure) unless a full-collider block sits on the eye-to-eye r
 with the blocking cell), beyond it clear; the cells of the file's `waker-places: x,y,z+...=REASON[;
 ...]` line (every group; the stop's waker, ironspec 11:01's ruling (a)) in sight are their own
 declared class, not failures, and the rails of its `riderless:` line (same syntax: the stop's empty
-cart from its park to its pickup) are no rider positions; the stop's on-foot positions join them (every cell of its box a villager can stand in:
+cart from its park to its pickup) are no rider positions; the stop's on-foot positions join them (every cell of its box, x -6..4, z -6..10 (the stop's real footprint to the fold's local z 11, its waker's post and shutter inside: ironspec Nov 13 23:08), a villager can stand in:
 no full cube in it or above it, a full cube under it, or a bed's top, no entity seated in it, and
 none of its `unreachable:` line's cells (the stop owner's evidence that no walk gets there); feet on
-the floor, eye + 1.62), and every zombie but the stop's own stays at least 6.05 from every stop cell, sight or not;
+the floor, eye + 1.62; the positions no villager path reaches from the stop's stand-up cells (its
+`# a6-pickup:` cells and the waker places; redsim's villager pathfinder on foot, the path probe's
+rule, each reached in-sight position printed with its path; a step rule, rise at most 1.25 or drop
+at most 3, printed beside it as a cross-check) are printed as their own class, never failures
+(vcompose, ironspec Nov 13 22:52, G1 23:20)), and every zombie but the stop's own (those inside the
+stop box, each named with the sight static that judges it instead) stays at least 6.05 from every
+reachable stop cell, sight or not;
 its `keep-clear:` cells must hold no block and its `keep-block: x,y,z=BLOCK[props]` cells that
 block (the assembly check);
 the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) rests on tick-exact's

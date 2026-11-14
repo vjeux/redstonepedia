@@ -5769,6 +5769,31 @@ fn reach_pairs(spec: &FarmSpec, home: Option<BlockPos>, claims: &[BlockPos], pai
     Ok(out)
 }
 
+/// (vcompose, G1 Nov 13 23:20 (2)) Whether a villager ON FOOT, its feet at `from`, paths to each
+/// target cell: redsim's own villager pathfinder (the 26.3 node rules for rails, beds and jumps,
+/// the rule 9fc3155f's path probe runs), a fresh path per target, `reached` only. The flee
+/// static's on-foot reach: a position no path reaches is judged unreachable by this, never declared.
+pub fn foot_reach(spec: &FarmSpec, from: Vec3, targets: &[BlockPos]) -> Result<Vec<Option<String>>, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    settle_full(&mut run)?;
+    let w = &mut run.world;
+    let v = redsim::entity::spawn(w, "minecraft:villager", [from.x, from.y, from.z], Some("{PersistenceRequired:1b}"))?;
+    let i = redsim::entity::index_of(w, v).ok_or("the villager")?;
+    w.entities.list[i].pos = from;
+    w.entities.list[i].on_ground = true;
+    let mut out = Vec::with_capacity(targets.len());
+    for t in targets {
+        // (a reached path's nodes, start first: the evidence a position is reachable)
+        let nodes = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+            let mut copy = nav.clone();
+            copy.create_path_pos(w, nm, *t, 0, arena).filter(|p| p.reached).map(|p| p.nodes.iter().map(|n| format!("{},{},{}", n.x, n.y, n.z)).collect::<Vec<_>>().join(" "))
+        });
+        out.push(nodes);
+    }
+    Ok(out)
+}
+
 /// (ironspec Nov 12 12:36, the positive control against tick-exact's ff1ca056a `panic-lift` row) A
 /// seated rider's path from a cart position to a target: its nodes (start first), whether it
 /// reaches the target.

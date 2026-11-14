@@ -27,6 +27,8 @@ pub const COMMENT_KEYS: &[&str] = &[
     "single-occupant",
     "speeds",
     "bridged-pairs",
+    // (vcompose: the flee static's stand-up cells, `column --verify`)
+    "a6-pickup",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
