@@ -6863,7 +6863,7 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
             // takes the entry as a column of its own from the entry cell: up the lift to its top, or
             // down the magma run to its bottom, where no rail is a track end)
             let mut side_refused = false;
-            if let Some(k) = declared.iter().chain(out.iter()).find(|k| k[0].floor() as i32 == m.x && k[2].floor() as i32 == m.z && k[1].min(k[3]) <= m.y as f64 && m.y as f64 <= k[1].max(k[3])).copied() {
+            if let Some(k) = declared.iter().chain(out.iter()).find(|k| k[0].floor() as i32 == m.x && k[2].floor() as i32 == m.z && k[1].min(k[3]) <= m.y as f64 && m.y as f64 <= k[1].max(k[3]) && m != first(k) && m != last(k)).copied() {
                 if settled.is_none() {
                     settled = Some(settled_world_void(spec));
                 }
@@ -6933,10 +6933,37 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
                     continue;
                 }
             }
-            if let Some(k) = declared.iter().chain(out.iter()).find(|k| near(first(k), *c) || near(last(k), *c)).filter(|_| !side_refused) {
-                // (G1 Nov 13, N15: listed, never skipped silently)
-                lines.push(format!("auto column: the rail end {},{},{} into {},{},{} is within 1 of the column x {:.1} z {:.1} y {:.1}..{:.1}'s end: taken as that column's entry or exit, no fall of its own", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
-                continue;
+            if let Some(k) = declared.iter().chain(out.iter()).find(|k| near(first(k), *c) || near(last(k), *c)).filter(|_| !side_refused).copied() {
+                // (part 24: a DECLARED column's end credits a rail end only where the settled world holds
+                // its bubble run: a declared column with no bubble block in its run carries nothing at
+                // either end (G1 20:02 E3's rule, kept at the ends); an auto column is its bubbles)
+                let end_ok = if declared.iter().any(|d| *d == k) {
+                    if settled.is_none() {
+                        settled = Some(settled_world_void(spec));
+                    }
+                    match settled.as_ref() {
+                        Some(Ok(sw)) => {
+                            let (lo, hi) = (k[1].min(k[3]).floor() as i32, k[1].max(k[3]).floor() as i32);
+                            let any = (lo..=hi).any(|y| sw.get(BlockPos::new(k[0].floor() as i32, y, k[2].floor() as i32)).to_string().contains("bubble_column"));
+                            if !any {
+                                lines.push(format!("auto column: the rail end {},{},{} into {},{},{} is within 1 of the declared column x {:.1} z {:.1} y {:.1}..{:.1}'s end, but a declared column, no bubble block in its run: not credited, the fall checked instead", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
+                            }
+                            any
+                        }
+                        Some(Err(e)) => {
+                            lines.push(format!("auto column: the rail end {},{},{} into {},{},{} is within 1 of the declared column x {:.1} z {:.1} y {:.1}..{:.1}'s end: NOT JUDGED, the settle FAILED ({e}): not credited, the fall checked instead", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
+                            false
+                        }
+                        None => false,
+                    }
+                } else {
+                    true
+                };
+                if end_ok {
+                    // (G1 Nov 13, N15: listed, never skipped silently)
+                    lines.push(format!("auto column: the rail end {},{},{} into {},{},{} is within 1 of the column x {:.1} z {:.1} y {:.1}..{:.1}'s end: taken as that column's entry or exit, no fall of its own", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
+                    continue;
+                }
             }
             let mut y = m.y - 1;
             let mut land: Option<(BlockPos, bool)> = None;
@@ -9249,8 +9276,18 @@ mod gate_tests {
         };
         let at_top = edge(4);
         assert!(at_top.iter().any(|l| l.contains("a free fall off the rail end 6,4,0 into 5,4,0")) && !at_top.iter().any(|l| l.contains("6,4,0 into 5,4,0 is within 1 of the column")), "at the declared top: {at_top:?}");
+        // (part 24: one above the declared top, the end rule: a declared column with no bubble block in
+        // its run carries nothing at its ends either: the fall)
         let above = edge(5);
-        assert!(above.iter().any(|l| l.contains("the rail end 6,5,0 into 5,5,0 is within 1 of the column x 5.5 z 0.5 y 1.0..4.0's end")), "one above the top: {above:?}");
+        assert!(above.iter().any(|l| l.contains("the rail end 6,5,0 into 5,5,0 is within 1 of the declared column x 5.5 z 0.5 y 1.0..4.0's end, but a declared column, no bubble block in its run")) && above.iter().any(|l| l.contains("a free fall off the rail end 6,5,0 into 5,5,0")), "one above the top: {above:?}");
+        // (part 24: a rail end into a REAL column's end cell (the soul-sand lift's exit cell above its
+        // surface, as the main lift's exit rail (-5,23,8) into (-5,23,7)) is the column's end, never a
+        // side: the end rule credits it, no fall)
+        let mut ex = spec.blocks.clone();
+        ex.push((b(6, 4, 0), p("minecraft:stone")));
+        ex.push((b(6, 5, 0), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        let (excols, exl) = super::auto_columns(&redsim::entity::mob::farm::FarmSpec { blocks: ex, ..spec.clone() }, &[]);
+        assert!(exl.iter().any(|l| l.contains("the rail end 6,5,0 into 5,5,0 is within 1 of the column") && l.contains("taken as that column's entry or exit")) && !exl.iter().any(|l| l.contains("off the rail end 6,5,0") || l.contains("6,5,0 into 5,5,0 opens into")), "the lift's exit: {exl:?} {excols:?}");
         // (G1 20:02 E4: the walk takes a credited side entry as a column from the entry cell: on the
         // soul-sand twin (fed by a rail from the east, so a cart arrives moving into the side) the rail
         // end into the lift's side is no open end (without that column it is); on the magma twin the
