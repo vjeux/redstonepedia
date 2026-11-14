@@ -5380,6 +5380,175 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
     Ok((lines, bad))
 }
 
+/// (ironspec Nov 13 20:39 / 20:43, G1 20:42 / 21:38, ironfarm 20:41) The band-contact audit of every
+/// string: a tripwire presses only when a box meets its outline (the band: attached y + 1/16..2.5/16,
+/// loose y 0..8/16, its full cell in x and z; 26.3's `getEntityInsideCollisionShape`), and the game tests
+/// the cart's box SWEPT over its move: on an ascending rail the move and the block effects run at the
+/// rail + 1 before the snap, so a slope cart's raised box (rail y + 1 .. + 1.7) counts. For every rail
+/// within one column of a string and three below it, the cart sampled along it every 0.05 (only within
+/// a declared `ranges` entry's t0..t1 where the runs show the cart never travels the whole cell: a cart
+/// at rest on a slot), and every lift or drop column of `auto_columns` within one column, every 0.1: the
+/// empty cart's box (0.98 x 0.7, end of tick, and raised on a slope) and a seated villager's (0.6 x
+/// 1.95, feet at the cart's position). Each string classed: rider-keyed (a rider meets the band, no
+/// empty cart does), CART-KEYED (an empty cart's box meets it), or never pressed (with its sample count:
+/// none in reach says so). The bar (G1 21:38 H9): each string's class equals its DECLARED class
+/// (`expect`: rider-keyed, cart-keyed or never-pressed); a mismatch or an undeclared string fails by
+/// name. Returns the lines, the count of CART-KEYED strings and the failures.
+pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[(BlockPos, String)], allow_empty: bool) -> Result<(Vec<String>, usize, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut cart_keyed = 0usize;
+    let mut failures = 0usize;
+    for (c, want) in expect {
+        if !["rider-keyed", "cart-keyed", "never-pressed"].contains(&want.as_str()) {
+            return Err(format!("string audit: {},{},{}={want}: a class is rider-keyed, cart-keyed or never-pressed", c.x, c.y, c.z));
+        }
+        if !matches!(w.get(*c), redsim::block::Block::Tripwire { .. }) {
+            return Err(format!("string audit: NOT JUDGED: the declared {},{},{} holds {} (no string)", c.x, c.y, c.z, w.get(*c)));
+        }
+        // (G1 Nov 13 23:06: a cell declared twice is refused, never the first one kept)
+        if expect.iter().filter(|(q, _)| q == c).count() > 1 {
+            return Err(format!("string audit: NOT JUDGED: {},{},{} is declared more than once", c.x, c.y, c.z));
+        }
+    }
+    for (c, _, _) in ranges {
+        if ranges.iter().filter(|(q, _, _)| q == c).count() > 1 {
+            return Err(format!("string audit: NOT JUDGED: --rail-range {},{},{} is given more than once", c.x, c.y, c.z));
+        }
+    }
+    // (G1 23:06 D3: each --rail-range read back: the string samples it applied to, the samples it dropped
+    // and how many of those met a band)
+    let mut range_use: Vec<(usize, usize, usize)> = vec![(0, 0, 0); ranges.len()];
+    let rails: Vec<(BlockPos, String)> = spec.blocks.iter().map(|(p, _)| (*p, w.get(*p).to_string())).filter(|(_, s)| s.contains("rail") && !s.contains("tripwire")).collect();
+    let (cols, _) = auto_columns(spec, &[]);
+    let mut strings: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| matches!(w.get(*p), redsim::block::Block::Tripwire { .. })).collect();
+    strings.sort_by_key(|p| (p.y, p.z, p.x));
+    let meets = |a: [f64; 6], b: [f64; 6]| a[0] < b[1] && a[1] > b[0] && a[2] < b[3] && a[3] > b[2] && a[4] < b[5] && a[5] > b[4];
+    for s in &strings {
+        let attached = matches!(w.get(*s), redsim::block::Block::Tripwire { attached: true, .. });
+        let (lo, hi) = if attached { (1.0 / 16.0, 2.5 / 16.0) } else { (0.0, 0.5) };
+        let band = [s.x as f64, s.x as f64 + 1.0, s.y as f64 + lo, s.y as f64 + hi, s.z as f64, s.z as f64 + 1.0];
+        let (mut empty, mut raised, mut rider): (Vec<String>, Vec<String>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
+        let mut samples = 0usize;
+        for (r, shape) in rails.iter().filter(|(r, _)| (r.x - s.x).abs() <= 1 && (r.z - s.z).abs() <= 1 && r.y <= s.y && r.y >= s.y - 3) {
+            // (each box's run of samples along the rail that meets the band: where the cart must be)
+            let (t_lo, t_hi) = ranges.iter().find(|(q, _, _)| q == r).map(|(_, a, b)| (*a, *b)).unwrap_or((0.0, 0.999));
+            let rk = ranges.iter().position(|(q, _, _)| q == r);
+            if let Some(k) = rk {
+                range_use[k].0 += 1;
+            }
+            let mut runs: [Vec<(f64, Vec3)>; 3] = Default::default();
+            for i in 0..=20 {
+                let t = (i as f64 * 0.05).min(0.999);
+                if t < t_lo - 1e-9 || t > t_hi + 1e-9 {
+                    if let Some(k) = rk {
+                        let p = along_rail(*r, shape, t);
+                        range_use[k].1 += 1;
+                        let met = meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band)
+                            || (shape.contains("ascending") && meets([p.x - 0.49, p.x + 0.49, r.y as f64 + 1.0, r.y as f64 + 1.7, p.z - 0.49, p.z + 0.49], band))
+                            || meets([p.x - 0.3, p.x + 0.3, p.y, p.y + 1.95, p.z - 0.3, p.z + 0.3], band);
+                        if met {
+                            range_use[k].2 += 1;
+                        }
+                    }
+                    continue;
+                }
+                samples += 1;
+                let p = along_rail(*r, shape, t);
+                if meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band) {
+                    runs[0].push((t, p));
+                }
+                if shape.contains("ascending") && meets([p.x - 0.49, p.x + 0.49, r.y as f64 + 1.0, r.y as f64 + 1.7, p.z - 0.49, p.z + 0.49], band) {
+                    runs[1].push((t, p));
+                }
+                if meets([p.x - 0.3, p.x + 0.3, p.y, p.y + 1.95, p.z - 0.3, p.z + 0.3], band) {
+                    runs[2].push((t, p));
+                }
+            }
+            let range = if (t_lo, t_hi) == (0.0, 0.999) { String::new() } else { format!(", within its declared t {t_lo:.2}..{t_hi:.2}") };
+            for (k, out) in [&mut empty, &mut raised, &mut rider].into_iter().enumerate() {
+                if let (Some((t0, p0)), Some((t1, p1))) = (runs[k].first(), runs[k].last()) {
+                    out.push(format!("on the rail {},{},{} t {t0:.2}..{t1:.2} ({:.2},{:.2},{:.2} .. {:.2},{:.2},{:.2}; {} sample(s){range})", r.x, r.y, r.z, p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, runs[k].len()));
+                }
+            }
+        }
+        // (G1 21:38: the lift and drop columns beside a string are sampled too)
+        for col in cols.iter().filter(|c| (c[0].floor() as i32 - s.x).abs() <= 1 && (c[2].floor() as i32 - s.z).abs() <= 1) {
+            let (x, z, y0, y1) = (col[0], col[2], col[1].min(col[3]), col[1].max(col[3]));
+            let n = ((y1 - y0) * 10.0).round() as usize;
+            let mut runs: [Vec<f64>; 2] = Default::default();
+            for i in 0..=n {
+                let y = y0 + i as f64 * 0.1;
+                samples += 1;
+                if meets([x - 0.49, x + 0.49, y, y + 0.7, z - 0.49, z + 0.49], band) {
+                    runs[0].push(y);
+                }
+                if meets([x - 0.3, x + 0.3, y, y + 1.95, z - 0.3, z + 0.3], band) {
+                    runs[1].push(y);
+                }
+            }
+            for (k, out) in [&mut empty, &mut rider].into_iter().enumerate() {
+                if let (Some(a), Some(b)) = (runs[k].first(), runs[k].last()) {
+                    out.push(format!("in the column x {x:.1} z {z:.1} at y {a:.1}..{b:.1} ({} sample(s))", runs[k].len()));
+                }
+            }
+        }
+        let class = if !empty.is_empty() || !raised.is_empty() {
+            cart_keyed += 1;
+            "CART-KEYED"
+        } else if !rider.is_empty() {
+            "rider-keyed"
+        } else {
+            "never pressed"
+        };
+        let declared = expect.iter().find(|(q, _)| q == s).map(|(_, d)| d.as_str());
+        let verdict = match declared {
+            None => {
+                failures += 1;
+                "UNDECLARED (declare its class: --expect x,y,z=rider-keyed|cart-keyed|never-pressed) (FAIL)".to_string()
+            }
+            Some(d) if d == class.to_lowercase().replace(' ', "-") => format!("declared {d} (PASS)"),
+            Some(d) => {
+                failures += 1;
+                format!("declared {d}, found {class} (FAIL)")
+            }
+        };
+        let say = |v: &Vec<String>| if v.is_empty() { "never meets it".to_string() } else { format!("meets it {}", v.join(", ")) };
+        lines.push(format!(
+            "string {},{},{} ({}, band y {:.4}..{:.4}): {class}{}: an empty cart's box {}; its raised box on a slope {}; a rider's box {}: {verdict}",
+            s.x,
+            s.y,
+            s.z,
+            if attached { "attached" } else { "loose" },
+            band[2],
+            band[3],
+            if samples == 0 { " (no rail or column in reach: 0 samples)".to_string() } else { format!(" ({samples} sample(s))") },
+            say(&empty),
+            say(&raised),
+            say(&rider)
+        ));
+    }
+    for (c, _) in expect.iter().filter(|(c, _)| !strings.contains(c)) {
+        return Err(format!("string audit: NOT JUDGED: the declared {},{},{} is no string of the design", c.x, c.y, c.z));
+    }
+    // (G1 23:06: no string at all is NOT JUDGED, a wrong path or frame reads clean, unless allowed empty)
+    if strings.is_empty() {
+        if !allow_empty {
+            return Err("string audit: NOT JUDGED: the design has no string (--allow-empty for a design meant to have none)".to_string());
+        }
+        lines.push("strings: none (allowed empty)".to_string());
+    }
+    for ((c, a, b), (applied, dropped, dropped_met)) in ranges.iter().zip(&range_use) {
+        if *applied == 0 {
+            failures += 1;
+            lines.push(format!("rail range {},{},{} t {a:.2}..{b:.2}: on no rail in any string's reach (it applies to nothing): a stale range (FAIL)", c.x, c.y, c.z));
+        } else {
+            lines.push(format!("rail range {},{},{} t {a:.2}..{b:.2}: applied to {applied} string(s)' samples; it dropped {dropped} sample(s), {dropped_met} of them meeting a band", c.x, c.y, c.z));
+        }
+    }
+    Ok((lines, cart_keyed, failures))
+}
+
 /// (ironspec Nov 13 19:11, with day-1; G1 21:38 / 21:41) The riderless-source statics: what could take a
 /// rider out of its cart, or kill it, on the route: every route position (`dense_rider_points`: each
 /// rail at 1/20 of its length, each lift or drop column of `auto_columns` every 0.1; H5), NOT JUDGED
@@ -9284,6 +9453,93 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+    }
+
+    /// (ironspec Nov 13 20:39 / 20:43, G1 20:42) The band-contact audit, each class: a string one up
+    /// over a flat rail is pressed by a rider only (rider-keyed); over an ascending rail the empty cart's
+    /// raised box meets its band (CART-KEYED); a string two up over a flat rail is never pressed.
+    #[test]
+    fn string_audit_rider_keyed_cart_keyed_and_never() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let loose = "minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]";
+        let attached = "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]";
+        let mut blocks = Vec::new();
+        for x in 0..=8 {
+            for z in 0..=4 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        // a flat rail at x 1 with an attached string one up (hooks N / S on glass)
+        blocks.push((b(1, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        blocks.push((b(1, 2, 2), p(attached)));
+        blocks.push((b(1, 2, 1), p("minecraft:tripwire_hook[attached=true,facing=south,powered=false]")));
+        blocks.push((b(1, 2, 3), p("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")));
+        blocks.push((b(1, 2, 0), p("minecraft:glass")));
+        blocks.push((b(1, 2, 4), p("minecraft:glass")));
+        // an ascending rail at x 4 (up to the east, its high side on stone at x 5) with a loose string
+        // one up over it
+        blocks.push((b(4, 1, 2), p("minecraft:rail[shape=ascending_east,waterlogged=false]")));
+        blocks.push((b(5, 1, 2), p("minecraft:stone")));
+        blocks.push((b(4, 2, 2), p(loose)));
+        // a flat rail at x 7 with an attached string two up (above every box: a rider's top 3.0125 is
+        // under the band 3.0625)
+        blocks.push((b(7, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        blocks.push((b(7, 3, 2), p(attached)));
+        blocks.push((b(7, 3, 1), p("minecraft:tripwire_hook[attached=true,facing=south,powered=false]")));
+        blocks.push((b(7, 3, 3), p("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")));
+        blocks.push((b(7, 3, 0), p("minecraft:glass")));
+        blocks.push((b(7, 3, 4), p("minecraft:glass")));
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(8, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let decl = vec![(b(1, 2, 2), "rider-keyed".to_string()), (b(4, 2, 2), "cart-keyed".to_string()), (b(7, 3, 2), "never-pressed".to_string())];
+        let (l, n, bad) = super::string_audit(&spec, &[], &decl, false).unwrap_or_else(|e| panic!("{e}"));
+        let of = |c: &str| l.iter().find(|x| x.starts_with(&format!("string {c} "))).cloned().unwrap_or_else(|| panic!("{c}: {l:?}"));
+        assert!(of("1,2,2").contains(": rider-keyed (") && of("1,2,2").contains("an empty cart's box never meets it"), "{l:?}");
+        assert!(of("4,2,2").contains(": CART-KEYED (") && of("4,2,2").contains("its raised box on a slope meets it"), "{l:?}");
+        assert!(of("7,3,2").contains(": never pressed ("), "{l:?}");
+        assert!(n == 1 && bad == 0 && l.iter().filter(|x| x.ends_with("(PASS)")).count() == 3, "declared as found: {l:?}");
+        // (G1 21:38 H9) the bar: a string meant rider-keyed but found CART-KEYED fails by name; an
+        // undeclared string fails
+        let (l2, _, bad2) = super::string_audit(&spec, &[], &[(b(1, 2, 2), "rider-keyed".to_string()), (b(4, 2, 2), "rider-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(bad2 == 2 && l2.iter().any(|x| x.starts_with("string 4,2,2 ") && x.ends_with("declared rider-keyed, found CART-KEYED (FAIL)")) && l2.iter().any(|x| x.starts_with("string 7,3,2 ") && x.contains("UNDECLARED")), "{l2:?}");
+        assert!(super::string_audit(&spec, &[], &[(b(2, 2, 2), "rider-keyed".to_string())], false).is_err(), "a declared cell with no string is NOT JUDGED");
+        // (G1 23:06) a cell declared twice is NOT JUDGED (never the first kept)
+        let e2 = super::string_audit(&spec, &[], &[(b(1, 2, 2), "rider-keyed".to_string()), (b(1, 2, 2), "cart-keyed".to_string())], false).err().unwrap_or_default();
+        assert!(e2.contains("NOT JUDGED") && e2.contains("declared more than once"), "declared twice: {e2}");
+        // (G1 23:06) no string at all: NOT JUDGED unless allowed empty
+        let mut none = spec.clone();
+        none.blocks.retain(|(_, s)| !s.to_string().contains("tripwire"));
+        let en = super::string_audit(&none, &[], &[], false).err().unwrap_or_default();
+        assert!(en.contains("NOT JUDGED") && en.contains("no string"), "no string: {en}");
+        let (ln, _, bn) = super::string_audit(&none, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(bn == 0 && ln.iter().any(|x| x == "strings: none (allowed empty)"), "allowed empty: {ln:?}");
+        // (G1 21:38 H10: tick-exact's control) an ATTACHED string one up over an ascending_south slot
+        // rail whose cart rests at t 0..0.28 (z 1.28): the end box's top 1.0625 + 0.28 + 0.7 = 2.0425 stays
+        // 0.02 under the band 2.0625, so only the raised box (rail y + 1 .. + 1.7) meets it: CART-KEYED
+        // through the raised box alone (with the whole cell sampled the end box meets it past t 0.30)
+        let mut sb = Vec::new();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                sb.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        sb.push((b(2, 1, 1), p("minecraft:rail[shape=ascending_south,waterlogged=false]")));
+        sb.push((b(2, 1, 2), p("minecraft:stone")));
+        sb.push((b(2, 2, 1), p("minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]")));
+        sb.push((b(1, 2, 1), p("minecraft:tripwire_hook[attached=true,facing=east,powered=false]")));
+        sb.push((b(3, 2, 1), p("minecraft:tripwire_hook[attached=true,facing=west,powered=false]")));
+        sb.push((b(0, 2, 1), p("minecraft:glass")));
+        sb.push((b(4, 2, 1), p("minecraft:glass")));
+        let slot = redsim::entity::mob::farm::FarmSpec { blocks: sb, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (sl, _, sbad) = super::string_audit(&slot, &[(b(2, 1, 1), 0.0, 0.28)], &[(b(2, 2, 1), "cart-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(sbad == 0 && sl[0].contains(": CART-KEYED (") && sl[0].contains("an empty cart's box never meets it") && sl[0].contains("its raised box on a slope meets it on the rail 2,1,1") && sl[0].contains("within its declared t 0.00..0.28"), "the slot at rest: {sl:?}");
+        // (G1 23:06 D3) the range read back: what it applied to and what it dropped (here the end box's
+        // meeting samples past t 0.30)
+        assert!(sl.iter().any(|x| x.starts_with("rail range 2,1,1 t 0.00..0.28: applied to 1 string(s)' samples; it dropped 15 sample(s), 15 of them meeting a band")), "the range read back: {sl:?}");
+        let (sl2, _, _) = super::string_audit(&slot, &[], &[(b(2, 2, 1), "cart-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(sl2[0].contains("an empty cart's box meets it on the rail 2,1,1 t 0.35.."), "the whole cell: {sl2:?}");
+        // (G1 23:06 D3) a range on a cell that is no rail in any string's reach applies to nothing: it fails
+        let (sl3, _, sbad3) = super::string_audit(&slot, &[(b(4, 1, 4), 0.0, 0.5)], &[(b(2, 2, 1), "cart-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(sbad3 == 1 && sl3.iter().any(|x| x.starts_with("rail range 4,1,4") && x.ends_with("a stale range (FAIL)")), "a stale range: {sl3:?}");
     }
 
     /// (ironspec Nov 13 19:11, with day-1) The riderless statics, each both ways: a zombie seated in a
