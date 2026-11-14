@@ -1366,7 +1366,8 @@ pub enum MobfarmCmd {
     /// the judges lay a design, its entities held (present, never ticked), daylight at the file's declared
     /// time (`# day-time: N`, else --day-time, else noon), then block ticks until no cell changes and nothing
     /// is pending (capped at --cap 200); a component still changing at the cap is a clock and must be
-    /// declared (`# clock: x,y,z; x,y,z = REASON`). The fixed point against the stored states: a changed
+    /// declared (`# clock: x,y,z; x,y,z = period=N; REASON`, the period in gt required: the run covers 2 periods in its
+    /// second half and each declared cell must recur at exactly N). The fixed point against the stored states: a changed
     /// redstone cell fails, as does a shape state other than its own shape update (fence / pane / bars arms,
     /// rail shapes, dust connections); wall and stair cells are UNCHECKED (no shape update in redsim) and
     /// fail unless --allow-unchecked. --write re-emits the file settled (its leading comment lines kept).
@@ -16064,6 +16065,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for p in &s.clock_false {
                 println!("  false `# clock:` declaration ({},{},{}): never seen recurring", p.x, p.y, p.z);
+            }
+            for (p, want, got) in &s.clock_period_wrong {
+                println!("  `# clock:` cell ({},{},{}) recurs at {} but is declared period={want} (ironspec 12:44p (4)(a))", p.x, p.y, p.z, got.map_or("no measurable period".to_string(), |g| format!("{g} gt")));
             }
             for p in &s.time_undeclared {
                 println!("  time-dependent block with no `# day-time:` ({},{},{})", p.x, p.y, p.z);
