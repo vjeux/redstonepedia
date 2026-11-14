@@ -328,7 +328,58 @@ pub fn reach_control() -> Result<Vec<(&'static str, bool, usize, bool)>, String>
     Ok(out)
 }
 
-/// The eye check (ironspec Nov 11 11:53, after 58f770cc's R plate support): at every rail cell,
+/// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager placed standing at `from` (its
+/// feet, on the ground) in the settled design (with the stand-ins laid by the caller), its navigation
+/// asked for a path to `to` (`create_path_pos`, reach 0): whether it reaches, and every node (cell and
+/// the path type the evaluator gave it). Returns the lines and whether the path reached.
+pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos) -> Result<(Vec<String>, bool), String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    settle_full(&mut run)?;
+    let vid = redsim::entity::spawn(&mut run.world, "minecraft:villager", [from.x, from.y, from.z], Some("{PersistenceRequired:1b}"))?;
+    // (G1 Nov 13 23:06 D4: the villager lands on its own, ticked with its AI off, never set on the ground
+    // by hand: a --from it can't stand at is NOT JUDGED)
+    let ai_on = run.world.mob.ai.on;
+    run.world.mob.ai.on = false;
+    for _ in 0..4 {
+        run.world.tick();
+    }
+    run.world.mob.ai.on = ai_on;
+    let w = &mut run.world;
+    let i = redsim::entity::index_of(w, vid).ok_or("the probe's villager did not spawn")?;
+    let (stands, at) = (w.entities.list[i].on_ground, w.entities.list[i].pos);
+    let want = BlockPos::new(from.x.floor() as i32, from.y.floor() as i32, from.z.floor() as i32);
+    if !stands || BlockPos::new(at.x.floor() as i32, at.y.floor() as i32, at.z.floor() as i32) != want {
+        return Err(format!("path probe: NOT JUDGED: the villager placed at {:.2},{:.2},{:.2} doesn't stand there (after 4 ticks: on the ground {stands}, at {:.4},{:.4},{:.4})", from.x, from.y, from.z, at.x, at.y, at.z));
+    }
+    let path = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+        let mut copy = nav.clone();
+        copy.create_path_pos(w, nm, to, 0, arena)
+    });
+    let mut lines = Vec::new();
+    let reached = path.as_ref().is_some_and(|p| p.reached);
+    match &path {
+        None => lines.push(format!("path probe: the villager at {:.2},{:.2},{:.2} to {},{},{}: no path at all (unreached)", from.x, from.y, from.z, to.x, to.y, to.z)),
+        Some(p) => {
+            lines.push(format!(
+                "path probe: the villager at {:.2},{:.2},{:.2} (its block {},{},{}) to {},{},{}: {} ({} node(s)): {}",
+                from.x,
+                from.y,
+                from.z,
+                from.x.floor() as i32,
+                from.y.floor() as i32,
+                from.z.floor() as i32,
+                to.x,
+                to.y,
+                to.z,
+                if p.reached { "REACHED" } else { "unreached" },
+                p.nodes.len(),
+                p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
+            ));
+        }
+    }
+    Ok((lines, reached))
+}
 /// the rider seated at three points along it, its eye box (`Entity.isInWall`'s: width x 0.8 around
 /// the eye, 1e-6 tall) against every suffocating block, and its eye point against every other
 /// collision shape. A suffocating one hurts the rider every tick (the census: a cause of a rider's
@@ -9553,6 +9604,68 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+    }
+
+    /// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager standing on a rail paths onto
+    /// the next rail when its head cell is clear (a collision-free hook there), not when glass fills it;
+    /// a villager standing on stone beside the rail can't path onto it at all (UNPASSABLE_RAIL from off
+    /// the rails, `a_rail_is_unpassable_from_off_the_rails`).
+    #[test]
+    fn standing_path_probe_rail_to_rail_and_off_the_rails() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mk = |head: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                    // (walls all round at y 1..2 but the corridor z 2, x 1..5)
+                    if !(z == 2 && (1..=5).contains(&x)) {
+                        blocks.push((b(x, 1, z), p("minecraft:stone")));
+                        blocks.push((b(x, 2, z), p("minecraft:stone")));
+                    }
+                }
+            }
+            blocks.push((b(2, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            blocks.push((b(3, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            blocks.push((b(3, 2, 2), p(head)));
+            // (a hook in the head cell needs its support east of it)
+            blocks.push((b(4, 2, 2), p("minecraft:stone")));
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        // (G1 23:06 D4: the clear twin holds a hook in the head cell, as the static is for)
+        let clear = mk("minecraft:tripwire_hook[attached=false,facing=west,powered=false]");
+        let v = |x: f64, y: f64, z: f64| redsim::entity::Vec3::new(x, y, z);
+        let (l, reached) = super::standing_path_probe(&clear, v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(reached && l[0].contains("REACHED") && l[0].contains("3,1,2 Rail"), "rail to rail, a hook in the head cell: {l:?}");
+        let glass = mk("minecraft:glass");
+        let (l2, r2) = super::standing_path_probe(&glass, v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!r2 && l2[0].contains("unreached"), "glass in the head cell: {l2:?}");
+        let (l3, r3) = super::standing_path_probe(&clear, v(1.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!r3 && l3[0].contains("unreached"), "from stone beside the rails: {l3:?}");
+        // (G1 23:06 D4) the villager must stand at --from: one placed in mid-air is NOT JUDGED
+        let ea = super::standing_path_probe(&clear, v(2.5, 3.5, 2.5), b(3, 1, 2)).err().unwrap_or_default();
+        assert!(ea.contains("NOT JUDGED") && ea.contains("doesn't stand there"), "in mid-air: {ea}");
+        // (G1 23:06 D4, tick-exact 22:07's AK row: the bed-top step-up) a villager on the rail beside a
+        // bed head paths onto the head's top (a 0.5625 rise), and not with a full block two above the head
+        let bed = |guard: bool| {
+            let mut blocks = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            blocks.push((b(2, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            blocks.push((b(3, 1, 2), p("minecraft:red_bed[facing=west,occupied=false,part=head]")));
+            blocks.push((b(4, 1, 2), p("minecraft:red_bed[facing=west,occupied=false,part=foot]")));
+            if guard {
+                blocks.push((b(3, 3, 2), p("minecraft:glass")));
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let (lb, rb) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(rb && lb[0].contains("REACHED"), "the bed-top step-up: {lb:?}");
+        let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!rg && lg[0].contains("unreached"), "a full block two above the head: {lg:?}");
     }
 
     /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: a repeater
