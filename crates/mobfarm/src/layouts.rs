@@ -143,6 +143,330 @@ pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) ->
     Ok(keep_comments(text, &d.to_text()).0)
 }
 
+/// (ironspec Nov 13 23:53: V judged with a re-laid part; G1 Nov 14 00:40b P1 / P4) A composed part swapped
+/// in a design's cells: every cell `old` holds, moved by `off`, is cleared where the design still holds
+/// old's block there; a cell holding another block is another owner's by the compose's precedence (kept and
+/// named); a cell the design doesn't hold at all is ABSENT (named): the old part must be found, at least one
+/// cell cleared and every non-air cell either cleared or kept, else the swap is refused (a missing or
+/// misaligned OLD). Then every cell `new` holds is set (an air cell of `new` clears its cell only when the
+/// cell is empty or was the old part's: another owner's block there is a clash), and a cell the design
+/// still holds with a different block is a clash: an error naming every one. Every changed cell printed,
+/// `x,y,z: before -> after`. Returns the lines and how many cells of the design changed.
+pub fn swap_part(blocks: &mut BTreeMap<[i32; 3], String>, old: &BTreeMap<[i32; 3], String>, new: &BTreeMap<[i32; 3], String>, off: [i32; 3]) -> Result<(Vec<String>, usize), String> {
+    let before = blocks.clone();
+    let mv = |p: &[i32; 3]| [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
+    let air = |s: &str| s == "minecraft:air";
+    let (mut cleared, mut kept, mut absent) = (Vec::new(), Vec::new(), Vec::new());
+    for (p, s) in old.iter().filter(|(_, s)| !air(s)) {
+        let q = mv(p);
+        match blocks.get(&q) {
+            Some(b) if b == s => {
+                blocks.remove(&q);
+                cleared.push(q);
+            }
+            Some(b) => kept.push(format!("{},{},{} {}", q[0], q[1], q[2], b.trim_start_matches("minecraft:"))),
+            None => absent.push(format!("{},{},{} ({})", q[0], q[1], q[2], s.trim_start_matches("minecraft:"))),
+        }
+    }
+    let n_old = old.values().filter(|s| !air(s)).count();
+    if cleared.is_empty() || cleared.len() + kept.len() != n_old {
+        return Err(format!(
+            "the old part is not in the design at offset {},{},{}: of its {n_old} cell(s), {} cleared, {} held by another owner, {} ABSENT{}",
+            off[0],
+            off[1],
+            off[2],
+            cleared.len(),
+            kept.len(),
+            absent.len(),
+            if absent.is_empty() { String::new() } else { format!(": {}", absent.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) }
+        ));
+    }
+    let mut clashes = Vec::new();
+    for (p, s) in new {
+        let q = mv(p);
+        let cur = blocks.get(&q).cloned();
+        match cur {
+            Some(b) if air(s) && !cleared.contains(&q) => clashes.push(format!("{},{},{} holds {} (another owner's; the new part clears it)", q[0], q[1], q[2], b.trim_start_matches("minecraft:"))),
+            Some(b) if !air(s) && b != *s => clashes.push(format!("{},{},{} holds {} (the new part's {})", q[0], q[1], q[2], b.trim_start_matches("minecraft:"), s.trim_start_matches("minecraft:"))),
+            _ if air(s) => {
+                blocks.remove(&q);
+            }
+            _ => {
+                blocks.insert(q, s.clone());
+            }
+        }
+    }
+    if !clashes.is_empty() {
+        return Err(format!("{} clash(es) with cells another owner holds: {}", clashes.len(), clashes.join("; ")));
+    }
+    let mut changes = Vec::new();
+    let short = |s: Option<&String>| s.map(|s| s.trim_start_matches("minecraft:").to_string()).unwrap_or_else(|| "air".to_string());
+    let keys: std::collections::BTreeSet<[i32; 3]> = before.keys().chain(blocks.keys()).copied().collect();
+    for q in keys {
+        let (a, b) = (before.get(&q), blocks.get(&q));
+        if a != b {
+            changes.push(format!("  {},{},{}: {} -> {}", q[0], q[1], q[2], short(a), short(b)));
+        }
+    }
+    let mut lines = vec![format!(
+        "swap: the old part's {n_old} cell(s) at offset {},{},{}: {} cleared, {} held by another owner (kept){}; the new part's {} cell(s) set; {} cell(s) of the design changed:",
+        off[0],
+        off[1],
+        off[2],
+        cleared.len(),
+        kept.len(),
+        if kept.is_empty() { String::new() } else { format!(": {}", kept.join(", ")) },
+        new.len(),
+        changes.len()
+    )];
+    let n = changes.len();
+    lines.extend(changes);
+    Ok((lines, n))
+}
+
+/// The declaration keys a swap moves with its part (declkeys' comment and header keys).
+fn decl_key(line: &str) -> Option<(bool, &'static str, &str)> {
+    let mut keys: Vec<(&'static str, bool)> = crate::declkeys::COMMENT_KEYS.iter().map(|k| (*k, true)).chain(crate::declkeys::EITHER_KEYS.iter().map(|k| (*k, true))).chain(crate::declkeys::META_KEYS.iter().map(|k| (*k, false))).chain(crate::declkeys::EITHER_KEYS.iter().map(|k| (*k, false))).collect();
+    keys.sort_by_key(|(k, _)| std::cmp::Reverse(k.len()));
+    let t = line.trim_start();
+    if let Some(c) = t.strip_prefix('#') {
+        let c = c.trim_start();
+        for (k, comment) in &keys {
+            if *comment && let Some(body) = c.strip_prefix(k).and_then(|r| r.strip_prefix(':')) {
+                return Some((true, k, body));
+            }
+        }
+        return None;
+    }
+    for (k, comment) in &keys {
+        if !*comment && let Some(body) = t.strip_prefix(k).and_then(|r| r.strip_prefix(':')) {
+            return Some((false, k, body));
+        }
+    }
+    None
+}
+
+/// A declaration body's entries (`pushscan::header_entries`' split: a `;` part beginning `cells=` starts
+/// an entry).
+fn decl_entries(body: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut cur = String::new();
+    for part in body.split(';') {
+        let head = part.trim_start();
+        let starts = head.split_once('=').is_some_and(|(c, _)| !c.trim().is_empty() && c.split(['+', ',', '>']).all(|t| t.trim().parse::<i32>().is_ok()));
+        if starts && !cur.trim().is_empty() {
+            v.push(cur.trim().to_string());
+            cur = String::new();
+        }
+        if !cur.is_empty() {
+            cur.push(';');
+        }
+        cur.push_str(part);
+    }
+    if !cur.trim().is_empty() {
+        v.push(cur.trim().to_string());
+    }
+    v
+}
+
+/// The cells an entry names: every `x,y,z` before its first `=` (`+` and `>` separate them).
+fn entry_cells(entry: &str) -> Vec<[i32; 3]> {
+    let key = entry.split_once('=').map(|(k, _)| k).unwrap_or("");
+    key.split(['+', '>']).filter_map(|t| {
+        let v: Vec<i32> = t.trim().split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+    }).collect()
+}
+
+/// The entry with its key cells moved by `off`.
+fn shift_entry(entry: &str, off: [i32; 3]) -> String {
+    let Some((key, rest)) = entry.split_once('=') else { return entry.to_string() };
+    let mut out = String::new();
+    let mut tok = String::new();
+    let flush = |tok: &mut String, out: &mut String| {
+        let v: Option<Vec<i32>> = tok.trim().split(',').map(|n| n.trim().parse::<i32>().ok()).collect();
+        match v {
+            Some(v) if v.len() == 3 => out.push_str(&format!("{},{},{}", v[0] + off[0], v[1] + off[1], v[2] + off[2])),
+            _ => out.push_str(tok),
+        }
+        tok.clear();
+    };
+    for ch in key.chars() {
+        if ch == '+' || ch == '>' {
+            flush(&mut tok, &mut out);
+            out.push(ch);
+        } else {
+            tok.push(ch);
+        }
+    }
+    flush(&mut tok, &mut out);
+    format!("{out}={rest}")
+}
+
+/// (G1 Nov 14 00:40b P3) A part's declarations swapped with its cells: every declaration entry of `text`
+/// whose cells all lie in the old part's footprint `old_cells` (in the design's frame) is dropped, by
+/// name; an entry with only some of its cells there is refused; every declaration entry of `new_text` is
+/// carried with its cells moved by `off` and "(carried from the swapped part, moved by dx,dy,dz)" (a header
+/// key's entries joined to the design's line of that key, or a new line before `palette:`). Returns the
+/// text and the lines printed.
+pub fn swap_declarations(text: &str, new_text: &str, old_cells: &std::collections::BTreeSet<[i32; 3]>, off: [i32; 3]) -> Result<(String, Vec<String>), String> {
+    let mut report = Vec::new();
+    let mut carried: Vec<(bool, &'static str, String)> = Vec::new();
+    for l in new_text.lines() {
+        if let Some((comment, k, body)) = decl_key(l) {
+            for e in decl_entries(body) {
+                let s = shift_entry(&e, off);
+                report.push(format!("  carried {}{k}: {s}", if comment { "# " } else { "" }));
+                carried.push((comment, k, format!("{s} (carried from the swapped part, moved by {},{},{})", off[0], off[1], off[2])));
+            }
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut header_done: Vec<&'static str> = Vec::new();
+    for l in text.lines() {
+        let Some((comment, k, body)) = decl_key(l) else {
+            if l.trim_start().starts_with("palette:") {
+                for (c, key, e) in carried.iter().filter(|(c, key, _)| *c || !header_done.contains(key)) {
+                    if *c {
+                        out.push(format!("# {key}: {e}"));
+                    }
+                }
+                let mut heads: Vec<&'static str> = carried.iter().filter(|(c, key, _)| !*c && !header_done.contains(key)).map(|(_, key, _)| *key).collect();
+                heads.dedup();
+                for key in heads {
+                    let es: Vec<&str> = carried.iter().filter(|(c, k2, _)| !*c && *k2 == key).map(|(_, _, e)| e.as_str()).collect();
+                    out.push(format!("{key}: {}", es.join("; ")));
+                    header_done.push(key);
+                }
+                carried.retain(|(c, _, _)| !*c);
+            }
+            out.push(l.to_string());
+            continue;
+        };
+        let mut keep = Vec::new();
+        for e in decl_entries(body) {
+            let cells = entry_cells(&e);
+            let inside = cells.iter().filter(|c| old_cells.contains(*c)).count();
+            if inside > 0 && inside < cells.len() {
+                return Err(format!("the declaration `{k}: {e}` names cells both in the old part's footprint and outside it: split it by hand"));
+            }
+            if !cells.is_empty() && inside == cells.len() {
+                report.push(format!("  dropped {}{k}: {e}", if comment { "# " } else { "" }));
+            } else {
+                keep.push(e);
+            }
+        }
+        if !comment && !header_done.contains(&k) {
+            for (_, _, e) in carried.iter().filter(|(c, k2, _)| !*c && *k2 == k) {
+                keep.push(e.clone());
+            }
+            header_done.push(k);
+        }
+        if !keep.is_empty() {
+            out.push(if comment { format!("# {k}: {}", keep.join("; ")) } else { format!("{k}: {}", keep.join("; ")) });
+        }
+    }
+    let mut s = out.join("\n");
+    if text.ends_with('\n') {
+        s.push('\n');
+    }
+    Ok((s, report))
+}
+
+/// (ironspec Nov 13 23:53, G1 Nov 14 00:40b P1-P4) `mobfarm edit --swap-part`: each (OLD's text, NEW's text,
+/// offset) swapped into `original`'s cells (`swap_part`: OLD found in full, every changed cell printed, no
+/// clash, no no-op) and declarations (`swap_declarations`), the `#` lines kept; the composed text read back:
+/// its cells equal the composed cells, every NEW cell present with its block (moved), every OLD-only cell
+/// gone unless another owner held it. Returns the text and the lines printed.
+pub fn edit_swap(original: &str, swaps: &[(String, String, [i32; 3])]) -> anyhow::Result<(String, Vec<String>)> {
+    let mut d = Design::parse(original)?;
+    let mut lines = Vec::new();
+    let mut parts = Vec::new();
+    for (old_text, new_text, off) in swaps {
+        let (old_d, new_d) = (Design::parse(old_text)?, Design::parse(new_text)?);
+        let (l, n) = swap_part(&mut d.blocks, &old_d.blocks, &new_d.blocks, *off).map_err(|e| anyhow::anyhow!("--swap-part at {},{},{}: {e}", off[0], off[1], off[2]))?;
+        anyhow::ensure!(n > 0, "NO-OP --swap-part at {},{},{}: no cell changes", off[0], off[1], off[2]);
+        lines.extend(l);
+        parts.push((old_d, new_d, *off));
+    }
+    let (mut out, kept, moved) = keep_comments(original, &d.to_text());
+    let before = original.lines().filter(|l| l.starts_with('#')).count();
+    anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
+    for ((old_d, _, off), (_, new_text, _)) in parts.iter().zip(swaps) {
+        let old_cells: std::collections::BTreeSet<[i32; 3]> = old_d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(p, _)| [p[0] + off[0], p[1] + off[1], p[2] + off[2]]).collect();
+        let (o, rep) = swap_declarations(&out, new_text, &old_cells, *off).map_err(|e| anyhow::anyhow!(e))?;
+        lines.push(format!("declarations: {} dropped (the old part's), {} carried (the new part's, moved by {},{},{})", rep.iter().filter(|l| l.starts_with("  dropped")).count(), rep.iter().filter(|l| l.starts_with("  carried")).count(), off[0], off[1], off[2]));
+        lines.extend(rep);
+        out = o;
+    }
+    let back = Design::parse(&out)?;
+    anyhow::ensure!(back.blocks == d.blocks, "swap read-back: the composed text's cells differ from the composed cells");
+    for (old_d, new_d, off) in &parts {
+        let mv = |p: &[i32; 3]| [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
+        for (p, s) in new_d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air") {
+            anyhow::ensure!(back.blocks.get(&mv(p)) == Some(s), "swap read-back: the new part's {},{},{} ({s}) is missing at {:?}", p[0], p[1], p[2], mv(p));
+        }
+        for (p, s) in old_d.blocks.iter().filter(|(q, s)| s.as_str() != "minecraft:air" && !new_d.blocks.contains_key(*q)) {
+            anyhow::ensure!(back.blocks.get(&mv(p)) != Some(s), "swap read-back: the old part's {},{},{} ({s}) is still at {:?}", p[0], p[1], p[2], mv(p));
+        }
+    }
+    lines.push(format!("swap read-back: {} cell(s), every new part cell present, every old-only cell gone", back.blocks.len()));
+    Ok((out, lines))
+}
+
+#[cfg(test)]
+mod swap_part_tests {
+    /// (ironspec Nov 13 23:53, G1 Nov 14 00:40b P1 / P4) A part swapped: its old cells cleared where the
+    /// design holds them, the new ones set, every changed cell printed; a cell another owner holds is kept
+    /// and named; an old part not found in full (an offset off by one) is refused naming its absent cells;
+    /// a new cell on another owner's block, or a new part's air over it, is a clash.
+    #[test]
+    fn swap_clears_sets_keeps_and_clashes() {
+        let m = |v: &[([i32; 3], &str)]| v.iter().map(|(p, s)| (*p, format!("minecraft:{s}"))).collect::<std::collections::BTreeMap<_, _>>();
+        let old = m(&[([0, 0, 0], "stone"), ([1, 0, 0], "glass"), ([2, 0, 0], "glass")]);
+        let new = m(&[([0, 0, 0], "stone"), ([3, 0, 0], "redstone_lamp[lit=false]")]);
+        // (the design at offset 10,0,0: the old part's cells, but 12,0,0 holds another owner's dirt)
+        let mut d = m(&[([10, 0, 0], "stone"), ([11, 0, 0], "glass"), ([12, 0, 0], "dirt"), ([20, 0, 0], "sand")]);
+        let (l, n) = super::swap_part(&mut d, &old, &new, [10, 0, 0]).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(n, 2, "11 removed, 13 added: {l:?}");
+        assert!(!d.contains_key(&[11, 0, 0]) && d.get(&[13, 0, 0]).is_some_and(|s| s.contains("lamp")) && d.get(&[12, 0, 0]).is_some_and(|s| s.contains("dirt")) && d.contains_key(&[20, 0, 0]), "{d:?}");
+        assert!(l[0].contains("2 cleared, 1 held by another owner (kept): 12,0,0 dirt"), "{l:?}");
+        assert!(l.iter().any(|x| x == "  11,0,0: glass -> air") && l.iter().any(|x| x == "  13,0,0: air -> redstone_lamp[lit=false]"), "every changed cell printed: {l:?}");
+        // (P1) the offset off by one: the old part's cells are not there: refused, its absent cells named
+        let mut d1 = m(&[([10, 0, 0], "stone"), ([11, 0, 0], "glass"), ([12, 0, 0], "glass")]);
+        let e1 = super::swap_part(&mut d1, &old, &new, [11, 0, 0]).err().unwrap_or_default();
+        assert!(e1.contains("the old part is not in the design at offset 11,0,0") && e1.contains("ABSENT") && e1.contains("13,0,0 (glass)"), "off by one: {e1}");
+        // a new cell on another owner's block: a clash
+        let new2 = m(&[([0, 0, 0], "stone"), ([5, 0, 0], "glass")]);
+        let mut d2 = m(&[([10, 0, 0], "stone"), ([11, 0, 0], "glass"), ([12, 0, 0], "glass"), ([15, 0, 0], "sand")]);
+        let e = super::swap_part(&mut d2, &old, &new2, [10, 0, 0]).err().unwrap_or_default();
+        assert!(e.contains("1 clash") && e.contains("15,0,0 holds sand"), "{e}");
+        // (P4) the new part's air over another owner's block: a clash, never a silent removal
+        let new3 = m(&[([0, 0, 0], "stone"), ([5, 0, 0], "air")]);
+        let mut d3 = m(&[([10, 0, 0], "stone"), ([11, 0, 0], "glass"), ([12, 0, 0], "glass"), ([15, 0, 0], "sand")]);
+        let e3 = super::swap_part(&mut d3, &old, &new3, [10, 0, 0]).err().unwrap_or_default();
+        assert!(e3.contains("15,0,0 holds sand (another owner's; the new part clears it)"), "{e3}");
+    }
+
+    /// (G1 Nov 14 00:40b P2 / P3) `edit_swap` end to end on a design text: the old part's declarations (a
+    /// `# switches:` entry and a `riderless:` header entry on its cell) dropped by name, the new part's
+    /// carried moved by the offset, another owner's kept; the composed text read back (its cells, the new
+    /// part present, the old-only cell gone).
+    #[test]
+    fn edit_swap_moves_declarations_and_reads_back() {
+        let design = "name: t\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\n# switches: 1,0,0=the old part's lever; 2,0,0=another owner's lever\nriderless: 1,0,0=the old part's seat\npalette:\n  s minecraft:stone\n  g minecraft:glass\nlayer 0:\n  sgs\n";
+        let old = "name: old\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\n# switches: 0,0,0=the old part's lever\npalette:\n  g minecraft:glass\nlayer 0:\n  g\n";
+        let new = "name: new\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\n# switches: 0,0,1=the new part's lever\nriderless: 0,0,1=the new part's seat\npalette:\n  l minecraft:redstone_lamp[lit=false]\nlayer 0:\n  .\n  l\n";
+        let (out, lines) = super::edit_swap(design, &[(old.to_string(), new.to_string(), [1, 0, 0])]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lines.iter().any(|l| l == "  dropped # switches: 1,0,0=the old part's lever") && lines.iter().any(|l| l == "  dropped riderless: 1,0,0=the old part's seat"), "the old declarations dropped: {lines:?}");
+        assert!(lines.iter().any(|l| l == "  carried # switches: 1,0,1=the new part's lever") && lines.iter().any(|l| l == "  carried riderless: 1,0,1=the new part's seat"), "the new ones carried: {lines:?}");
+        assert!(out.contains("# switches: 2,0,0=another owner's lever") && !out.contains("1,0,0=the old part's") && out.contains("riderless: 1,0,1=the new part's seat (carried from the swapped part, moved by 1,0,0)"), "{out}");
+        let back = mctas::design::Design::parse(&out).unwrap();
+        assert!(back.blocks.get(&[1, 0, 1]).is_some_and(|s| s.contains("lamp")) && !back.blocks.contains_key(&[1, 0, 0]) && back.blocks.get(&[2, 0, 0]).is_some_and(|s| s.contains("stone")), "{:?}", back.blocks);
+        assert!(lines.iter().any(|l| l.starts_with("swap read-back:")), "{lines:?}");
+    }
+}
+
 /// (9fc3155f, farmopt / ironspec Nov 13 01:08: `mobfarm edit` dropped every `#` line of a design it
 /// rewrote, so a variant lost its `# switches:` / `# update-only:` declarations) The regenerated
 /// text `new` with every `#` line of `orig` put back: each run of comment lines after the line it

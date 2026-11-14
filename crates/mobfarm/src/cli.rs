@@ -996,6 +996,13 @@ pub enum MobfarmCmd {
         /// removes the cell): a fault copy of a farm (the bed removed, say).
         #[arg(long)]
         set: Vec<String>,
+        /// (ironspec Nov 13 23:53: V with a re-laid part) Swap a composed part: `OLD=NEW@dx,dy,dz`
+        /// (repeatable): every cell OLD's design holds, moved by the offset, is cleared where the
+        /// design still holds OLD's block there (a cell another owner holds is kept and counted),
+        /// then every cell NEW's design holds is set; a cell another owner holds with a different
+        /// block is a clash and fails; a swap that changes nothing fails. Applied before --set.
+        #[arg(long, allow_hyphen_values = true)]
+        swap_part: Vec<String>,
     },
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), standing and asleep on its bed (bed + 0.8875), as built and with every
@@ -17132,9 +17139,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{x} {y} {z}: {}", w.get(at(x, y, z)));
             }
         }
-        MobfarmCmd::Edit { design, chest, how, meta, set } => {
-            if !set.is_empty() {
-                let original = std::fs::read_to_string(&design)?;
+        MobfarmCmd::Edit { design, chest, how, meta, set, swap_part } => {
+            if !set.is_empty() || !swap_part.is_empty() {
+                let mut text = std::fs::read_to_string(&design)?;
+                // (G1 Nov 14 00:40b P1-P4: each swap's cells checked in full, its declarations swapped with
+                // them, the composed text read back)
+                if !swap_part.is_empty() {
+                    let mut swaps: Vec<(String, String, [i32; 3])> = Vec::new();
+                    for sw in &swap_part {
+                        let (pair, off) = sw.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--swap-part OLD=NEW@dx,dy,dz, not {sw:?}"))?;
+                        let (old, new) = pair.split_once('=').ok_or_else(|| anyhow::anyhow!("--swap-part OLD=NEW@dx,dy,dz, not {sw:?}"))?;
+                        let o: Vec<i32> = off.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(o.len() == 3, "--swap-part OLD=NEW@dx,dy,dz, not {sw:?}");
+                        swaps.push((std::fs::read_to_string(old)?, std::fs::read_to_string(new)?, [o[0], o[1], o[2]]));
+                    }
+                    let (out, lines) = crate::layouts::edit_swap(&text, &swaps)?;
+                    for l in &lines {
+                        println!("{l}");
+                    }
+                    text = out;
+                }
+                let original = text.clone();
                 let mut d = mctas::design::Design::parse(&original)?;
                 for s in &set {
                     let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
@@ -17153,13 +17178,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         d.blocks.insert([v[0], v[1], v[2]], full);
                     }
                 }
-                // (farmopt / ironspec Nov 13 01:08: the design's text rewritten keeps every `#` line,
-                // each after the line it followed; the count printed before and after)
-                let (out, kept, moved) = crate::layouts::keep_comments(&original, &d.to_text());
-                let before = original.lines().filter(|l| l.starts_with('#')).count();
-                anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
-                println!("header: {before} `#` lines before, {} after ({kept} each after the line it followed, {moved} moved up: the line before them changed)", out.lines().filter(|l| l.starts_with('#')).count());
-                std::fs::write(&design, out)?;
+                if !set.is_empty() {
+                    // (farmopt / ironspec Nov 13 01:08: the design's text rewritten keeps every `#` line,
+                    // each after the line it followed; the count printed before and after)
+                    let (out, kept, moved) = crate::layouts::keep_comments(&original, &d.to_text());
+                    let before = original.lines().filter(|l| l.starts_with('#')).count();
+                    anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
+                    println!("header: {before} `#` lines before, {} after ({kept} each after the line it followed, {moved} moved up: the line before them changed)", out.lines().filter(|l| l.starts_with('#')).count());
+                    text = out;
+                }
+                std::fs::write(&design, &text)?;
+                // (G1 Nov 14 00:40b P2: the written file read back: byte for byte, and its cells as composed)
+                let back = std::fs::read_to_string(&design)?;
+                anyhow::ensure!(back == text, "edit: the written file differs from the composed text");
+                anyhow::ensure!(mctas::design::Design::parse(&back)?.blocks == mctas::design::Design::parse(&text)?.blocks, "edit: the written file's cells differ from the composed ones");
             }
             if chest || how.is_some() || !meta.is_empty() {
                 let text = std::fs::read_to_string(&design)?;
