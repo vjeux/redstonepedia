@@ -455,9 +455,26 @@ fn active(d: &[(i64, i64)], t: i64) -> bool {
     d.iter().any(|&(a, b)| t >= a && t < b)
 }
 
-/// The four dust after the hopper's comparator (non-stackable items: 3 a slot).
+/// THE STORE's HOPPER READ (G1 CHANGES 9 on 0474ed466 (5), ironspec 07:30 (2)): the vanilla comparator reading a
+/// container: 0 when empty, else floor(1 + 14 * fullness), fullness = (sum over the 5 slots of count / max stack) / 5.
+/// The store holds NON-STACKABLE items (max stack 1: each item is 1/5): ONE BALLAST item, its own type distinct from
+/// the credits', in the LAST slot (slot 4: credits fill slots 0..3 and a hopper pushes from its first non-empty slot, so
+/// a credit always leaves first; with 0 credits the read keeps the hopper locked, so the ballast never moves), plus n
+/// credit items: 3 / 6 / 9 / 12 at the comparator for n = 0 / 1 / 2 / 3.
+pub fn hopper_cmp(items: i64) -> i64 {
+    if items <= 0 {
+        0
+    } else {
+        (1 + 14 * items.min(5) / 5).min(15)
+    }
+}
+
+/// The read line: DUST_N dust after the comparator, read at the last dust: S - (DUST_N - 1).
+pub const DUST_N: i64 = 4;
+
+/// The read at the last of the DUST_N dust after the hopper's comparator (RE_ARMED = lit = the ballast + >= 1 credit).
 pub fn four_dust(items: i64) -> i64 {
-    (3 * items - 4).max(0)
+    (hopper_cmp(items) - (DUST_N - 1)).max(0)
 }
 
 pub fn run(row: &Row, def: Defects) -> Out {
@@ -2815,9 +2832,30 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut lines = vec![format!(
         "ctl-credit (LOGIC LEVEL: designed delays; gate list rev 20:00: G8 as (B') with the ballast, G10's REL-keyed ring reset at REL + {RING_X}, G11's picks): SEEN3 set by D(3) (masked in K(3)), reset by its batch's D(7); a credit per D(7)'s edge AND SEEN3 (the dropper beside the counting hopper), one transfer per REL back into the dropper; RE_ARMED = >= 2 items (the four dust: 0 / 2 / 5 for 1 / 2 / 3 items); power-up {HOPPER0} items + {DROPPER0} in the dropper; the ring reset ({RESET_W}-gt pulse) forces J(-1) armed and J(3) disarmed; D(-1) arms J(3) (masked in K(-1)); the AND -> J(-1) link dropped. Delays: the edge + AND {AND}, the dropper {DROPPER}, the comparator {CMP}, the unlock REL + {UNLOCK} for {UNLOCK_W} gt, the cooldowns insert {INSERT_COOLDOWN} (an empty hopper) / transfer {TRANSFER_COOLDOWN}, the latch set {SET} / reset {RESET}, a D press -> its J {SWITCH} / {RETURN}, the pulse -> REL {REL_LAT}, B {PERIOD}."
     )];
-    lines.push(format!("  the read: the four dust after the comparator give {} / {} / {} for 1 / 2 / 3 items (RE_ARMED = the fourth dust lit = >= 2 items)", four_dust(1), four_dust(2), four_dust(3)));
-    let w = v.bar("ctl-credit: the four-dust read separates 1 item (0) from 2 (lit) and 3 (lit)", four_dust(1) == 0 && four_dust(2) >= 1 && four_dust(3) >= 1);
-    lines.push(format!("    planted reads at 1 / 2 / 3 items: {w}"));
+    // (G1 CHANGES 9 on 0474ed466 (5), ironspec 07:30 (2): THE STORE's READ FROM THE VANILLA FORMULA: the comparator's raw
+    // output per credit count (slot contents named), the read at the last of DUST_N dust, a bar per count: UNLIT at 0
+    // credits (the ballast alone) with its margin, lit at >= 1; the unlock window UNLOCK_W < one transfer cooldown; the
+    // planted 0-credit row (REL unlocks nothing, the ballast stays) and 1-credit row (exactly one credit moves))
+    let raw: Vec<String> = (0..=3i64).map(|n| format!("{n} credits (slots 0..{} credit, slot 4 the ballast): {} -> the read {}", n.max(1) - 1, hopper_cmp(1 + n), four_dust(1 + n))).collect();
+    lines.push(format!("  THE STORE's READ (the vanilla comparator floor(1 + 14 * fullness), non-stackable items 1/5 each; {DUST_N} dust, read at the last: S - {}): {}", DUST_N - 1, raw.join("; ")));
+    let w = v.bar_n(&format!("ctl-credit: THE STORE's READ per credit count: UNLIT at 0 credits (the ballast alone: comparator {} -> read 0, margin {} level to lit) and lit at 1 / 2 / 3 credits", hopper_cmp(1), DUST_N - hopper_cmp(1)), 4, four_dust(1) == 0 && (2..=4).all(|i| four_dust(i) >= 1));
+    lines.push(format!("    the read per count: {w}"));
+    let w = v.bar(&format!("ctl-credit: THE UNLOCK WINDOW ({UNLOCK_W} gt) is shorter than one transfer cooldown ({TRANSFER_COOLDOWN} gt): at most one item per REL"), UNLOCK_W < TRANSFER_COOLDOWN);
+    lines.push(format!("    the unlock window {UNLOCK_W} gt vs the transfer cooldown {TRANSFER_COOLDOWN} gt: {w}"));
+    {
+        let mut r0 = Row::normal("store: the ballast alone");
+        r0.hopper0 = 1;
+        r0.dropper0 = DROPPER0 + 2;
+        r0.t_max = 600;
+        let o0 = run(&r0, Defects::default());
+        let mut r1 = Row::normal("store: the ballast + one credit");
+        r1.hopper0 = 2;
+        r1.dropper0 = DROPPER0 + 1;
+        r1.t_max = 600;
+        let o1 = run(&r1, Defects::default());
+        let w = v.bar("ctl-credit: THE STORE's PLANTED ROWS: the ballast alone (0 credits): REL unlocks nothing (no REL fires, no transfer); the ballast + one credit: the first REL moves EXACTLY ONE item", o0.rels.is_empty() && o0.transfers.iter().all(|&x| x == 0) && o1.transfers.first() == Some(&1));
+        lines.push(format!("    the planted store rows: the ballast alone: RELs {:?}, transfers {:?}; the ballast + one credit: the first REL's transfers {:?}: {w}", o0.rels, o0.transfers, o1.transfers.first()));
+    }
     // (1) the normal run with returning nappers in every lane and outbound picks of every lane
     let mut row = Row::normal("normal");
     row.napper = vec![(2, 0, 0), (4, 1, 0), (6, 2, 0), (8, 0, 20), (10, 1, 20), (12, 2, 20)];
