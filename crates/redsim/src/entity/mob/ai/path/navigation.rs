@@ -650,3 +650,37 @@ fn is_cauldron(b: &crate::block::Block) -> bool {
         _ => false,
     }
 }
+
+/// A villager's path search length and node budget (the crossing of tick-exact's 00:21 reading, Nov 14).
+/// 26.3's Villager constructor (Villager 182-188) calls `getNavigation().setRequiredPathLength(48.0F)`;
+/// `setRequiredPathLength` (PathNavigation 74-77) re-sets the finder's budget through
+/// `updatePathfinderMaxVisitedNodes()` (69-72): `Mth.floor(getMaxPathLength() * 16.0F)`, where
+/// `getMaxPathLength()` (79-81) is `max(FOLLOW_RANGE, requiredPathLength)`. A villager's FOLLOW_RANGE is
+/// Mob's 16 (Villager 227-228 `createAttributes()` adds only MOVEMENT_SPEED), times `finalizeSpawn`'s
+/// random bonus (at most x 1.11485): under 48 either way, so every villager searches 48 blocks with
+/// 768 nodes.
+#[cfg(test)]
+mod villager_path_length_tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    #[test]
+    fn a_villagers_path_search_reaches_48_blocks_with_768_nodes() {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=6 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.mob.seed(7, 1_000);
+        w.mob.ai.on = true;
+        let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+        let i = crate::entity::index_of(&w, v).unwrap();
+        let (len, budget, follow) = crate::entity::mob::ai::with_nav(&mut w, i, |_, m, nav, _| (nav.max_path_length(m), nav.max_visited_nodes, m.follow_range));
+        assert!((16.0 * (1.0 - 0.11485)..=16.0 * 1.11485).contains(&follow), "FOLLOW_RANGE {follow}: Mob's 16 with the spawn bonus");
+        assert_eq!(len, 48.0, "getMaxPathLength() = max(FOLLOW_RANGE {follow}, requiredPathLength 48)");
+        assert_eq!(budget, 768, "updatePathfinderMaxVisitedNodes(): floor(48 x 16)");
+    }
+}
