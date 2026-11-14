@@ -8,7 +8,9 @@
 //! cart at the landing (cart-fall's rail landing: the rider unhurt), and dry stone with no rail (floor(d - 3)).
 //! Heights 3, 4, 8, 16, 34. Asserted (MCTAS_CART_ON_CART_PLANT=k inverts assert k): (1) every falling cart comes to rest
 //! within 160 gt; (2) the no-cart rail landings leave the rider at 20 HP at every height; (3) dry stone at 8 takes
-//! exactly 5 (the cart-fall control).
+//! exactly 5 (the cart-fall control); (4) onto a RIDDEN cart the falling cart rests on the lower rider's head (y +
+//! 2.0125: its feet at the cart's y + 0.0625, 1.95 tall) and its own rider ends at 20 / 20 / 17 / 9 HP / dead at h 3 /
+//! 4 / 8 / 16 / 34, the lower rider at 20; (5) onto an EMPTY cart it ends on the rail (y + 0.0625), its rider at 20.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -138,6 +140,23 @@ pub fn cart_on_cart(version: &str) -> Result<()> {
     pin(1, out.iter().all(|o| o.2.is_some()), format!("(1) every falling cart comes to rest within 160 gt: {:?}", out.iter().map(|o| (o.0, o.1, o.2)).collect::<Vec<_>>()))?;
     pin(2, out.iter().filter(|o| o.0 == Landing::Rail).all(|o| o.3 == Some(20.0)), format!("(2) the rail landings with no cart leave the rider at 20 HP: {:?}", out.iter().filter(|o| o.0 == Landing::Rail).map(|o| (o.1, o.3)).collect::<Vec<_>>()))?;
     pin(3, out.iter().filter(|o| o.0 == Landing::Stone).all(|o| o.3 == Some(15.0)), format!("(3) dry stone at 8 takes exactly 5: {:?}", out.iter().filter(|o| o.0 == Landing::Stone).map(|o| o.3).collect::<Vec<_>>()))?;
-    println!("  every known answer held (asserts 1..3)");
+    // (G1 02:09) the headline rows, pinned
+    let ridden: Vec<(f64, Option<(u32, f64)>, Option<f64>, Option<f64>)> = out.iter().filter(|o| o.0 == Landing::CartRidden).map(|o| (o.1, o.2, o.3, o.4)).collect();
+    let want = |h: f64| -> Option<f64> {
+        match h as i32 {
+            3 | 4 => Some(20.0),
+            8 => Some(17.0),
+            16 => Some(9.0),
+            _ => None,
+        }
+    };
+    pin(
+        4,
+        ridden.len() == 5 && ridden.iter().all(|(h, rest, hp, low)| rest.is_some_and(|(_, y)| (y - Y0 as f64 - 2.0125).abs() < 1e-3) && *hp == want(*h) && *low == Some(20.0)),
+        format!("(4) onto a RIDDEN cart the falling cart rests on the lower rider's head (y + 2.0125) and its own rider ends at 20 / 20 / 17 / 9 HP / dead at h 3 / 4 / 8 / 16 / 34, the lower rider at 20: {ridden:?}"),
+    )?;
+    let empty: Vec<(f64, Option<(u32, f64)>, Option<f64>)> = out.iter().filter(|o| o.0 == Landing::CartEmpty).map(|o| (o.1, o.2, o.3)).collect();
+    pin(5, empty.len() == 5 && empty.iter().all(|(_, rest, hp)| rest.is_some_and(|(_, y)| (y - Y0 as f64 - 0.0625).abs() < 1e-3) && *hp == Some(20.0)), format!("(5) onto an EMPTY cart the falling cart ends on the rail (y + 0.0625) and its rider at 20 at every height: {empty:?}"))?;
+    println!("  every known answer held (asserts 1..5)");
     Ok(())
 }
