@@ -7745,22 +7745,19 @@ pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[
             format!("TOP SURFACE (judged): {}", verdict(hit_out))
         } else if design.contains(q) {
             let above = q.above();
-            format!(
-                "a design block ({}): no spawn space of its own (the static judges the cell above it, {},{},{}: {})",
-                w.get(*q).to_string().trim_start_matches("minecraft:"),
-                above.x,
-                above.y,
-                above.z,
-                if inner.contains(&above) {
-                    "an interior cell"
-                } else if tops.contains(&above) {
-                    "a top-surface cell"
-                } else if design.contains(&above) {
-                    "a design block too"
-                } else {
-                    "not judged"
-                }
-            )
+            // (G1 Nov 14 08:01, part 59) the cell above a design block is a design block, an interior cell or a top
+            // surface cell BY CONSTRUCTION (`tops` holds every design block's above cell that is neither of the
+            // first two): any other reading is a broken invariant and refuses the run, never a silent label
+            let kind = if inner.contains(&above) {
+                "an interior cell"
+            } else if tops.contains(&above) {
+                "a top-surface cell"
+            } else if design.contains(&above) {
+                "a design block too"
+            } else {
+                return Err(format!("the spawn static: the cell above the design block {},{},{} ({},{},{}) is neither a design block, an interior cell nor a top-surface cell: a broken invariant (G1 Nov 14 08:01)", q.x, q.y, q.z, above.x, above.y, above.z));
+            };
+            format!("a design block ({}): no spawn space of its own (the static judges the cell above it, {},{},{}: {kind})", w.get(*q).to_string().trim_start_matches("minecraft:"), above.x, above.y, above.z)
         } else {
             q_bad += 1;
             "neither an interior cell nor over a design block: NOT JUDGED (FAIL)".to_string()
@@ -12362,6 +12359,13 @@ mod gate_tests {
         // the same from the locked repeater's side: power-into names the lock, counts no source
         let (lli, nli) = super::power_into(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(nli == 0 && lli[0].contains("LOCKED (not power) by repeater[delay=1,facing=south") && lli[0].contains("(a side diode pointing in)"), "power-into names the lock: {lli:?}");
+        // (G1 Nov 14 08:01 non-blocking, part 59) the twin: a side repeater pointing AWAY (facing=north: its input
+        // north, its output south, away from 2,1,2) neither locks nor powers it, from either end
+        let away = p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
+        let (lai, nai) = super::power_into(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), away)]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nai == 0 && !lai[0].contains("LOCK"), "a side diode pointing away, into: {lai:?}");
+        let (lao, nao) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), away)]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nao == 0 && !lao[0].contains("LOCK") && !lao[0].contains("at 2,1,2"), "a side diode pointing away, out: {lao:?}");
         // a powered stone (a lever on it) at a repeater's side feeds nothing
         let (lps, nps) = super::power_into(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), p("minecraft:stone")), (b(2, 1, 4), p("minecraft:lever[face=wall,facing=south,powered=false]"))]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(nps == 0, "a powered stone at a repeater's side: {lps:?}");
@@ -13085,6 +13089,17 @@ mod gate_tests {
         assert!(cell_line("2,5,2").len() == 1 && cell_line("2,5,2")[0].contains("TOP SURFACE (judged): SPAWNABLE ("), "the roof's top (just over the box, judged), once: {lq:?}");
         assert!(cell_line("0,2,2").first().is_some_and(|x| x.contains("a design block (stone): no spawn space of its own (the static judges the cell above it, 0,3,2: a design block too)")), "a wall block: {lq:?}");
         assert!(qbad == 1 && cell_line("9,9,9").first().is_some_and(|x| x.contains("outside the design's box 0,0,0..4,4,4: NOT JUDGED (FAIL)")), "off the box: {lq:?}");
+        // (G1 Nov 14 08:01, part 59) every design block's query names one of the three kinds above it (the
+        // invariant the refusal guards), and an in-box air cell outside the room over no design block FAILS as NOT
+        // JUDGED: the room plus a lone stone at (6,0,0) grows the box to x 6; (5,2,2) is over nothing
+        let mut wide = room("minecraft:stone");
+        wide.blocks.push((b(6, 0, 0), p("minecraft:stone")));
+        wide.hi = b(6, 4, 4);
+        let all: Vec<_> = wide.blocks.iter().filter(|(_, bl)| !bl.is_air()).map(|(q, _)| *q).collect();
+        let (lw, _, _, wbad) = super::spawn_static_q(&wide, "minecraft:plains", true, &[all.clone(), vec![b(5, 2, 2)]].concat()).unwrap_or_else(|e| panic!("{e}"));
+        let design_lines = lw.iter().filter(|x| x.contains(": a design block (")).count();
+        assert!(design_lines == all.len() && lw.iter().filter(|x| x.contains(": a design block (")).all(|x| x.contains(": an interior cell)") || x.contains(": a top-surface cell)") || x.contains(": a design block too)")), "each design block's above kind: {lw:?}");
+        assert!(wbad == 1 && lw.iter().any(|x| x.starts_with("  CELL 5,2,2: neither an interior cell nor over a design block: NOT JUDGED (FAIL)")), "an in-box cell over nothing: {wbad} {lw:?}");
         let mut lit_room = room("minecraft:stone");
         lit_room.blocks.retain(|(q, _)| *q != b(1, 1, 1));
         lit_room.blocks.push((b(1, 1, 1), redsim::block::Block::parse("minecraft:torch").unwrap()));
