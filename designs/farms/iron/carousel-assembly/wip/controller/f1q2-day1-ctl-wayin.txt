@@ -147,6 +147,9 @@
 9,26,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
 9,25,-1 minecraft:glass
 9,26,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+## a STONE above (9,26,-1): it cuts the diagonal between this line and HOLD OPEN's (9,27,0) (a dust reads a dust one
+## up and one over unless a conductor sits above the lower one; the first drive showed Q holding H2 open through it)
+9,27,-1 minecraft:stone
 8,25,-1 minecraft:glass
 8,26,-1 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
 #
