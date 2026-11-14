@@ -3353,7 +3353,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 return Err(format!("--release-home-at {t}: the bed's free tickets are {free:?}, not 1: the free-ticket case needs the ticket free (the taken case is --erase-home-at)"));
             }
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).home = None;
-            redsim::entity::mob::ai::brain::ex_mut(&mut run.world, vi).mem.cant_reach_since = Some(t);
+            // (the stamp in world time, as redsim's release writes it)
+            let now = run.world.time;
+            redsim::entity::mob::ai::brain::ex_mut(&mut run.world, vi).mem.cant_reach_since = Some(now);
             row.release_home = Some(t);
             println!("t {t}: the planted stamp release (ironspec 16:35, the self-heal): the napper's HOME erased, a fresh CANT_REACH stamp, the bed's ticket free ({free:?})");
         }
@@ -6080,7 +6082,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             failed.push(format!("{clear_never} wakes whose NEAREST_HOSTILE never cleared after the window's close"));
         }
         if delta_ruled > i64::MIN {
-            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", base.close_after.max(1), -delta_ruled);
+            let terms = if base.adopted.is_some() { "the adopted controller's close and park".to_string() } else if base.latch.is_some() { "(superseded latch, before 15:37) its close and release".to_string() } else { format!("the stand-ins' release (--release-after {release_after}) and close (--close-after {})", base.close_after.max(1)) };
+            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake; ironspec 16:09's bar: a margin >= 13): {terms} leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", -delta_ruled);
             // (ironspec 16:09: on the adopted wiring (the shutter closing at the wake press, the park
             // at RLS + 8) the hold delta's margin is a bar: >= 13 gt)
             if -delta_ruled < 13 {
