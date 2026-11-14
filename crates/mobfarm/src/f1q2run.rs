@@ -171,6 +171,8 @@ pub struct Opts {
     pub positions_at: Vec<i64>,
     /// (G1 16:18 (2)) a fold file and its move whose `# integrity:` line is judged every tick.
     pub integrity_from: Option<(std::path::PathBuf, [i32; 3])>,
+    /// (ironspec 16:50 (3)) every villager's VILLAGER_HOSTILES scan phase forced to this value mod 20.
+    pub force_hostile_phase: Option<i64>,
     /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
     pub nap_lane_control: bool,
     /// (G1 14:21's control) the old defect restored: each K write's cell from nap_lane at fire time.
@@ -3919,6 +3921,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let villagers = |w: &redsim::world::World| -> Vec<u32> { w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager))).map(|e| e.id).collect() };
     for (k, id) in villagers(&run.world).into_iter().enumerate() {
         let i = redsim::entity::index_of(&run.world, id).ok_or("a villager vanished")?;
+        // (ironspec 16:50 (3)) --force-hostile-phase P: every villager's VILLAGER_HOSTILES scan phase set
+        // to P mod 20 (its timeToTick so that now + timeToTick = P mod 20): the forced-phase runs
+        if let Some(p) = o.force_hostile_phase {
+            let now = run.world.time;
+            let ttt = (p - now).rem_euclid(20);
+            redsim::entity::mob::ai::brain::brain_mut(&mut run.world, i).sensors[5] = if ttt == 0 { 20 } else { ttt };
+        }
         let e = &run.world.entities.list[i];
         let b = redsim::entity::mob::ai::brain::brain(&run.world, i);
         let home = b.home.map(|h| [h.x, h.y, h.z]);
