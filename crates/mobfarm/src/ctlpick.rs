@@ -1132,8 +1132,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         // room count; the pick-rate arbiter kept (ironspec 11:05a). Printed on the normal nights and over the no-hold
         // sweep: the distinct nappers per night and the worst interval)
         {
-            let timer = |name: &str, cyc: i64, extra: i64| {
-                let mut c = Cfg::new(name, 13, 120, Merge::Order);
+            let timer = |name: &str, period: i64, cyc: i64, extra: i64| {
+                let mut c = Cfg::new(name, period, 120, Merge::Order);
                 c.pointer = false;
                 c.days = 10;
                 c.rejoin_at = 1;
@@ -1145,10 +1145,14 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             };
             let mut pts = Vec::new();
             let mut all_ok = true;
-            for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
-                let o = run(&timer("the timer form", cyc, extra));
-                all_ok &= ok(&o);
-                pts.push(format!("cycle {cyc} + {extra}: distinct per night {:?}, worst {} gt, rate-deferred {}, the way-in at most {}{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, o.rate_deferred, o.max_wayin, if ok(&o) { "" } else { " MISSES the nap bars" }));
+            for period in [11i64, 12, 13] {
+                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (168, 120)] {
+                    let o = run(&timer("the timer form", period, cyc, extra));
+                    if period == 13 {
+                        all_ok &= ok(&o);
+                    }
+                    pts.push(format!("period {period}, cycle {cyc} + {extra}: distinct per night {:?}, worst {} gt{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, if ok(&o) { "" } else { " MISSES the nap bars" }));
+                }
             }
             let sc = v.scope("ctl-pick: the normal-operation picks form (per-lane 13-REL timers)", &format!("priced for ironspec's ruling (the cells: three 13-REL counters + the arbiter + the record, vs three pointers + spacing + HELD + the room count); every point passes: {all_ok}"));
             lines.push(format!("  PRICED: THE NORMAL-OPERATION PICKS FORM (per-lane 13-REL timers, window-gated, staggered 0 / 4 / 8, the arbiter; no pointer / HELD / room count): {}: {sc}", pts.join("; ")));

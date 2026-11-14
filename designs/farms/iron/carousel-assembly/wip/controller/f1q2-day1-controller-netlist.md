@@ -103,9 +103,10 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.t
 - THE STATION's D LINES: lanes -1 / 3 from F′'s taps into (1,-1,5) / (5,-1,5) (a solid conductor read from below by dust,
   the line going north at y -2, off A4's glass and torch faces and the napper lift's water glass); lane 7 from (7,0,2).
   Pending dfb89499's original-station run (if A6 is stripped, the D lines read the original station's D).
-- THE STOP's LINES: the slope hold's `repeater[facing=north]` (1,-29,3) on glass (1,-30,3) into the slime (1,-29,4); the
-  park drive's input (3,-27,3) into the slime (2,-27,3); DAY's line end into R1's repeater (5,-12,-2); NOT-ready
-  (8,-14,-5).
+- THE STOP's LINES (V's loop frame: the (b+) way-in file's module-frame cells + (0,+7,0), V's stop sitting at local +
+  (0,-20,-1); vcompose confirms): the slope hold's `repeater[facing=north]` (1,-22,3) on glass (1,-23,3) into the slime
+  (1,-22,4) under the slope hold (1,-21,4); the park drive's input (3,-20,3) into the slime (2,-20,3); DAY's line end into
+  R1's repeater (5,-12,-2); NOT-ready (8,-14,-5).
 - Normal rows: each line's delay from its tap to its target printed against the interface's timing; world reloads at
   every phase of each pulse.
 
