@@ -717,7 +717,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         tick_rate: 1000,
         keep_dir: true,
         world,
-        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}{}{}", jar.display(), if push_window.is_some() { ",+push" } else { "" }, if move_window.is_some() { ",+move" } else { "" }))),
+        java_agent: Some(std::path::PathBuf::from(format!(
+            "{}={MEMS}{}{}",
+            jar.display(),
+            if push_window.is_some() { ",+push" } else { "" },
+            if move_window.is_some() { ",+move" } else { "" }
+        ))),
         ..Default::default()
     };
     let mut srv = VanillaServer::start(&opts(None))?;
@@ -1658,15 +1663,24 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 if vs[vi].phase.is_none() {
                     vs[vi].phase = Some(t % 20);
                 }
-                if night_log.is_some() && !vs[vi].hostile {
+                let what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
+                // (cc767b78 17:45) every set that names a different hostile (a new set or a change), with its id,
+                // type, place, the distance from the villager and the villager's place
+                let who = |w: &str| w.split(", l=").next().unwrap_or(w).to_string();
+                if night_log.is_some() && (!vs[vi].hostile || who(&what) != who(&vs[vi].hostile_what)) {
                     let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
-                    let what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
+                    let num = |k: &str| what.split(&format!("{k}=")).nth(1).and_then(|s| s.split([',', ']']).next()).and_then(|s| s.trim().parse::<f64>().ok());
+                    let d = match (at, num("x"), num("y"), num("z")) {
+                        (Some(p), Some(x), Some(y), Some(z)) => format!("{:.3}", ((p[0] - x).powi(2) + (p[1] + DY as f64 - y).powi(2) + (p[2] - z).powi(2)).sqrt()),
+                        _ => "?".into(),
+                    };
+                    let kind = if vs[vi].hostile { "change" } else { "set" };
                     if let Some(log) = night_log.as_mut() {
-                        log.push(format!("t{t} {tag} HOSTILE set ({what}) at {} in {} (scan phase {})", fmt_pos(at), vs[vi].activity, t % 20));
+                        log.push(format!("t{t} {tag} HOSTILE {kind} ({what}) distance {d} at {} in {} (scan phase {})", fmt_pos(at), vs[vi].activity, t % 20));
                     }
                 }
                 vs[vi].hostile = true;
-                vs[vi].hostile_what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
+                vs[vi].hostile_what = what;
             } else if l.starts_with("erase minecraft:nearest_hostile") {
                 if vs[vi].phase.is_none() {
                     vs[vi].phase = Some(t % 20);
@@ -2183,7 +2197,11 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     }
     if let (Some(log), Ok(path)) = (night_log.as_mut(), std::env::var("MCTAS_REPLAY_EVENTS_FILE")) {
         for v in &vs {
-            log.push(format!("{} sensor phase (the first hostile-sensor line's tick mod 20): {}", v.tag, v.phase.map(|p| p.to_string()).unwrap_or_else(|| "- (no sensor line)".into())));
+            log.push(format!(
+                "{} sensor phase (tick mod 20): hostiles {} (the living-entity sensor's phase is not printed: its writes don't reach the brain agent)",
+                v.tag,
+                v.phase.map(|p| p.to_string()).unwrap_or_else(|| "- (no sensor line)".into())
+            ));
         }
         std::fs::write(&path, log.join("\n") + "\n")?;
         println!("  hostile sets / clears, stamp clears with places, PANIC periods' attempts, sensor phases: {} lines -> {path}", log.len());
