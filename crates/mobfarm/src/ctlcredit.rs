@@ -69,11 +69,14 @@ pub const RETURN: i64 = 8;
 pub const PRESS_W: i64 = 4;
 /// THE RING RESET (G10, ironspec 19:45 (1)): REL + 75, a 4-gt pulse.
 pub const RING_X: i64 = 72;
-/// ironspec 02:16 (3), ACCEPTED (day-1 02:15's cause fix): SEEN3_OLD samples SEEN3 at its OWN tap REL + 80: on THE
-/// REFERENCE TIMING ROW (entities frozen 3 gt with redstone running, +-2 on the pocket releases, the resync net off) the
-/// window is + 78..+ 82 (re-centred from + 79 by the timing rule); X = + 72 sampled just before a faulted batch's late
+/// ironspec 02:16 (3), PROVISIONAL (G1 CHANGES 7 on 8d3c3c190 (1); train 16 re-sweeps it: + 81..+ 82 at 0 / 17 / 27 +
+/// napper 7, ironspec 05:03 (5) not final): SEEN3_OLD samples SEEN3 at its OWN tap REL + 80: on THE REFERENCE TIMING ROW
+/// (entities frozen 3 gt with redstone running, +-2 on the pocket releases, the resync net off) the window is
+/// S3OLD_WIN (+ 78..+ 82, judged per tap; + 77 / + 83 fail by name); X = + 72 sampled just before a faulted batch's late
 /// D(3) set SEEN3.
 pub const S3OLD_TAP: i64 = 80;
+/// The tap's judged window on the reference timing row (one state source for its bars, its controls and labels).
+pub const S3OLD_WIN: (i64, i64) = (78, 82);
 /// ironspec 02:16 (3) / 02:33 (5) / 04:30 (1), G1 CHANGES 6 on 1207053e2 C4: THE ONE-CREDIT-PER-BATCH GUARD: a pulse
 /// extender on EVERY credit pulse inhibiting D(7)'s credit line for DM1_BLOCK7 gt: on THE REFERENCE TIMING ROW WITH THE
 /// NAPPERS' D PRESSES IN IT, every would-be duplicate (its batch already credited, judged on the guard-off twin) lands at
@@ -175,6 +178,11 @@ pub struct Row {
     pub resync_net: bool,
     /// THE CLAIM CAP's candidate (a credit with no open claim, RELs issued minus credits made, is refused).
     pub claims_cap: bool,
+    /// THE STORE's PHYSICAL CAP (day-1 06:12), WITHDRAWN (G1 CHANGES 9 on 0474ed466 (2)): a credit finding the store at
+    /// HOPPER0 items stays in the dropper; but in steady state the store holds 1-2 items, so a gain lands BELOW the cap and
+    /// is accepted (it can answer a claim early), and the cap refuses only at a drain (a legitimate credit then): it bounds
+    /// nothing in running. A variant, off by default.
+    pub store_cap: bool,
     /// THE LANES MODEL (the (b') positive control): each lane's carts (None: off); a cart comes back to its lane's queue
     /// LANE_CYCLE - `lane_slack` gt after its batch's release; REL needs every lane's slot-1 cart.
     pub lane_carts: Option<[i64; 3]>,
@@ -225,7 +233,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: false, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, store_cap: false, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -282,6 +290,8 @@ pub struct Defects {
     /// The net's trigger WITH a quiet-route condition (a variant: it never fires on the reduced-rate store, whose route
     /// never goes quiet for ITEMS_QUIET; printed, not the design).
     pub net_quiet: bool,
+    /// The REMOVED count reset (zeroing the in-flight count on a quiet route): the long-halt rows' control.
+    pub quiet_reset: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -320,6 +330,8 @@ pub struct Out {
     pub flight_resets: Vec<(i64, i64)>,
     /// Credits THE CLAIM CAP refused (their ticks).
     pub claim_refused: Vec<i64>,
+    /// Credits THE STORE's PHYSICAL CAP refused (tick, the pressing batch, the credited batch).
+    pub cap_refused: Vec<(i64, usize, usize)>,
     /// THE LANES MODEL: each REL wait for a lane's slot-1 cart (the tick, every lane's queue depth); every REL's depths.
     pub lane_waits: Vec<(i64, [i64; 3])>,
     pub rel_depth: Vec<[i64; 3]>,
@@ -634,7 +646,14 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     o.dropped.push(b);
                     continue;
                 }
-                if dropper > 0 {
+                if dropper > 0 && row.store_cap && items >= HOPPER0 {
+                    // (THE STORE's PHYSICAL CAP (day-1 06:12, G1 06:10: a single fault's gain must not stay for good):
+                    // non-stackable credit items in a hopper with exactly HOPPER0 free slots: a credit finding the store
+                    // full stays in the dropper (refused); the invariant hopper items + batches in flight = HOPPER0 means
+                    // a legitimate credit never meets a full store, and a gain is refused the first time the store would
+                    // exceed it)
+                    o.cap_refused.push((t, b, src));
+                } else if dropper > 0 {
                     dropper -= 1;
                     o.credit_level.push(items);
                     if items == 0 {
@@ -810,12 +829,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // a cart short). A quiet-route condition on the trigger was tried and dropped: the reduced-rate store's route never
         // goes quiet for ITEMS_QUIET (a batch lands every ~190 gt), so the net never fired on the true-lost rows (`net_quiet`)
         let route_quiet = t - last_route_ev >= ITEMS_QUIET;
+        // (the REMOVED count reset, kept only as the long-halt rows' control: zeroing the count on a quiet route)
+        if def.quiet_reset && route_quiet && flight > 0 {
+            o.flight_resets.push((t, flight));
+            flight = 0;
+        }
         // (THE RESYNC NET, ITS ITEM FORM (day-1 04:06, G1 04:08b / CHANGES 7 C1): the trigger is read from CART EVENTS, never
         // from the model's plant lists: the in-flight ITEMS (REL adds 3; each lane-entry D press removes one, gated by the
-        // same K masks as every other D(l) output; a cart passing every J, the leg, removes one); REL waiting for a credit
-        // (no halt: `due` needs the holds) with NO cart in flight (items <= 0) AND THE ROUTE QUIET (no cart at a J and no D
-        // press for ITEMS_QUIET gt) can never be answered: ONE credit is minted per such wait (a missed press leaves an
-        // item: the net stays off, the fail-safe direction; an extra press removes one: it fires only on a quiet route)
+        // same K masks as every other D(l) output; a cart passing every J, at the resolver's through branch, removes one);
+        // REL waiting for a credit (no halt: `due` needs the holds) with NO item in flight (items <= 0) can never be
+        // answered: ONE credit is minted per such wait (a missed press leaves an item: the net stays off, the fail-safe
+        // direction; an extra press removes one: the net fires one wait early, the store's physical cap refusing any
+        // surplus; the route-quiet condition only in the `net_quiet` variant)
         if row.resync_net && rel_waiting && !net_fired && flight <= 0 && (!def.net_quiet || route_quiet) && (!row.claims_cap || claims > 0) {
             dispense.push((t + NET_LAT, NET_SRC, NET_SRC));
             o.net_fires.push(t);
@@ -1896,6 +1921,9 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                     r.s3old_tap = Some(tap);
                     r.open = Some((t0, 0, 3));
                     r.resync_net = false;
+                    // (G1 CHANGES 7 on 8d3c3c190 (2): the tap's own window runs with the claim cap OFF: a gain it would
+                    // refuse must show here)
+                    r.claims_cap = false;
                     for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
                         r.late.push((b, s, sg(i as u32)));
                     }
@@ -1932,13 +1960,67 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             }
         }
     }
+    // (G1 CHANGES 7 on 8d3c3c190 (1) / CHANGES 9 on 0474ed466 (5)(7): THE TAP's WINDOW JUDGED, PROVISIONAL, from one state
+    // source (S3OLD_WIN): a bar per tap in the window (the design tap on every other open, the rest on a third), controls
+    // at one tap outside each end FAILING BY NAME (a per-batch ledger kind), one predicate (the per-batch ledger, the net
+    // off, the claim and store caps off); with the net ON the window's taps keep the store correct (a sixth of the opens;
+    // the taps outside it printed with their failing counts))
     let mut edges = Vec::new();
-    for tap in [S3OLD_TAP - 3, S3OLD_TAP - 2, S3OLD_TAP + 2, S3OLD_TAP + 3] {
+    for tap in S3OLD_WIN.0..=S3OLD_WIN.1 {
+        if tap == S3OLD_TAP {
+            continue;
+        }
         let (nn, b, _) = sweep(tap, 6, &mut GuardRec::default());
-        edges.push(format!("+ {tap}: {b} of {nn} runs changing the store"));
+        let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's tap at REL + {tap} (PROVISIONAL; the window {}..{} on the reference timing row, a third of the opens, the net off): the store exact per batch", S3OLD_WIN.0, S3OLD_WIN.1), nn, b == 0);
+        edges.push(format!("+ {tap}: {b} of {nn} runs changing the store: {w}"));
     }
-    let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (the credit's cause fix, ironspec 02:16 (3)) keeps the store exact per batch (the resync net off) on every formerly-losing late row, the missing rows, the gain rows and the normal run ON THE REFERENCE TIMING ROW (entities frozen 3 gt with redstone running at every other tick of REL_6 + 0..114; +-2 on batch 5's carts and batch 6's lane -1 cart, every sign)"), n, bad == 0);
-    lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP}, on the reference timing row: {n} runs, {bad} changing the store{}; the window's edges (a third of the opens): {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join(", ")));
+    for tap in [S3OLD_WIN.0 - 1, S3OLD_WIN.1 + 1] {
+        let (nn, b, ex) = sweep(tap, 6, &mut GuardRec::default());
+        let named = ex.iter().any(|e| e.contains("A BATCH NEVER CREDITED") || e.contains("A CREDIT GAINED") || e.contains("A BATCH CREDITED TWICE") || e.contains("A REL NEVER ANSWERED"));
+        let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (1) / CHANGES 9 (5)(b)): SEEN3_OLD's tap at REL + {tap}, outside the window: a per-batch ledger kind BY NAME on the reference row"), 1, b > 0 && named).to_string();
+        edges.push(format!("+ {tap} (control): {b} of {nn} runs changing the store (e.g. {}): {c}", ex.first().cloned().unwrap_or_default()));
+    }
+    {
+        let (mut nn_win, mut bad_net_win, mut bad_win_n, mut per_tap) = (0usize, Vec::new(), 0usize, Vec::new());
+        let inw = |tap: i64| tap >= S3OLD_WIN.0 && tap <= S3OLD_WIN.1;
+        for tap in S3OLD_WIN.0 - 4..=S3OLD_WIN.1 + 2 {
+            let mut bad_tap = 0usize;
+            for (name, r0) in &rows {
+                for vv in 0..16u32 {
+                    let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                    for t0 in (606..=720).step_by(12) {
+                        let mut r = r0.clone();
+                        r.s3old_tap = Some(tap);
+                        r.open = Some((t0, 0, 3));
+                        r.claims_cap = false;
+                        for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
+                            r.late.push((b, s, sg(i as u32)));
+                        }
+                        let bad = !store_correct_bars(&run(&r, Defects::default())).is_empty();
+                        if inw(tap) {
+                            nn_win += 1;
+                            if bad {
+                                bad_win_n += 1;
+                                if bad_net_win.len() < 3 {
+                                    bad_net_win.push(format!("+ {tap}, {name}, signs {vv:04b}, open REL_6 + {}", t0 - 606));
+                                }
+                            }
+                        }
+                        if bad {
+                            bad_tap += 1;
+                        }
+                    }
+                }
+            }
+            if !inw(tap) {
+                per_tap.push(format!("+ {tap}: {bad_tap}"));
+            }
+        }
+        let w = v.bar_n(&format!("ctl-credit: WITH THE RESYNC NET ON (its item form), every SEEN3_OLD tap in the window REL + {}..{} keeps THE STORE CORRECT on the reference timing row (a sixth of the opens; the claim and store caps off; the taps outside the window printed with their failing counts: a lost cart's item keeps the net off there)", S3OLD_WIN.0, S3OLD_WIN.1), nn_win, bad_net_win.is_empty());
+        edges.push(format!("the net on: the window {}..{}: {nn_win} runs, {bad_win_n} failing{}; outside it (failing runs): {}: {w}", S3OLD_WIN.0, S3OLD_WIN.1, if bad_net_win.is_empty() { String::new() } else { format!(" ({})", bad_net_win.join(" | ")) }, per_tap.join(", ")));
+    }
+    let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (PROVISIONAL: train 16 re-sweeps it; the credit's cause fix, ironspec 02:16 (3)) keeps the store exact per batch (the resync net off) on every formerly-losing late row, the missing rows, the gain rows, the nappers' rows and the normal run ON THE REFERENCE TIMING ROW (entities frozen 3 gt with redstone running at every other tick of REL_6 + 0..114; +-2 on batch 5's carts and batch 6's lane -1 cart, every sign)"), n, bad == 0);
+    lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP} (PROVISIONAL), on the reference timing row: {n} runs, {bad} changing the store{}; the window judged: {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join("; ")));
     // (G1 02:34 (2) / CHANGES 7 C4 / CHANGES 6 on 1207053e2 C4: THE GUARD both ways; EVERY BLOCKED PRESS enters the
     // judgement (a legitimate credit blocked fails by name); THE LATE EDGE judged ON THE GUARD-OFF TWIN: every would-be
     // duplicate's gap after the last credit, blocked or not, must lie inside the window (A DUPLICATE OUTSIDE THE GUARD by
@@ -1949,6 +2031,8 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             for late in 0..=60 {
                 let mut r = Row::normal("guard");
                 r.late = vec![(5, s, late)];
+                // (G1 CHANGES 7 on 8d3c3c190 (3): the guard's edges measured with the claim cap OFF)
+                r.claims_cap = false;
                 v.push((format!("lane {} late {late}", LANES[s]), r));
             }
         }
@@ -1957,6 +2041,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 let mut r = Row::normal("guard napper");
                 r.late = vec![(5, 2, late)];
                 r.napper = vec![(5, lane, late)];
+                r.claims_cap = false;
                 v.push((format!("the lane-7 cart and a lane {} napper both {late} late", LANES[lane]), r));
             }
         }
@@ -1978,6 +2063,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 let mut r = r0.clone();
                 r.open = Some((t0, 0, 3));
                 r.resync_net = false;
+                r.claims_cap = false;
                 for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
                     r.late.push((b, s, sg(i as u32)));
                 }
@@ -2088,21 +2174,23 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     let c = v.control("ctl-credit CONTROL: THE ONE-CREDIT-PER-BATCH GUARD removed: the lane 7 cart 21..25 gt late is credited twice (A BATCH CREDITED TWICE by name on all 5 rows), the store below full at both credits (no cap catches it)", 1, gained == 5).to_string();
     lines.push(format!("  CONTROL (the guard removed): {gained} of 5 rows credited twice: {}: {c}", levels.join(" | ")));
     // (THE CLAIM CAP (day-1 03:44; ironspec 02:06 / 02:10's "the store CAPPED at its legitimate maximum given what's in
-    // flight"): every REL opens a claim and every credit answers one; a credit with no open claim is refused. A CANDIDATE,
-    // OUT OF THE DESIGN until its conditions are met (G1 CHANGES 7 on 8d3c3c190: its resync from the order state, the
-    // hopper's cooldown / lock / persistence validated in redsim, per-run ledger + early-REL bars, refusals printed;
-    // ironspec 03:54 (5)): `claims_cap` is OFF by default and run explicitly here. THE DESIGN's ROW: THE STALLED-THEN-
-    // RECOVERED CART at EVERY stall length 30..400 on every slot: a late D press landing outside every guard window inside
-    // the next batch's SEEN3 credits twice (a gain for good): pinned by name; the candidate's rows beside it)
+    // flight"): every REL opens a claim and every credit answers one; a credit with no open claim is refused. IN THE
+    // DESIGN (ironspec 06:59 (2): it stays; the physical store cap is withdrawn), its conditions still owed (G1 CHANGES 7
+    // on 8d3c3c190 (4)-(7): its resync from the order state, the hopper's cooldown / lock / persistence validated in
+    // redsim, per-run ledger + early-REL bars, refusals printed; ironspec 03:54 (5)). THE STALLED-THEN-RECOVERED CART at
+    // EVERY stall length 30..400 on every slot: the cap refuses the late D press's second credit (no gain); the cap-off
+    // twin gains at the six stall phases BY NAME (the control), each gain's consequence printed)
     {
-        let (mut g_on, mut g_off, mut refused, mut lost) = (Vec::new(), Vec::new(), 0usize, Vec::new());
+        let (mut g_on, mut g_off, mut refused, mut lost, mut ref_rows) = (Vec::new(), Vec::new(), 0usize, Vec::new(), Vec::new());
         for late in 30..=400 {
             for s in 0..3 {
                 let mut r = Row::normal("stall");
                 r.late = vec![(5, s, late)];
-                r.claims_cap = true;
                 let o = run(&r, Defects::default());
                 refused += o.claim_refused.len();
+                if !o.claim_refused.is_empty() {
+                    ref_rows.push(format!("lane {} {late} at t {:?}", LANES[s], o.claim_refused));
+                }
                 let sb = store_correct_bars(&o);
                 if sb.iter().any(|b| b.contains("GAINED")) {
                     g_on.push(format!("lane {} {late}", LANES[s]));
@@ -2114,24 +2202,27 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 r0.claims_cap = false;
                 let o0 = run(&r0, Defects::default());
                 if store_correct_bars(&o0).iter().any(|b| b.contains("GAINED")) {
-                    // (G1 06:00: each gain's CONSEQUENCE: the least REL spacing after it (REL is clocked: an extra credit
-                    // can only remove a later wait, never fire REL under its period) and how the store recovers (no
-                    // mechanism removes a credit: the store stays one over for good))
                     let minp = o0.rels.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(PERIOD);
                     g_off.push(format!("lane {} {late} (the least REL spacing {minp} gt vs the period {PERIOD}; the store one over for good)", LANES[s]));
                 }
             }
         }
-        let w = if g_off.is_empty() {
-            v.bar_n("ctl-credit: THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): the store correct", 3 * 371, true).to_string()
-        } else {
-            v.bar(&format!("ctl-credit: THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): A CREDIT GAINED at {} (the claim cap's case, a candidate)", g_off.join(", ")), false).to_string()
-        };
-        lines.push(format!("  THE STALLED-THEN-RECOVERED CART over every stall 30..400 on every slot (the design): gains at {}: {w}", if g_off.is_empty() { "none".to_string() } else { g_off.join(", ") }));
-        let mut rcap = Row::normal("cap normal");
-        rcap.claims_cap = true;
-        let on = run(&rcap, Defects::default());
-        lines.push(format!("  THE CLAIM CAP (A CANDIDATE, not judged until its conditions are met) over the same stalls: gains {}, losses {}, credits refused {refused}; the normal run refuses {}", if g_on.is_empty() { "none".to_string() } else { g_on.join(", ") }, if lost.is_empty() { "none".to_string() } else { lost.join(", ") }, on.claim_refused.len()));
+        let on = run(&Row::normal("cap normal"), Defects::default());
+        let w = v.bar_n("ctl-credit: THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, the claim cap ON): the store correct (no gain, no loss); the normal run refuses no credit", 3 * 371, g_on.is_empty() && lost.is_empty() && on.claim_refused.is_empty());
+        lines.push(format!("  THE STALLED-THEN-RECOVERED CART over every stall 30..400 on every slot (the claim cap on): gains {}, losses {}, credits refused {refused} (on the rows {}); the normal run refuses {}: {w}", if g_on.is_empty() { "none".to_string() } else { g_on.join(", ") }, if lost.is_empty() { "none".to_string() } else { lost.join(", ") }, ref_rows.join(", "), on.claim_refused.len()));
+        let c = v.control("ctl-credit CONTROL: the claim cap off: the stalled-then-recovered cart gains a credit (A CREDIT GAINED by name) at the stall phases lane 7 135 / 136, lane 3 164 / 165, lane -1 184 / 185", 1, g_off.len() == 6 && ["lane 7 135 ", "lane 7 136 ", "lane 3 164 ", "lane 3 165 ", "lane -1 184 ", "lane -1 185 "].iter().all(|k| g_off.iter().any(|g| g.starts_with(k)))).to_string();
+        lines.push(format!("  CONTROL (the claim cap off): gains at {}: {c}", g_off.join(", ")));
+        // (G1 CHANGES 9 on 0474ed466 (2): WHY THE STORE's PHYSICAL CAP IS WITHDRAWN, printed on the first gain row: the gain
+        // lands with the store below the cap and is accepted; the cap refuses only at the run's drain, a LEGITIMATE credit,
+        // long after the extra credit could answer a claim early)
+        {
+            let mut r = Row::normal("stall, the withdrawn store cap");
+            r.late = vec![(5, 2, 135)];
+            r.store_cap = true;
+            let o = run(&r, Defects::default());
+            let lvl: Vec<String> = o.credits.iter().zip(o.credit_level.iter()).map(|(c, l)| format!("t {} at {l}", c.0)).collect();
+            lines.push(format!("  THE STORE's PHYSICAL CAP (WITHDRAWN, G1 CHANGES 9 (2)) on the stall row lane 7 135: the credits land with the store at [{}]; refused at {:?} (the drain: a legitimate credit), so the gain was accepted below the cap", lvl.join(", "), o.cap_refused));
+        }
     }
     // (THE RESYNC NET (ironspec 02:40 (4) / 02:46 (1), G1 02:44b (1), CHANGES 7 C1): THE PREMISE printed beside its trigger
     // (the batches in flight at each credit wait, a MODEL PRINT, and the ITEM COUNT the net reads); the trigger, the ITEM
@@ -2230,26 +2321,47 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 false_row(format!("A STRAY D({lane}) at t {st} (an extra press: the item count one short)"), r);
             }
         }
-        // (G1 05:14 (a): THE LONG-HALT ROWS for the item count's quiet resync: carts STOPPED MID-ROUTE (a jam in the J(-1) ->
-        // J(3) or J(3) -> J(7) segment by each slot of batch 5) while REL waits, for the whole run: NO MINT (the halt
-        // discriminator: a cart on the row) and no gain; the jammed batches' claims stay open (a halt, not a loss: printed))
+        // (G1 05:14 (a) / CHANGES 4 on bb9bba0c9: THE LONG-HALT ROWS: carts STOPPED MID-ROUTE by a jam while REL waits, for
+        // the whole run. A jam is planted only where the slot's cart PASSES a J without branching (the lane 3 cart in the
+        // split-row -> J(3) segment past J(-1); the lane 7 cart in both segments): the lane -1 cart branches at J(-1) and
+        // passes no J, so it can't be jammed mid-route here. Each plant read back (the jammer is batch 5's slot, piled first);
+        // judged: NO MINT, nothing gained, THE FAIL-STOP (REL stops: no REL in the run's last 1,000 gt), no count reset; the
+        // item count at the end, the pile's size and its last cart printed; the control: the removed quiet reset mints into
+        // the jam by name)
         let mut halt_lines = Vec::new();
         let mut halt_bad = Vec::new();
-        for seg in 0..2usize {
-            for s in 0..3usize {
-                let mut r = Row::normal("net");
-                r.jam = Some((5, s, seg));
-                r.t_max = 5000;
-                let o = run(&r, Defects::default());
-                let sb = store_correct_bars(&o);
-                if !o.net_fires.is_empty() || sb.iter().any(|b| b.contains("GAINED")) {
-                    halt_bad.push(format!("lane {} jam in segment {seg}: mints {:?}, the store [{}]", LANES[s], o.net_fires, sb.join("; ")));
-                }
-                halt_lines.push(format!("lane {} cart jammed in segment {seg}: mints {:?}, quiet resets {:?}, the claims held open [{}]", LANES[s], o.net_fires, o.flight_resets, sb.join("; ")));
+        let jam_rows = [(1usize, 0usize), (2, 0), (2, 1)];
+        let mut ctl_mints = Vec::new();
+        let mut n_stop = 0usize;
+        for (s, seg) in jam_rows {
+            let mut r = Row::normal("net");
+            r.jam = Some((5, s, seg));
+            r.t_max = 5000;
+            let o = run(&r, Defects::default());
+            let sb = store_correct_bars(&o);
+            let planted = o.piled.first() == Some(&(5, Some(s)));
+            let last_rel = o.rels.last().copied().unwrap_or(0);
+            let stopped = last_rel < r.t_max - 1000;
+            let gained = sb.iter().any(|b| b.contains("GAINED") || b.contains("FROM NO BATCH"));
+            // (NO EARLY REL: every REL answered by a real credit or still open (a held claim); a jam past J(3) leaves lanes
+            // -1 / 3 running and their batches credit by the completion: REL goes on, lane 7's carts pile (the degraded
+            // case, printed), the store stays correct; a jam the whole route backs into stops REL (the fail-stop))
+            if !planted || !o.net_fires.is_empty() || gained || !o.flight_resets.is_empty() {
+                halt_bad.push(format!("lane {} jam in segment {seg}: planted {planted}, mints {:?}, count resets {:?}, the store [{}]", LANES[s], o.net_fires, o.flight_resets, sb.join("; ")));
+            }
+            if stopped {
+                n_stop += 1;
+            }
+            halt_lines.push(format!("lane {} cart (batch 5) jammed in segment {seg}: the jammer read back {planted}, {} carts piled (the last {:?}), the last REL t {last_rel} ({}), mints {:?}, the item count at the last wait {:?}, the claims held open [{}]", LANES[s], o.piled.len(), o.piled.last(), if stopped { "FAIL-STOP" } else { "REL goes on: the batches credit by the completion, lane 7's carts pile (degraded)" }, o.net_fires, o.wait_flight.last(), sb.join("; ")));
+            let oc = run(&r, Defects { quiet_reset: true, ..Default::default() });
+            if stopped && !oc.net_fires.is_empty() {
+                ctl_mints.push(format!("lane {} seg {seg}: mints at {:?}", LANES[s], oc.net_fires));
             }
         }
-        let wh = v.bar_n("ctl-credit: THE LONG-HALT ROWS (G1 05:14 (a): carts stopped mid-route by a jam of each slot in each segment, REL waiting to t 5000): the item count's quiet resync never mints (the halt discriminator: a cart on the row) and nothing is gained", 6, halt_bad.is_empty());
-        lines.push(format!("  THE LONG-HALT ROWS: {}: {wh}", halt_lines.join(" | ")));
+        let wh = v.bar_n("ctl-credit: THE LONG-HALT ROWS (G1 05:14 (a) / CHANGES 4 on bb9bba0c9: a cart stopped mid-route by a jam in every segment it passes, REL waiting to t 5000; each plant read back): NO MINT INTO A JAM, nothing gained, no early REL, no count reset (the fail-stop or the degraded case printed per row)", jam_rows.len(), halt_bad.is_empty() && n_stop >= 1);
+        lines.push(format!("  THE LONG-HALT ROWS: {}{}: {wh}", halt_lines.join(" | "), if halt_bad.is_empty() { String::new() } else { format!(" (FAILED: {})", halt_bad.join(" | ")) }));
+        let c = v.control("ctl-credit CONTROL (G1 CHANGES 4 on bb9bba0c9 (4)): the REMOVED quiet count reset restored: the net MINTS INTO THE JAM by name on every fail-stop row", 1, !ctl_mints.is_empty() && ctl_mints.len() == n_stop).to_string();
+        lines.push(format!("  CONTROL (the quiet count reset restored): {}: {c}", if ctl_mints.is_empty() { "no mint".to_string() } else { ctl_mints.join(" | ") }));
         // (G1 CHANGES 6 on 1207053e2 C1(e): THE EXPECTED TRUE RECOVERIES PINNED: exactly the stray D(-1) at t 677..679 (a stray
         // misrouting all of batch 6: a real loss), one fire each; a new true loss in a clean row fails by name)
         let pinned: Vec<String> = (677..=679).map(|st| format!("A STRAY D(-1) at t {st} (an extra press: the item count one short) at [847]")).collect();
@@ -2432,7 +2544,7 @@ fn design_bars(o: &Out, row: &Row, n_min: usize) -> Vec<String> {
         bad.push(format!("the ring out of phase: {}", phase_line(o, row)));
     }
     if !o.pick_diverted.is_empty() {
-        bad.push(format!("picked carts diverted: {}", o.pick_diverted.join("; ")));
+        bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
     }
     if !o.napper_effects.is_empty() {
         bad.push(format!("napper presses not state-neutral: {}", o.napper_effects.join("; ")));
@@ -2526,6 +2638,13 @@ fn kinds_of(bad: &[String]) -> String {
                 "PILED"
             } else if b.contains("A REL MOVED TWO ITEMS") {
                 "TWO-ITEMS"
+            } else if b.contains("THE STORE NOT HEALED WITHIN") {
+                // (G1 CHANGES 8 on 5184136c2 (2): the heal bound's failure has its OWN kind, never OTHER)
+                "HEAL"
+            } else if b.contains("(LEG-ENTRY)") {
+                "LEG-ENTRY"
+            } else if b.contains("PICK-DIVERTED") || b.contains("A PICKED CART DIVERTED") {
+                "PICK-DIVERTED"
             } else if b.contains("hopper reached") || b.contains("fewer than 2 items") || b.contains("moved no item") || b.contains("item total") || b.contains("dry") {
                 "STORE"
             } else if b.contains("only") {
@@ -2555,6 +2674,48 @@ fn cost_line(o: &Out) -> String {
     let pb = ledger_bars(o);
     let (lag, b) = heal_lag(o);
     format!("slips {slips} gt over {long} long periods; per batch [{}]; the heal lag {lag} RELs (claim {b:?}, the normal 1; bar <= {HEAL_N})", if pb.is_empty() { "clean".to_string() } else { pb.join("; ") })
+}
+
+/// G1 CHANGES 8 on 5184136c2 (4): ONE per-tick judgement shared by the stray sweep, the T rows and their controls: the
+/// fault path's adopted bars (`recovery_bars`, the heal bound and a diverted pick included) plus the way-in leg, each
+/// failure classified by `kinds_of` (HEAL, LEG-ENTRY and PICK-DIVERTED their own kinds: no remap folds OTHER into a
+/// pinned kind).
+fn fault_judge(o: &Out, r: &Row, bf: usize) -> (Vec<String>, Vec<String>) {
+    let mut bad = recovery_bars(o, r, bf);
+    if !o.leg_entries.is_empty() {
+        bad.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
+    }
+    if !o.pick_diverted.is_empty() {
+        bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
+    }
+    let kinds = kinds_of(&bad).split(", ").filter(|k| !k.is_empty()).map(|k| k.to_string()).collect();
+    (bad, kinds)
+}
+
+/// G1 CHANGES 8 on 5184136c2 (3): a sweep's COST over its runs: the most slips (gt), the worst heal lag (RELs) and the
+/// claims judged by the heal bound.
+#[derive(Default)]
+struct SweepCost {
+    slips: i64,
+    lag: usize,
+    lag_at: String,
+    claims: usize,
+}
+
+impl SweepCost {
+    fn take(&mut self, o: &Out, label: &str) {
+        self.slips = self.slips.max(o.slips.iter().sum());
+        let (lag, _) = heal_lag(o);
+        if lag > self.lag {
+            self.lag = lag;
+            self.lag_at = label.to_string();
+        }
+        self.claims += o.ledger_exempt.as_ref().map_or(o.rels.len(), |e| e.0).min(o.rels.len());
+    }
+
+    fn text(&self) -> String {
+        format!("the cost: the most slips {} gt, the worst heal lag {} RELs ({}), {} claims judged by the heal bound (<= {HEAL_N})", self.slips, self.lag, if self.lag_at.is_empty() { "-" } else { &self.lag_at }, self.claims)
+    }
 }
 
 /// G1 CHANGES 7 C3: the heal bound: every claim (a REL) answered within HEAL_N RELs of its own (the normal credit lands
@@ -2896,6 +3057,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     for pick in [None, Some(0usize), Some(1), Some(2)] {
         for lane in [-1i32, 3, 7] {
             let mut by_kind: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+            let mut cost = SweepCost::default();
             let mut documented: Vec<i64> = Vec::new();
             let mut ex = String::new();
             // (G1 02:17 (2)(b): the sweep brackets the new SEEN3_OLD tap (REL + 79): REL_6 + 66..120. ironspec 02:45 (3): judged
@@ -2916,19 +3078,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 if o.strays_landed.iter().filter(|s| s.0 == rel6 + d && s.1 == lane).count() != 1 || o.strays_landed.len() != 1 {
                     plant_bad.push(format!("the stray D({lane}) at REL_6 + {d} did not land exactly once ({:?})", o.strays_landed));
                 }
-                let mut bad = recovery_bars(&o, &r, 6);
-                if !o.leg_entries.is_empty() {
-                    bad.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
-                }
-                // (G1 CHANGES 7 C7: a picked cart diverted into a lane under a stray is judged in this sweep too, its own
-                // kind, never hidden by the LEG-ENTRY remap nor counted as OTHER)
-                for k in kinds_of(&bad).split(", ").filter(|k| !k.is_empty()) {
-                    let k = if k == "OTHER" && bad.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else { k };
-                    by_kind.entry(k.to_string()).or_default().push(d);
-                }
-                if !o.pick_diverted.is_empty() {
-                    bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
-                    by_kind.entry("PICK-DIVERTED".to_string()).or_default().push(d);
+                let (bad, kinds) = fault_judge(&o, &r, 6);
+                cost.take(&o, &format!("D({lane}) at REL_6 + {d}"));
+                for k in kinds {
+                    by_kind.entry(k).or_default().push(d);
                 }
                 if o.lane_delta != [0; 3] || !o.misroutes.is_empty() {
                     documented.push(d);
@@ -2948,7 +3101,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             for (k, ds) in &by_kind {
                 marks.push(format!("{k} at + {}: {}", ranges(ds), v.bar(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars: kind {k} at REL_6 + {}", ranges(ds)), false)));
             }
-            lines.push(format!("  THE STRAY SWEEP, D({lane}) at REL_6 + 66..120{batch}: {}; T's documented compression fault (carts moved inside the two batches, repair \"rebalance\") at + {}{}", marks.join("; "), ranges(&documented), if ex.is_empty() { String::new() } else { format!(" (e.g. {ex})") }));
+            lines.push(format!("  THE STRAY SWEEP, D({lane}) at REL_6 + 66..120{batch}: {}; {}; T's documented compression fault (carts moved inside the two batches, repair \"rebalance\") at + {}{}", marks.join("; "), cost.text(), ranges(&documented), if ex.is_empty() { String::new() } else { format!(" (e.g. {ex})") }));
             documented.clear();
         }
     }
@@ -2973,17 +3126,24 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         rp.pick = vec![(5, 0)];
         let op = run(&rp, Defects { no_hold3: true, ..Default::default() });
         control(v, "a PICKED CART DIVERTED (HOLD_3 removed on batch 5's lane -1 pick): the per-kind aggregation adds the PICK-DIVERTED kind", kinds_route(&op).contains(&"PICK-DIVERTED") && kinds_route(&run(&rp, Defects::default())).is_empty(), &op, &rp, &mut lines);
-        // (G1 CHANGES 7 C7: the same control run THROUGH THE STRAY SWEEP's bad list: a stray D(7) at REL_6 + 66 with batch 6
-        // carrying lane -1's picked napper and HOLD_3 removed: the sweep's aggregation reports PICK-DIVERTED)
+        // (G1 CHANGES 7 C7 / CHANGES 8 on 5184136c2 (4): the same control run THROUGH THE SWEEP's OWN JUDGE (`fault_judge`,
+        // the per-tick function the sweep uses) and its per-kind aggregation: a stray D(7) at REL_6 + 66 with batch 6
+        // carrying lane -1's picked napper and HOLD_3 removed: by_kind gets PICK-DIVERTED)
         let mut rs = Row::normal("stray sweep pick control");
         rs.stray = vec![(rel6 + 66, 7)];
         rs.pick = vec![(6, 0)];
         let os = run(&rs, Defects { no_hold3: true, ..Default::default() });
-        let mut bad = recovery_bars(&os, &rs, 6);
-        if !os.pick_diverted.is_empty() {
-            bad.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", os.pick_diverted.join("; ")));
+        let mut by_kind_c: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+        let (_bad_c, kinds_c) = fault_judge(&os, &rs, 6);
+        for k in kinds_c {
+            by_kind_c.entry(k).or_default().push(66);
         }
-        control(v, "the stray sweep's own bad list (G1 CHANGES 7 C7): a stray D(7) at REL_6 + 66 with batch 6's lane -1 pick and HOLD_3 removed: PICK-DIVERTED reported", bad.iter().any(|b| b.contains("PICK-DIVERTED")), &os, &rs, &mut lines);
+        control(v, "the stray sweep's own judge and aggregation (G1 CHANGES 7 C7 / CHANGES 8 (4)): a stray D(7) at REL_6 + 66 with batch 6's lane -1 pick and HOLD_3 removed: by_kind gets PICK-DIVERTED", by_kind_c.contains_key("PICK-DIVERTED"), &os, &rs, &mut lines);
+        // (G1 CHANGES 8 (2)'s control: a heal failure is its OWN kind (HEAL), never OTHER folded into a pinned kind: the
+        // heal bound cut to 0 RELs fails every row by name as HEAL)
+        let (bad_h, _) = fault_judge(&run(&Row::normal("heal kind"), Defects::default()), &Row::normal("heal kind"), 6);
+        let heal_kind = kinds_of(&["THE STORE NOT HEALED WITHIN 0 RELs: claim Some(5) answered after 1 RELs".to_string()]);
+        control(v, "a heal-bound failure classified (G1 CHANGES 8 (2)): THE STORE NOT HEALED is kind HEAL (not OTHER)", heal_kind == "HEAL" && bad_h.is_empty(), &os, &rs, &mut lines);
     }
     // (G1 01:00 / 01:01: THE DELAYED-CART SWEEP: one slot's batch-5 cart late by each of 1..60 gt, each slot, judged PER
     // KIND (r14's chain: J routes by arrival order, so a reorder misroutes); λ_pass per slot = the first misrouting
@@ -3091,16 +3251,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                         if f != 'T' {
                             fold_gap(&o);
                         } else {
-                            let mut tb = recovery_bars(&o, &r, bf);
-                            if !o.leg_entries.is_empty() {
-                                tb.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
-                            }
-                            if !o.pick_diverted.is_empty() {
-                                tb.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
-                            }
-                            for k in kinds_of(&tb).split(", ").filter(|k| !k.is_empty()) {
-                                let k = if k == "OTHER" && tb.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else if k == "OTHER" && tb.iter().any(|b| b.contains("PICK-DIVERTED")) { "PICK-DIVERTED" } else { k };
-                                t_kinds.entry(k.to_string()).or_default().push(late);
+                            let (_tb, kinds) = fault_judge(&o, &r, bf);
+                            for k in kinds {
+                                t_kinds.entry(k).or_default().push(late);
                             }
                         }
                         if o.lane_delta != [0; 3] {
@@ -4243,7 +4396,6 @@ mod tests {
         }
         let fails = v.fails();
         let expected = [
-            ("THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): A CREDIT GAINED at lane 7 135", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind PICK-DIVERTED at REL_6 + 109..120", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
