@@ -1,17 +1,18 @@
-# day-1's controller DRIVE LINES, the first car: LINE A and LINE C's three ends (V rev 3.1, an owner part: loaderlay; day-1's
-# netlist a/1158558780016588, subsystem 4, and its slice of Nov 14 11:34 / 11:36 / 12:13; NORMAL operation only, ironspec
-# 11:20a). V's loop frame, no offset. A diode's `facing` names its INPUT side (26.3 DiodeBlock: it reads pos.relative(FACING)
-# and powers the opposite side).
+# day-1's controller DRIVE LINES (V rev 3.1, an owner part: loaderlay; day-1's netlist a/1158558780016588, subsystem 4, and its
+# slice of Nov 14 11:34 / 11:36 / 12:13; NORMAL operation only, ironspec 11:20a): LINE A, LINE C's three ends, LINE E, the three
+# POCKET DRIVES and LINE B's three in-file ends (ironspec 14:40c / 14:47c / 15:03c: every cell of them owned here). V's loop frame,
+# no offset. A diode's `facing` names its INPUT side (26.3 DiodeBlock: it reads pos.relative(FACING) and powers the opposite side).
 #
 # LINE A, the napper's row hold (9,0,8): powered = the hold releases the napper; a 12-gt pulse whose rise is AT THE HOLD RAIL
 # (9,0,8) at REL + 67. The port (2,-1,8) (the core's REL + 61 tap, dfb89499's core; a declared line-bench stand-in until the
 # core lands) -> repeater[facing=west,delay=1] (3,-1,8) -> dust (4,-1,8), (5,-1,8), (6,-1,8), each east-west only ->
 # repeater[facing=west,delay=1] (7,-1,8) -> LIFT's repeater[facing=west,delay=1] (8,-1,8) (NOT this part's: V rev 2.1's LIFT
 # part f1q2-lift-split-path-a.77b7a74af.txt, md5 8fc997abca1d) -> its strongly powered slime (9,-1,8) -> the hold rail (9,0,8)
-# above it: 6 gt from the port to the rail (line-bench), so the port's rise is due at REL + 61. On glass (3..7,-2,8). As V
-# holds them: (3..7,0,8) air above the line; (4..7,-1,7) glass and (3..7,-1,9) air beside it (nothing a dust connects to).
-# Never touched: the station's slime (3,-1,7) and its torch (3,-2,7) (the slime sits at the first repeater's SIDE, which a
-# repeater doesn't read), the station row's rails (4..8,0,7), everything of LIFT at x >= 8.
+# above it: 6 gt from the port to the rail (line-bench), so the port's rise is due at REL + 61. On glass (3..7,-2,8), and the
+# port's stand-in lever (`napper-hold`, owner LINES, vcompose 14:48) on this part's glass (2,-2,8). As V holds them: (3..7,0,8)
+# air above the line; (4..7,-1,7) glass and (3..7,-1,9) air beside it (nothing a dust connects to). Never touched: the station's
+# slime (3,-1,7) and its torch (3,-2,7) (the slime sits at the first repeater's SIDE, which a repeater doesn't read), the station
+# row's rails (4..8,0,7), everything of LIFT at x >= 8.
 #
 # LINE C, the station's slot releases, lanes x = -1 / 3 / 7: powered = release that lane's slot cart; a 12-gt pulse whose rise
 # is at R_1 (x,17,1) at REL + 0 / 17 / 27. Per lane (day-1 12:13: the same for all three lanes): the core's line arrives at
@@ -22,11 +23,52 @@
 # -> R_1 (x,17,1): 4 gt from the port to R_1, so the port's rise is due at REL + k - 4. (A repeater end reading (x+3,17,1) was
 # dropped: lane 7's (10,17,1) is outside the module's x -6..9 box and lanes -1 / 3's (2,17,1) / (6,17,1) touch the next lane's
 # R_1.) Never touched: R_1 (x,17,1), the slot-1 presence strings over R_1 ((x-1..x+1,18,1) and their glass), the holds'
-# trapdoors (x,16,0).
-# THE PORTS' STAND-INS (G1 Nov 14 14:13 (2)[2], ironspec 14:46p (2): the `r-line:-1/3/7` roles are owned by LINES): until the
-# core's lines land, each port (x+2,17,-1) holds an `emulated:` floor lever (declared, not laid) on this part's glass
-# (x+2,16,-1), driving the arrival repeater (x+2,17,0) as the core's REL + k - 4 tap will; the glass stays for the core's line.
+# trapdoors (x,16,0). THE PORTS' STAND-INS (G1 Nov 14 14:13 (2)[2], ironspec 14:46p (2): the `r-line:-1/3/7` roles are owned
+# by LINES): until the core's lines land, each port (x+2,17,-1) holds an `emulated:` floor lever (declared, not laid) on this
+# part's glass (x+2,16,-1), driving the arrival repeater (x+2,17,0) as the core's REL + k - 4 tap will.
+#
+# LINE E, lane 7's braked slope (-4,12,7) (day-1 14:07 / 14:25, ironspec 14:46p (1)): the rail powered REL + 96 .. REL + 113
+# (18 gt; the module rows' --hold-release 95 --hold-width 18). The port (-4,12,4) (the core's REL + 92 tap; its stand-in lever
+# `slope-release:7` on this part's glass (-4,11,4)) -> repeater[facing=north,delay=1] (-4,12,5) on glass (-4,11,5) ->
+# repeater[facing=north,delay=1] (-4,12,6) on glass (-4,11,6) -> the slope's powered rail (-4,12,7): 4 gt from the port to the
+# rail (line-bench), so the port's rise is due at REL + 92. Never touched: the slope (-4,12,7), the lift wall's glass
+# (-4,13,6) / (-5,12,6), the sign (-4,13,7).
+#
+# THE POCKET DRIVES, lanes -1 / 3 / 7 (ironspec 14:40c (1) / 15:03c: the route cells LINES adopts; their inputs are cc767b78's
+# grants, each a LEVEL rising ~REL + 94..96 and held ~190 gt, which covers the lane's pop at the next REL + 0 / 17 / 27): each
+# ends in its riser dust (x-2,0,0) feeding F''s station repeater (x-1,0,0) facing west into the lane's pocket rail (x,0,0) (the
+# repeaters and rails NOT this part's).
+# - lane -1: the INTERFACE dust (-5,-1,0), east-west, on glass (-5,-2,0), where cc767b78's GRANT_-1 route (its L dust (-6,-1,0)
+#   and its glass, its cells) meets it from the west (the seam agreed, cc767b78 14:40; strength 7 there, 6 at the interface) ->
+#   the step dust (-4,-1,0) on glass (-4,-2,0), climbing east -> the riser (-3,0,0) on glass (-3,-1,0) -> (-2,0,0).
+# - lane 3 (cc767b78 14:41: GRANT_3 arrives as a strongly powered stone node (0,-2,-2), its cell): repeater[facing=north,delay=1]
+#   (0,-2,-1) on glass (0,-3,-1), reading the node -> the STONE (0,-2,0), strongly powered -> the step dust (0,-1,0) on it,
+#   climbing east -> the riser (1,0,0) on glass (1,-1,0) -> (2,0,0). (R3's run dust (0,-1,-1) is gone: (0,-1,-2) is cc767b78's
+#   plain stone.)
+# - lane 7 (cc767b78 14:42: GRANT_7's stone node (4,-1,-2), its cell, strongly powered from the north): the run dust (4,-1,-1)
+#   north-south on glass (4,-2,-1) -> the step (4,-1,0) on glass (4,-2,0), climbing east -> the riser (5,0,0) on glass (5,-1,0)
+#   -> (6,0,0).
+# No stand-in of this part sits in cc767b78's cells: its benches feed each drive with a `--set` source there, never declared.
+#
+# LINE B's IN-FILE ENDS, the S-bend's napper holds R(x-2,24,7) (ironspec 14:47c (1) / 15:03c; the netlist's delay(x) = REL' + 165
+# + 4 - travel(x); upstream drives as declared stand-ins until line B lands):
+# - lane -1: from its stand-in (-5,22,9) (`r-hold:-1`) -> repeater[facing=west,delay=3] (-4,22,9) on glass (-4,21,9) -> the slime
+#   (-3,22,9) -> the dust (-3,23,9) north-south on it -> repeater[facing=south] (-3,23,8) on glass (-3,22,8) -> the slime
+#   (-3,23,7) under R (-3,24,7).
+# - lane 3: from its stand-in (3,22,9) (`r-hold:3`) -> repeater[facing=east,delay=1] (2,22,9) on glass (2,21,9) (the reserved
+#   R-feed repeater, laid here) -> the slime (1,22,9) -> the dust (1,23,9) -> repeater[facing=south] (1,23,8) on glass (1,22,8) ->
+#   the slime (1,23,7) under R (1,24,7).
+# - lane 7: from its stand-in (7,23,9) (`r-hold:7`) -> repeater[facing=east] (6,23,9) on glass (6,22,9) -> the dust (5,23,9)
+#   (east and north) on glass (5,22,9) -> repeater[facing=south] (5,23,8) on glass (5,22,8) -> the slime (5,23,7) under R (5,24,7).
+# Never touched: the R rails (x-2,24,7), the glass over and beside the dust ((-3,24,9), (-4,23,9), (-5,23,9), (5,24,9), (6,24,9),
+# (7,24,9), (7,23,8)).
+#
+# THE STAND-INS (`emulated:`, declared, not laid; WIP''s LINES entries, vcompose a/1808457410446716, VERBATIM except the r-line
+# levers (here at the ports) and slope-release:7 (here at line E's port, its old cell (-4,12,6) now this part's repeater)).
 # stand-in: 1,16,1 (day-1's keep-block glass under lane -1's line end, f1q2-day1-rline-supports: a sight collider); 5,16,1 (day-1's keep-block glass under lane 3's line end, f1q2-day1-rline-supports: a sight collider); 9,16,1 (day-1's keep-block glass under lane 7's line end, f1q2-day1-rline-supports: a sight collider); 0,16,1 (the station's glass under lane -1's R_1 driver, f1q2-station.txt); 4,16,1 (the station's glass under lane 3's R_1 driver, f1q2-station.txt); 8,16,1 (the station's glass under lane 7's R_1 driver, f1q2-station.txt)
+# one-way: -3,0,0=lane -1's pocket drive: the step dust (-4,-1,0) climbs into the riser dust (-3,0,0), the cell above the step (-4,0,0) air (no conductor), into F''s repeater (-2,0,0) facing west (day-1's M16bw, adopted by LINES: ironspec 14:40c / 15:03c)
+# one-way: 1,0,0=lane 3's pocket drive: the step (0,-1,0) climbs into the riser (1,0,0), (0,0,0) air, into F''s repeater (2,0,0) (M16bw; the step now fed from below by the stone (0,-2,0), cc767b78 14:41)
+# one-way: 5,0,0=lane 7's pocket drive: the step (4,-1,0) climbs into the riser (5,0,0), (4,0,0) air, into F''s repeater (6,0,0) (M16bw)
 # update-consumers: intended 3,-1,8=4,-1,8 redstone_wire+5,-1,8 redstone_wire (line A: the first repeater's output dust and the next one, the line's own)
 # update-consumers: intended 7,-1,8=8,-1,8 repeater (line A: LIFT's repeater, the line's target)
 # update-consumers: intended 0,17,1=-1,17,1 powered_rail (line C: R_1 of lane -1, the driver's target)
@@ -39,9 +81,26 @@
 # update-consumers: by-code 1,17,0=1,17,2 lantern (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: LanternBlock doesn't override it, its overrides canSurvive, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
 # update-consumers: intended 5,17,0=5,17,1 redstone_wire+4,17,1 repeater (line C: lane 3's line end dust, the arrival repeater's target, and the driver it feeds)
 # update-consumers: intended 9,17,0=9,17,1 redstone_wire+8,17,1 repeater (line C: lane 7's line end dust, the arrival repeater's target, and the driver it feeds)
+# update-consumers: intended -4,12,5=-4,12,6 repeater+-4,12,7 powered_rail (line E: the next repeater, and the slope's rail beside it, the line's target)
+# update-consumers: intended -4,12,6=-4,12,7 powered_rail (line E: the slope's rail, the line's target)
+# update-consumers: by-code -4,12,6=-5,12,7 bubble_column (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: BubbleColumnBlock doesn't override it, its overrides canSurvive, entityInside, tick, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: by-code -4,12,6=-4,13,7 oak_wall_sign (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: WallSignBlock doesn't override it, its overrides canSurvive, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: intended 0,-2,-1=0,-1,0 redstone_wire (lane 3's pocket drive: the step dust on the stone the repeater powers)
+# update-consumers: intended -4,22,9=-3,23,9 redstone_wire (line B lane -1: the dust on the slime the repeater powers)
+# update-consumers: intended -3,23,8=-3,24,7 powered_rail (line B lane -1: the R hold rail over the slime the repeater powers)
+# update-consumers: intended 2,22,9=1,23,9 redstone_wire (line B lane 3: the dust on the slime the repeater powers)
+# update-consumers: intended 1,23,8=1,24,7 powered_rail (line B lane 3: the R hold rail over the slime the repeater powers)
+# update-consumers: intended 6,23,9=5,23,9 redstone_wire+5,23,8 repeater (line B lane 7: the dust the repeater powers and the repeater it feeds)
+# update-consumers: intended 5,23,8=5,24,7 powered_rail (line B lane 7: the R hold rail over the slime the repeater powers)
 emulated: 1,17,-1=lever[face=floor,facing=north,powered=false] (support=1,16,-1; drive=r-line:-1; lane -1's slot-release port: the core's REL + 0 - 4 tap enters here into the arrival repeater (1,17,0); a stand-in until the core's line lands, owner LINES, ironspec 14:46p (2)); 5,17,-1=lever[face=floor,facing=north,powered=false] (support=5,16,-1; drive=r-line:3; lane 3's slot-release port: the core's REL + 17 - 4 tap, into the arrival repeater (5,17,0)); 9,17,-1=lever[face=floor,facing=north,powered=false] (support=9,16,-1; drive=r-line:7; lane 7's slot-release port: the core's REL + 27 - 4 tap, into the arrival repeater (9,17,0))
+emulated: 2,-1,8=minecraft:lever[face=floor,facing=north,powered=false] (support=2,-2,8; drive=napper-hold; line A's input, thrown at REL + 61 for 12 gt, the hold rail (9,0,8) opening at REL + 67 (day-1's interface); neighbours (1,-1,8) air, (2,0,8) air, (2,-1,7) LIFT's glass, (2,-1,9) air, (3,-1,8) the head repeater (intended), (2,-2,8) its glass; owner day-1, the drive lines car)
+emulated: -4,12,4=minecraft:lever[face=floor,facing=north,powered=false] (support=-4,11,4; drive=slope-release:7; lane 7's slope release at LINE E's port: the core's REL + 92 tap, an 18-gt pulse into the end repeater (-4,12,5) and the repeater (-4,12,6) beside the slope's rail (-4,12,7), powered REL + 96 .. REL + 113 (4 gt port -> rail, line-bench); moved from WIP''s (-4,12,6), which this part lays as the real repeater (vcompose 14:48); owner LINES)
+emulated: -5,22,9=minecraft:lever[face=ceiling,facing=north,powered=false] (support=-5,23,9; drive=r-hold:-1; lane -1's R-hold release upstream drive at line B's end, behind the delay-3 repeater (-4,22,9) that feeds the slime (-3,22,9) and its dust (-3,23,9) to the R hold; in the design SENSED, R_REL = ENTRY and P4 empty and SIDING, so thrown on the S-bend seat detector D(-1)'s rising edge for its press while lane -1's napper waits at its R hold, or REL-keyed at REL' + 169 - travel(-1), held 20 gt (REL' the release cycle that takes the napper), D-keyed meanwhile at D + 34 gt, held 20 gt (day-1 14:37; ironfarm 14:36's harness role); neighbours (-6,22,9) air, (-5,21,9) air, (-5,22,8) glass, (-5,22,10) outside the column, (-4,22,9) the repeater (intended), (-5,23,9) its glass; owner LINES, line B's R-hold releases (ironspec 14:47c (1)))
+emulated: 3,22,9=minecraft:lever[face=floor,facing=north,powered=false] (support=3,21,9; drive=r-hold:3; lane 3's R-hold release upstream drive, UPSTREAM of LINES' real repeater (2,22,9) (facing east on its glass (2,21,9), laid in this part as real hardware until loaderlay's lines car lays it; loaderlay 14:36), which feeds the slime (1,22,9) and its dust (1,23,9) to the R hold; thrown as r-hold:-1 for lane 3 (D(3)'s press, or REL' + 169 - travel(3) held 20 gt, D + 34 gt meanwhile; day-1 14:37); neighbours (4,22,9) air, (3,23,9) air, (3,22,8) air, (3,22,10) outside the column, (2,22,9) the repeater (intended), (3,21,9) its glass; owner LINES, line B's R-hold releases)
+emulated: 3,21,9=minecraft:glass (the r-hold:3 lever's support, emulated with it; owner LINES)
+emulated: 7,23,9=minecraft:lever[face=ceiling,facing=north,powered=false] (support=7,24,9; drive=r-hold:7; lane 7's R-hold release upstream drive at line B's end, behind the repeater (6,23,9) that feeds the dust (5,23,9) to the R hold; thrown as r-hold:-1 for lane 7 (day-1 14:37); neighbours (8,23,9) air, (7,22,9) air, (7,23,8) glass, (7,23,10) outside the column, (6,23,9) the repeater (intended), (7,24,9) its glass; owner LINES, line B's R-hold releases)
 name: f1q2-day1-ctl-lines
-origin: 0 -2 -1
+origin: -5 -3 -2
 palette:
   G minecraft:glass
   R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
@@ -49,19 +108,21 @@ palette:
   E minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
   N minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
   w minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  S minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  T minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  s minecraft:slime_block
+  n minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  u minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  x minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+  L minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  k minecraft:stone
 layer 0:
   .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ...GGGGG
+  .....G
 layer 1:
   .
+  .....N...G
+  GG...k...G
   .
   .
   .
@@ -69,13 +130,89 @@ layer 1:
   .
   .
   .
+  .......GGGGGG
+layer 2:
   .
-  ...RdddR
-layer 18:
-  .G...G...G
-  .G...G...G
-  GG..GG..GG
+  .........n
+  duG..uG..xG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........RdddR
+layer 3:
+  .
+  .
+  ..d...d...d
+layer 14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .G
+  .G
+  .G
+layer 15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .N
+  .N
 layer 19:
   .
-  .N...N...N
-  Ew..Ew..Ew
+  ......G...G...G
+  ......G...G...G
+  .....GG..GG..GG
+layer 20:
+  .
+  .
+  ......N...N...N
+  .....Ew..Ew..Ew
+layer 24:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .G.....G
+layer 25:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..G...G...G
+  .Ts...sE..GG
+layer 26:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..s...s...s
+  ..S...S...S
+  ..n...n...LE
