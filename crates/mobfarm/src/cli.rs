@@ -15831,12 +15831,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(p) => crate::settle::read_scope(&std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?,
                 None => crate::settle::Scope::default(),
             };
-            // (G1 12:07, part 77) every `supersede:` line checked before anything is judged: a missing PATH, a cell the
-            // frozen copy doesn't hold, a line nothing uses: the run is NOT JUDGED by name (a stale line never skips
-            // cells silently)
-            if let Some(t) = &top {
-                let bad = crate::settle::check_supersedes(&scope, t);
-                anyhow::ensure!(bad.is_empty(), "settle-check: NOT JUDGED: the scope file's `supersede:` lines: {}", bad.join("; "));
+            // (G1 12:07 / 12:12, parts 77 / 78) every `supersede:` line checked before anything is judged: a missing
+            // PATH, a cell the frozen copy doesn't hold, a line nothing uses, a composer entry missing either way, the
+            // owner's re-lay missing: the run is NOT JUDGED by name (a stale line never skips cells silently); with
+            // `supersede:` lines and no repository top to read their paths from, NOT JUDGED too
+            match &top {
+                Some(t) => {
+                    let bad = crate::settle::check_supersedes(&scope, t);
+                    anyhow::ensure!(bad.is_empty(), "settle-check: NOT JUDGED: the scope file's `supersede:` lines: {}", bad.join("; "));
+                }
+                None => anyhow::ensure!(scope.supersedes.is_empty(), "settle-check: NOT JUDGED: the scope file's {} `supersede:` line(s) can't be checked: no repository top (not in a git checkout)", scope.supersedes.len()),
             }
             let is = |f: &std::path::Path, rel: &str| f.canonicalize().map(|c| c.ends_with(rel)).unwrap_or(false) || f.ends_with(rel);
             let (files, fixtures): (Vec<PathBuf>, Vec<PathBuf>) = files.into_iter().partition(|f| !scope.fixtures.iter().any(|(rel, _)| is(f, rel)));

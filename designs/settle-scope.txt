@@ -33,4 +33,7 @@ part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-pa
 #                       composer's `--supersede` line); a part judged in context skips them (they are the other part's)
 # the frozen (b+) leg copy's two cells, re-laid in V by the controller part CTL (owner day-1, later b8949c96's way-in
 # car): H2 (9,24,7) as a braked powered_rail[ascending_south], the detector (9,23,6) as detector_rail[ascending_south]
-supersede: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt 9,24,7+9,23,6 by CTL (ironspec 11:51a (2): the controller part re-lays H2 and the arrival detector via the composer's --supersede line)
+# ENABLED BY V REV 3.1's CAR (part 78's cross-check: the record must carry the composer's matching
+# `# supersede: X,Y,Z by CTL over WAYLEG (PATH): OLD -> NEW (WHY)` entries and CTL's re-lay at each cell; against rev 2.1,
+# which composes no CTL part, the line would be STALE and fail by name): vcompose uncomments it with rev 3.1's record
+#supersede: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt 9,24,7+9,23,6 by CTL (ironspec 11:51a (2): the controller part re-lays H2 and the arrival detector via the composer's --supersede line)
