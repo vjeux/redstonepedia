@@ -122,13 +122,13 @@
 7,25,0 minecraft:glass
 7,26,0 minecraft:comparator[facing=south,mode=subtract,powered=false]
 6,25,1 minecraft:glass
-6,26,1 minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+6,26,1 minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
 5,25,1 minecraft:glass
 5,26,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
 5,25,0 minecraft:glass
 5,26,0 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
 6,25,0 minecraft:glass
-6,26,0 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+6,26,0 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
 ## (B)'s latch (P1 OCCUPIED before D), a torch NOR-NOR latch, reset-dominant: N1_b (7,26,-1) set by the edge, t1_b = NOT Q;
 ## N2_b (7,26,-4) reset by the exit detector's level, t2_b = Q
 7,26,-1 minecraft:stone
@@ -280,13 +280,13 @@
 6,19,-1 minecraft:glass
 6,20,-1 minecraft:comparator[facing=east,mode=subtract,powered=false]
 7,19,-2 minecraft:glass
-7,20,-2 minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+7,20,-2 minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
 7,19,-3 minecraft:glass
 7,20,-3 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
 6,19,-3 minecraft:glass
 6,20,-3 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
 6,19,-2 minecraft:glass
-6,20,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+6,20,-2 minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
 ## the TOKEN, a compact torch NOR-NOR latch, reset-dominant, SET at start: N1_t (5,20,-1) set by the edge, t1_t = NOT token;
 ## N2_t (4,20,1) reset by the P1 pulse (the dust (4,21,1) on top of it), t2_t = token
 5,20,-1 minecraft:stone
@@ -305,7 +305,7 @@
 ## loop through the latch ends it: ~12 gt, measured)
 3,19,-2 minecraft:glass
 3,20,-2 minecraft:comparator[facing=north,mode=subtract,powered=false]
-3,20,-1 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+3,20,-1 minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
 3,19,0 minecraft:glass
 3,20,0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
 3,20,1 minecraft:glass
