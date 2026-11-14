@@ -950,6 +950,9 @@ pub enum MobaiCmd {
         /// (day-1 23:37) rig day-1's form (b) block list (the positive) instead of the as-listed control
         #[arg(long)]
         form_b: Option<std::path::PathBuf>,
+        /// (58f770cc 02:01) rig 58f770cc's latch AS LAID in the re-laid stop (`x,y,z state` lines, stop frame)
+        #[arg(long)]
+        laid: Option<std::path::PathBuf>,
     },
     /// (tickexact 2026-11-13, ironspec 22:12 / G1 22:15) A villager seated in a minecart dropped onto rails, slime, stone, water
     CartFall {
@@ -2309,9 +2312,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
-        MobaiCmd::LatchRig { version, form_b } => match form_b {
-            Some(p) => crate::latchformb::latch_rig_form_b(&version, &p),
-            None => crate::latchrig::latch_rig(&version),
+        MobaiCmd::LatchRig { version, form_b, laid } => match (form_b, laid) {
+            (_, Some(p)) => crate::latchformb::latch_rig_laid(&version, &p),
+            (Some(p), None) => crate::latchformb::latch_rig_form_b(&version, &p),
+            (None, None) => crate::latchrig::latch_rig(&version),
         },
         MobaiCmd::LiftTop { design, version } => crate::lifttop::lift_top(&version, &design),
         MobaiCmd::CartOnCart { version } => crate::cartoncart::cart_on_cart(&version),

@@ -16,6 +16,12 @@
 //! ends before Q's read); (7) ARM of 3, 4 or 5 gt clears it (at RLS+8: Q off at +11; on a laid SET within 6 gt); (8) no
 //! branch: RLS 1 never sets Q, 2 and 3 set it. Built in RESET (Q dark): a latch laid SET by setblock can leave the drive
 //! repeater unpowered until its first neighbour update (a placement artifact; the build state is RESET).
+//! (tickexact 2026-11-14, 58f770cc 02:01) `--laid <file>`: the same rows and asserts on the latch AS LAID in the re-laid
+//! stop (58f770cc's `x,y,z state` list in the stop frame, moved into this rig's frame: rig = stop - (2,-2,-2)), its
+//! outputs read where the stop routes them (the drive repeater stop (2,0,2), PARK = the park rail stop (1,0,3) powered
+//! through the slime (2,0,3), the tap repeater stop (1,-2,4)); plus (9) the park rail powered exactly [RLS+1, RLS+25)
+//! for every width <= 20 (58f770cc's 408-visit band [+2, +26) in the standing frame). Slime is laid with the supports
+//! (the laid park rail, ascending east, leans on it and pops if laid first).
 
 use anyhow::{Context, Result};
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -77,17 +83,20 @@ fn lay(srv: &mut VanillaServer, cells: &[([i32; 3], String)], o: Opts) -> Result
     let a = w([-6, -2, -7]);
     let b = w([9, 2, 7]);
     srv.cmd_ok(&format!("fill {} {} {} {} {} {} minecraft:air", a[0], a[1], a[2], b[0], b[1], b[2]))?;
-    let support = |s: &str| s.contains("glass") || s.contains("stone");
+    // supports first: glass, stone, and slime (an ascending rail leans on the block at its high end: the laid park rail
+    // (stop (1,0,3) ascending_east) on the slime (2,0,3) pops if laid before it)
+    let support = |s: &str| s.contains("glass") || s.contains("stone") || s.contains("slime");
     let mut placed: Vec<([i32; 3], String)> = cells.to_vec();
     for (p, s) in placed.iter_mut() {
         if !o.branch && *p == [0, 0, -1] {
             *s = "minecraft:glass".into();
         }
+        // laid SET: QBAR (1,0,0) dark and Q (4,0,0) lit, written whole (a list may carry `lit` already)
         if o.set_state && *p == [1, 0, 0] {
-            *s = s.replace("lit=true", "").replace("[facing", "[lit=false,facing");
+            *s = "minecraft:redstone_wall_torch[facing=east,lit=false]".into();
         }
         if o.set_state && *p == [4, 0, 0] {
-            *s = s.replace("[facing", "[lit=true,facing");
+            *s = "minecraft:redstone_wall_torch[facing=east,lit=true]".into();
         }
     }
     for (p, s) in placed.iter().filter(|(_, s)| support(s)) {
@@ -116,7 +125,15 @@ struct Row {
     tap_lamp: bool,
 }
 
+/// (tickexact 2026-11-14, 58f770cc 02:01) `--laid`: the latch as LAID in the re-laid stop, its outputs re-routed: the
+/// drive repeater at stop (2,0,2) into the slime (2,0,3) under the park rail (1,0,3) (PARK = that rail powered), the tap
+/// repeater at stop (1,-2,4) into the slime (1,-2,5); in this rig's frame (stop (x,y,z) = rig (x+2, y-2, z-2)) those are
+/// (0,2,4), (-1,2,5) and (-1,0,6); there is no TAP lamp (its row repeats the tap)
+static LAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn read(srv: &mut VanillaServer, rls: bool, arm: bool) -> Result<Row> {
+    let laid = LAID.load(std::sync::atomic::Ordering::Relaxed);
+    let tap = if laid { is(srv, [-1, 0, 6], "minecraft:repeater[powered=true]")? } else { is(srv, [5, 0, 0], "minecraft:repeater[powered=true]")? };
     Ok(Row {
         rls,
         arm,
@@ -126,11 +143,42 @@ fn read(srv: &mut VanillaServer, rls: bool, arm: bool) -> Result<Row> {
         base_in: power(srv, [2, 0, 0])?,
         reset: is(srv, [3, 0, -1], "minecraft:repeater[powered=true]")?,
         q: is(srv, [4, 0, 0], "minecraft:redstone_wall_torch[lit=true]")?,
-        drive: is(srv, [-1, 0, 3], "minecraft:repeater[powered=true]")?,
-        park: is(srv, [-1, 0, 4], "minecraft:redstone_lamp[lit=true]")?,
-        tap: is(srv, [5, 0, 0], "minecraft:repeater[powered=true]")?,
-        tap_lamp: is(srv, [6, 0, 0], "minecraft:redstone_lamp[lit=true]")?,
+        drive: if laid { is(srv, [0, 2, 4], "minecraft:repeater[powered=true]")? } else { is(srv, [-1, 0, 3], "minecraft:repeater[powered=true]")? },
+        park: if laid { is(srv, [-1, 2, 5], "minecraft:powered_rail[powered=true]")? } else { is(srv, [-1, 0, 4], "minecraft:redstone_lamp[lit=true]")? },
+        tap,
+        tap_lamp: if laid { tap } else { is(srv, [6, 0, 0], "minecraft:redstone_lamp[lit=true]")? },
     })
+}
+
+/// `--laid`'s file: `x,y,z state` lines in the stop frame (`#` comments), returned in the rig's frame (x - 2, y + 2, z + 2)
+pub fn read_laid_cells(path: &std::path::Path) -> Result<Vec<([i32; 3], String)>> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let mut out: Vec<([i32; 3], String)> = Vec::new();
+    for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let Some((c, s)) = l.split_once(' ') else { continue };
+        let v: Vec<i32> = match c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<Vec<_>, _>>() {
+            Ok(v) if v.len() == 3 => v,
+            _ => continue,
+        };
+        let s = s.trim().to_string();
+        if !s.starts_with("minecraft:") || s == "minecraft:air" {
+            continue;
+        }
+        let p = [v[0] - 2, v[1] + 2, v[2] + 2];
+        if !out.iter().any(|(q, _)| *q == p) {
+            out.push((p, s));
+        }
+    }
+    anyhow::ensure!(!out.is_empty(), "{}: no cells", path.display());
+    Ok(out)
+}
+
+/// `mctas mobai latch-rig --laid <file>`: the same rows and asserts on the latch as laid in the stop
+pub fn latch_rig_laid(version: &str, path: &std::path::Path) -> Result<()> {
+    LAID.store(true, std::sync::atomic::Ordering::Relaxed);
+    let cells = read_laid_cells(path)?;
+    println!("== latch-rig --laid: 58f770cc's latch as LAID ({}, stop frame, moved into the rig's: rig = stop - (2,-2,-2)); outputs read at the drive repeater (0,2,4), the park rail (-1,2,5) and the tap repeater (-1,0,6) in the rig's frame", path.display());
+    latch_rig_cells(version, path, cells)
 }
 
 const AT: i64 = 10;
@@ -216,6 +264,10 @@ fn pin(k: u32, cond: bool, what: String) -> Result<()> {
 
 pub fn latch_rig_form_b(version: &str, cells_path: &std::path::Path) -> Result<()> {
     let cells = read_cells(cells_path)?;
+    latch_rig_cells(version, cells_path, cells)
+}
+
+fn latch_rig_cells(version: &str, cells_path: &std::path::Path, cells: Vec<([i32; 3], String)>) -> Result<()> {
     println!("== latch-rig --form-b on the official {version} server: day-1's P_HOLD latch form (b) from {} ({} cells), at world = local + {OFF:?}; times from the RLS command (between ticks: ONE TICK BEFORE the standing start-of-tick frame, where Q = [+4, +24) and the drive [+2, +26))", cells_path.display(), cells.len());
     let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "peaceful".into(), with_bot: false, tick_rate: 1000, ..Default::default() })?;
     srv.cmd_ok("forceload add -16 -16 31 31")?;
@@ -224,6 +276,20 @@ pub fn latch_rig_form_b(version: &str, cells_path: &std::path::Path) -> Result<(
     lay(&mut srv, &cells, base)?;
     let settled = read(&mut srv, false, false)?;
     println!("  laid RESET, after 40 gt: {settled:?}");
+    if LAID.load(std::sync::atomic::Ordering::Relaxed) {
+        let probe = |srv: &mut VanillaServer, p: [i32; 3], states: &[&str]| -> Result<String> {
+            for s in states {
+                if is(srv, p, s)? {
+                    return Ok(s.to_string());
+                }
+            }
+            Ok("none of those".into())
+        };
+        let park = probe(&mut srv, [-1, 2, 5], &["minecraft:powered_rail[powered=true]", "minecraft:powered_rail[powered=false]", "minecraft:air"])?;
+        let slime = probe(&mut srv, [0, 2, 5], &["minecraft:slime_block", "minecraft:air"])?;
+        let drive = probe(&mut srv, [0, 2, 4], &["minecraft:repeater[facing=north]", "minecraft:repeater[facing=south]", "minecraft:air"])?;
+        println!("  the laid outputs in RESET: the park rail (-1,2,5) {park}; the slime (0,2,5) {slime}; the drive (0,2,4) {drive}");
+    }
     let mut widths = Vec::new();
     for wd in [1i64, 2, 3, 4, 8, 20, 24, 30] {
         widths.push((wd, run(&mut srv, &cells, &format!("RLS {wd} gt"), base, Some(wd), None, 70)?));
@@ -264,6 +330,13 @@ pub fn latch_rig_form_b(version: &str, cells_path: &std::path::Path) -> Result<(
     pin(7, arms.iter().filter(|(aw, _)| *aw >= 3).all(|(_, r)| r.spans(|x| x.q) == vec![(3, 11)]) && set_arms.iter().filter(|(aw, _)| *aw >= 3).all(|(_, r)| r.spans(|x| x.q).first().is_some_and(|(a, b)| *a == -AT && *b > 0 && *b <= 6)), format!("(7) ARM of 3, 4 or 5 gt clears Q (at RLS+8: Q off at +11; on a laid SET within 6 gt): {arm_q:?}"))?;
     let nb: Vec<(i64, Vec<(i64, i64)>)> = nob.iter().map(|(wd, r)| (*wd, r.spans(|x| x.q))).collect();
     pin(8, nb.iter().all(|(wd, s)| if *wd == 1 { s.is_empty() } else { *s == vec![(3, 23)] }), format!("(8) no branch: RLS 1 gt never sets Q, 2 and 3 gt set it as with the branch: {nb:?}"))?;
+    if LAID.load(std::sync::atomic::Ordering::Relaxed) {
+        // (58f770cc 02:01) the stop's bench measured PARK lit [RLS + 2, RLS + 26) on all 408 visits in the standing frame:
+        // [RLS + 1, RLS + 25) here
+        pin(9, widths.iter().filter(|(wd, _)| *wd <= 20).all(|(_, r)| r.spans(|x| x.park) == vec![(1, 25)]), format!("(9) --laid: the park rail (stop (1,0,3)) powered exactly [RLS+1, RLS+25) for every RLS width <= 20 (58f770cc's 408-visit band [+2, +26) in the standing frame): {:?}", widths.iter().map(|(wd, r)| (*wd, r.spans(|x| x.park))).collect::<Vec<_>>()))?;
+        println!("  every known answer held (asserts 1..9)");
+        return Ok(());
+    }
     println!("  every known answer held (asserts 1..8)");
     Ok(())
 }
