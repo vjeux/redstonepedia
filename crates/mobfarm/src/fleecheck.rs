@@ -6024,6 +6024,17 @@ pub fn golem_guard(blocks: &HashMap<BlockPos, redsim::block::Block>, p: BlockPos
     lone && !name(p.above()).contains("rail") && !name(p.below().below()).contains("rail")
 }
 
+/// (ironspec Nov 13 19:32) The gate on `auto_columns`' lines: a side entry NOT JUDGED (its settle
+/// failed) fails the run by name, never read as a pass.
+pub fn auto_columns_judged(why: &[String]) -> Result<(), String> {
+    let unjudged: Vec<&str> = why.iter().filter(|l| l.contains("NOT JUDGED")).map(|s| s.as_str()).collect();
+    if unjudged.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("auto columns: NOT JUDGED: {} side entr(ies) whose settle failed: {}", unjudged.len(), unjudged.join(" | ")))
+    }
+}
+
 pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, Vec<String>) {
     let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
     let name = |p: BlockPos| blk.get(&p).map(|b| b.to_string()).unwrap_or_else(|| "minecraft:air".to_string());
@@ -6073,6 +6084,8 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
         }
     }
     // (the free falls)
+    // (the settled world, read only when a rail end opens into a column's side: G1 18:41)
+    let mut settled: Option<Result<redsim::World, String>> = None;
     let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
     for (c, _) in rails.iter().filter(|(c, _)| golem_guard(&blk, *c)) {
@@ -6088,7 +6101,81 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
             if rail(m) || rail(m.below()) || !open(m) || !open(m.below()) {
                 continue;
             }
-            if let Some(k) = declared.iter().chain(out.iter()).find(|k| near(first(k), *c) || near(last(k), *c)) {
+            // (ironspec Nov 13 18:31: a rail end opening into a column's side, inside its y range, is
+            // the column's side entry, not a fall; G1 18:41 / 19:23: credited only where the SETTLED
+            // world holds a LIFTING bubble column (soul sand) at that cell, its y range read there; a
+            // magma column pulls the cart down to its run's bottom, a landing the fall logic judges; a
+            // column with no bubble block there, or a failed settle (NOT JUDGED), credits nothing;
+            // G1 20:02 E3: and then no end rule credits it either: the fall is checked; E4: the walk
+            // takes the entry as a column of its own from the entry cell: up the lift to its top, or
+            // down the magma run to its bottom, where no rail is a track end)
+            let mut side_refused = false;
+            if let Some(k) = declared.iter().chain(out.iter()).find(|k| k[0].floor() as i32 == m.x && k[2].floor() as i32 == m.z && k[1].min(k[3]) <= m.y as f64 && m.y as f64 <= k[1].max(k[3])).copied() {
+                if settled.is_none() {
+                    settled = Some(settled_world_void(spec));
+                }
+                let side = format!("the rail end {},{},{} into {},{},{} opens into the column x {:.1} z {:.1} y {:.1}..{:.1}'s side", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]);
+                let mut walk_col: Option<[f64; 4]> = None;
+                let how = match settled.as_ref() {
+                    Some(Ok(sw)) => {
+                        let bubble = |y: i32| {
+                            let s = sw.get(BlockPos::new(m.x, y, m.z)).to_string();
+                            s.contains("bubble_column").then(|| s.contains("drag=true"))
+                        };
+                        match bubble(m.y) {
+                            Some(down) => {
+                                let (mut lo, mut hi) = (m.y, m.y);
+                                while bubble(lo - 1) == Some(down) {
+                                    lo -= 1;
+                                }
+                                while bubble(hi + 1) == Some(down) {
+                                    hi += 1;
+                                }
+                                if down {
+                                    // (ironspec 19:26: a magma column's side entry is a DESCENT judged to
+                                    // the column's bottom; the run stands on magma (or a bubble block),
+                                    // never a rail: a track end)
+                                    let bottom = BlockPos::new(m.x, lo, m.z);
+                                    let under = sw.get(bottom.below());
+                                    walk_col = Some([m.x as f64 + 0.5, m.y as f64, m.z as f64 + 0.5, lo as f64]);
+                                    Some(format!(
+                                        "the settled world's bubble column y {lo}..{hi} there pulls it DOWN (magma): a DESCENT to y {lo}, onto {} at {},{},{}: no rail: a TRACK END",
+                                        under.to_string().trim_start_matches("minecraft:"),
+                                        bottom.x,
+                                        bottom.y - 1,
+                                        bottom.z
+                                    ))
+                                } else {
+                                    walk_col = Some([k[0], m.y as f64, k[2], k[1].max(k[3])]);
+                                    Some(format!("the settled world's bubble column y {lo}..{hi} there LIFTS it (soul sand)"))
+                                }
+                            }
+                            None => {
+                                let declared_k = declared.iter().any(|d| *d == k);
+                                lines.push(format!("auto column: {side}, but {} at {},{},{}: not credited, the fall checked instead", if declared_k { "a declared column, no bubble block here" } else { "the settled world holds no bubble column" }, m.x, m.y, m.z));
+                                side_refused = true;
+                                None
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        // (ironspec 19:15 (2) / G1 19:23: a failed settle credits nothing: NOT JUDGED,
+                        // the end falls through to the fall / track-end logic, the error printed)
+                        lines.push(format!("auto column: {side}: NOT JUDGED, the settle FAILED ({e}): no side entry credited, the fall checked instead"));
+                        side_refused = true;
+                        None
+                    }
+                    None => None,
+                };
+                if let Some(how) = how {
+                    lines.push(format!("auto column: the rail end {},{},{} into {},{},{} enters the column x {:.1} z {:.1} y {:.1}..{:.1} from its side: {how}; no fall of its own", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
+                    if let Some(col) = walk_col {
+                        out.push(col);
+                    }
+                    continue;
+                }
+            }
+            if let Some(k) = declared.iter().chain(out.iter()).find(|k| near(first(k), *c) || near(last(k), *c)).filter(|_| !side_refused) {
                 // (G1 Nov 13, N15: listed, never skipped silently)
                 lines.push(format!("auto column: the rail end {},{},{} into {},{},{} is within 1 of the column x {:.1} z {:.1} y {:.1}..{:.1}'s end: taken as that column's entry or exit, no fall of its own", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
                 continue;
@@ -8362,9 +8449,85 @@ mod gate_tests {
         let mut f = gspec.blocks.clone();
         f.push((b(0, 8, 0), p("minecraft:stone")));
         f.push((b(0, 9, 0), p("minecraft:rail[shape=north_south,waterlogged=false]")));
-        let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec };
+        let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec.clone() };
         let (_, fl) = super::auto_columns(&fspec, &[]);
         assert!(fl.iter().any(|l| l.contains("lands on the golem guard 0,6,1") && l.contains("UNLANDED")), "{fl:?}");
+        // (ironspec 18:31: a rail end opening into the bubble column's side, inside its y range, is
+        // carried by the column: no fall, no track end)
+        let mut s = spec.blocks.clone();
+        s.push((b(6, 2, 0), p("minecraft:stone")));
+        s.push((b(6, 3, 0), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        let sspec = redsim::entity::mob::farm::FarmSpec { blocks: s.clone(), ..spec.clone() };
+        let (_, sl) = super::auto_columns(&sspec, &[]);
+        assert!(sl.iter().any(|l| l.contains("the rail end 6,3,0 into 5,3,0 enters the column x 5.5 z 0.5") && l.contains("LIFTS it (soul sand)") && l.contains("no fall of its own")), "{sl:?}");
+        assert!(!sl.iter().any(|l| l.contains("off the rail end 6,3,0 into 5,3,0")), "{sl:?}");
+        // (G1 18:41: the same side entry over MAGMA: the settled world's column pulls the cart down)
+        let mut dn = s.clone();
+        dn.retain(|(q, _)| q.x != 5 || q.z != 0);
+        dn.push((b(5, 0, 0), p("minecraft:magma_block")));
+        for y in 1..=4 {
+            dn.push((b(5, y, 0), p("minecraft:bubble_column[drag=true]")));
+        }
+        let dspec = redsim::entity::mob::farm::FarmSpec { blocks: dn, ..spec.clone() };
+        let (_, dl) = super::auto_columns(&dspec, &[]);
+        assert!(dl.iter().any(|l| l.contains("the rail end 6,3,0 into 5,3,0 enters the column") && l.contains("pulls it DOWN (magma): a DESCENT to y 1, onto magma_block at 5,0,0: no rail: a TRACK END")), "the descent judged to the bottom: {dl:?}");
+        // (ironspec 19:26: a DECLARED column with no bubble block at the entry carries nothing: the
+        // fall is judged, "a declared column, no bubble block here" printed)
+        let mut nb = s.clone();
+        nb.retain(|(q, _)| q.x != 5 || q.z != 0);
+        let nspec = redsim::entity::mob::farm::FarmSpec { blocks: nb, ..spec.clone() };
+        let (_, nl) = super::auto_columns(&nspec, &[[5.5, 1.0, 0.5, 4.0]]);
+        assert!(nl.iter().any(|l| l.contains("opens into the column x 5.5 z 0.5") && l.contains("a declared column, no bubble block here")), "{nl:?}");
+        assert!(!nl.iter().any(|l| l.contains("enters the column")), "nothing carried: {nl:?}");
+        // (G1 20:02 E3: and no end rule credits it either: the fall, never "taken as that column's entry
+        // or exit"; edge twins: the entry at the declared top (inside the range: the fall) and one above
+        // it (outside: the column's top exit, the end rule))
+        assert!(nl.iter().any(|l| l.contains("a free fall off the rail end 6,3,0 into 5,3,0")) && !nl.iter().any(|l| l.contains("6,3,0 into 5,3,0 is within 1 of the column")), "the fall, not the end rule: {nl:?}");
+        let edge = |y: i32| {
+            let mut e: Vec<(redsim::pos::BlockPos, redsim::block::Block)> = spec.blocks.iter().filter(|(q, _)| q.x != 5 || q.z != 0).copied().collect();
+            e.push((b(6, y - 1, 0), p("minecraft:stone")));
+            e.push((b(6, y, 0), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            super::auto_columns(&redsim::entity::mob::farm::FarmSpec { blocks: e, ..spec.clone() }, &[[5.5, 1.0, 0.5, 4.0]]).1
+        };
+        let at_top = edge(4);
+        assert!(at_top.iter().any(|l| l.contains("a free fall off the rail end 6,4,0 into 5,4,0")) && !at_top.iter().any(|l| l.contains("6,4,0 into 5,4,0 is within 1 of the column")), "at the declared top: {at_top:?}");
+        let above = edge(5);
+        assert!(above.iter().any(|l| l.contains("the rail end 6,5,0 into 5,5,0 is within 1 of the column x 5.5 z 0.5 y 1.0..4.0's end")), "one above the top: {above:?}");
+        // (G1 20:02 E4: the walk takes a credited side entry as a column from the entry cell: on the
+        // soul-sand twin (fed by a rail from the east, so a cart arrives moving into the side) the rail
+        // end into the lift's side is no open end (without that column it is); on the magma twin the
+        // descent is entered and its column ends at the bottom with no rail: an open end there)
+        let fed = |mut v: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
+            v.push((b(7, 2, 0), p("minecraft:stone")));
+            v.push((b(7, 3, 0), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            redsim::entity::mob::farm::FarmSpec { blocks: v, ..spec.clone() }
+        };
+        let sfed = fed(sspec.blocks.clone());
+        let (scols, _) = super::auto_columns(&sfed, &[]);
+        let into_side = |t: &super::Track| t.open_ends(super::TailNode::Rail(6, 3, 0)).iter().any(|(d, _)| d.contains("exit to 5,3,0"));
+        let st = super::Track::new(&sfed, &scols, &[]);
+        assert!(scols.iter().any(|c| c[1] == 3.0 && c[3] > 3.0) && !into_side(&st), "the lift's side entry is walked: {scols:?}");
+        let plain: Vec<[f64; 4]> = scols.iter().filter(|c| c[1] != 3.0).copied().collect();
+        assert!(into_side(&super::Track::new(&sfed, &plain, &[])), "without the entry's column it is an open end");
+        let dfed = fed(dspec.blocks.clone());
+        let (dcols, _) = super::auto_columns(&dfed, &[]);
+        let dt = super::Track::new(&dfed, &dcols, &[]);
+        let k = dcols.iter().position(|c| *c == [5.5, 3.0, 0.5, 1.0]).unwrap_or_else(|| panic!("the descent's column: {dcols:?}"));
+        assert!(!into_side(&dt) && !dt.open_ends(super::TailNode::Col(k, dt.col_len[k] - 1)).is_empty(), "the descent entered, an end at its bottom: {:?}", dt.open_ends(super::TailNode::Col(k, dt.col_len[k] - 1)));
+        // (ironspec 19:15 (2): a FAILED settle credits no side entry: water at the box's edge flows out
+        // of it (a model error), so the side entry falls through to the fall, the error printed)
+        let mut bad = s;
+        bad.push((b(-3, 0, -3), p("minecraft:stone")));
+        bad.push((b(-3, 1, -3), p("minecraft:water[level=0]")));
+        let bspec = redsim::entity::mob::farm::FarmSpec { blocks: bad, ..spec };
+        assert!(super::settled_world_void(&bspec).is_err(), "the forced settle failure");
+        let (_, bl) = super::auto_columns(&bspec, &[]);
+        assert!(bl.iter().any(|l| l.contains("the rail end 6,3,0 into 5,3,0 opens into the column") && l.contains("the settle FAILED")), "{bl:?}");
+        assert!(bl.iter().any(|l| l.contains("a free fall off the rail end 6,3,0 into 5,3,0")) && !bl.iter().any(|l| l.contains("enters the column")), "the fall kept: {bl:?}");
+        // (ironspec 19:32: and the run fails by name: the CLI's gate on these lines)
+        let gate = super::auto_columns_judged(&bl);
+        assert!(gate.as_ref().is_err_and(|e| e.starts_with("auto columns: NOT JUDGED: 1 side entr(ies)")), "{gate:?}");
+        assert!(super::auto_columns_judged(&sl).is_ok(), "a judged run passes the gate");
     }
 
     /// (tick-exact 18:13, ironspec 18:15 (a) / (5), G1 18:15 / 18:19) The golem floor rule pinned
