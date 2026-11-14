@@ -1389,6 +1389,13 @@ pub enum MobfarmCmd {
     /// (ironspec Nov 14 15:01p, part 95) The CONSUMER CENSUS: every powered consumer of the design with the sources that
     /// can power it (power-into's reach), each consumer powered by NOTHING in the design or only by STAND-IN cells (the
     /// design's `# stand-in:` and `emulated:` cells) FLAGGED; a listing (day-1's whole-netlist audit maps the rest)
+    /// (ironspec Nov 14 15:22c (2), part 101) The PIGLIN REACHABILITY static: from every zombified-piglin spawn cell (a
+    /// portal cell on the frame) and every portal cell an arrival stands in, can an adult or baby zombified piglin walk
+    /// to a pad floor cell (a golem cell meeting a portal)? Each reached pad cell fails by name; where piglins accumulate
+    /// is printed
+    PiglinReach {
+        design: PathBuf,
+    },
     Consumers {
         design: PathBuf,
     },
@@ -15864,6 +15871,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::PiglinReach { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let (lines, bad) = crate::fleecheck::piglin_reach(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(bad == 0, "the piglin reachability static: {bad} pad cell reach(es)");
         }
         MobfarmCmd::Consumers { design } => {
             let (_c, spec) = load(version, &design)?;

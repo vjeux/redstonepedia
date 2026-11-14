@@ -3881,6 +3881,173 @@ pub fn cat_reach(spec: &FarmSpec, ground_y: i32, margin: i32, shell_boxes: &[(Bl
     Ok((lines, if seeds == 0 || eyes.is_empty() { usize::MAX } else { hits.len() }))
 }
 
+/// (part 94 / 101) A walking mob's reach in a settled world: where a mob of half-width `hw` and height `h` stands in a
+/// cell, and the flood of every cell it reaches from seeds (a step up 1 (a jump), a drop of any height, swimming through
+/// water and bubble columns both ways, climbing ladders / vines / scaffolding, and with `climbs_walls` any vertical face),
+/// bounded by `region`; `ground_y` adds a virtual ground plane at that y's top outside the design box (the enclosure's
+/// terrain), none for a floating section. Shared by the enclosure check and the piglin reachability static.
+pub struct Walk<'a> {
+    pub w: &'a redsim::World,
+    pub lo: BlockPos,
+    pub hi: BlockPos,
+    pub ground_y: Option<i32>,
+    pub region: (BlockPos, BlockPos),
+}
+
+impl Walk<'_> {
+    fn in_box(&self, c: BlockPos) -> bool {
+        c.x >= self.lo.x && c.x <= self.hi.x && c.y >= self.lo.y && c.y <= self.hi.y && c.z >= self.lo.z && c.z <= self.hi.z
+    }
+
+    fn in_region(&self, c: BlockPos) -> bool {
+        let (a, b) = self.region;
+        c.x >= a.x && c.x <= b.x && c.y >= a.y && c.y <= b.y && c.z >= a.z && c.z <= b.z
+    }
+
+    pub fn is_water(&self, c: BlockPos) -> bool {
+        let s = self.w.get(c).to_string();
+        s.starts_with("minecraft:water") || s.starts_with("minecraft:bubble_column") || s.contains("waterlogged=true")
+    }
+
+    fn is_climb(&self, c: BlockPos) -> bool {
+        let s = self.w.get(c).to_string();
+        ["minecraft:ladder", "minecraft:vine", "minecraft:scaffolding", "minecraft:twisting_vines", "minecraft:weeping_vines", "minecraft:cave_vines"].iter().any(|k| s.starts_with(k))
+    }
+
+    fn clear(&self, cx: f64, cz: f64, hw: f64, y: f64, h: f64) -> bool {
+        self.w.collision_shapes(redsim::entity::Aabb::new(cx - hw, y + 1e-6, cz - hw, cx + hw, y + h, cz + hw)).is_empty()
+    }
+
+    /// Where the mob stands in cell c: the highest collision top under its box within half a block of c's floor, or the
+    /// ground plane; its box clear above; or floating in water / on a climbable: c's floor.
+    pub fn feet(&self, c: BlockPos, hw: f64, h: f64) -> Option<f64> {
+        let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
+        let ground = self.ground_y.and_then(|g| (c.y == g + 1 && !self.in_box(BlockPos::new(c.x, g, c.z))).then_some(c.y as f64));
+        let probe = redsim::entity::Aabb::new(cx - hw, c.y as f64 - 0.5, cz - hw, cx + hw, c.y as f64 + 0.5, cz + hw);
+        let shape = self.w.collision_shapes(probe).iter().map(|a| a.max_y).filter(|t| *t >= c.y as f64 - 0.5 && *t <= c.y as f64 + 0.5 + 1e-9).fold(None, |m: Option<f64>, t| Some(m.map_or(t, |m: f64| m.max(t))));
+        let f = match (ground, shape) {
+            (Some(g), Some(s)) => Some(g.max(s)),
+            (g, s) => g.or(s),
+        };
+        match f {
+            Some(f) if self.clear(cx, cz, hw, f, h) => Some(f),
+            _ if (self.is_water(c) || self.is_climb(c)) && self.clear(cx, cz, hw, c.y as f64, h.min(1.0)) => Some(c.y as f64),
+            _ => None,
+        }
+    }
+
+    /// The flood: each reached cell with its feet and the seed it came from.
+    pub fn flood(&self, seeds: &[BlockPos], hw: f64, h: f64, climbs_walls: bool) -> std::collections::HashMap<BlockPos, (f64, BlockPos)> {
+        use std::collections::{HashMap, VecDeque};
+        let y0 = self.region.0.y;
+        let mut reached: HashMap<BlockPos, (f64, BlockPos)> = HashMap::new();
+        let mut queue: VecDeque<BlockPos> = VecDeque::new();
+        for s in seeds {
+            if let Some(f) = self.feet(*s, hw, h)
+                && reached.insert(*s, (f, *s)).is_none()
+            {
+                queue.push_back(*s);
+            }
+        }
+        while let Some(c) = queue.pop_front() {
+            let (fc, seed) = reached[&c];
+            let mut push = |n: BlockPos, f: f64, reached: &mut HashMap<BlockPos, (f64, BlockPos)>, queue: &mut VecDeque<BlockPos>| {
+                if self.in_region(n) && !reached.contains_key(&n) {
+                    reached.insert(n, (f, seed));
+                    queue.push_back(n);
+                }
+            };
+            let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
+            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, nz) = (c.x + dx, c.z + dz);
+                let (ncx, ncz) = (nx as f64 + 0.5, nz as f64 + 0.5);
+                // (a step up 1, a jump: the head room over the mob where it stands)
+                let up = BlockPos::new(nx, c.y + 1, nz);
+                if let Some(f) = self.feet(up, hw, h)
+                    && f - fc <= 1.0 + 1e-9
+                    && f > fc + 0.5
+                    && self.clear(cx, cz, hw, fc, h + 1.0)
+                {
+                    push(up, f, &mut reached, &mut queue);
+                    continue;
+                }
+                // (level, or a drop of any height down the neighbour's column, clear all the way)
+                let mut y = c.y;
+                while y >= y0 {
+                    let n = BlockPos::new(nx, y, nz);
+                    if !self.clear(ncx, ncz, hw, y as f64, (c.y - y) as f64 + h.min(1.0)) && self.feet(n, hw, h).is_none() {
+                        break;
+                    }
+                    if let Some(f) = self.feet(n, hw, h)
+                        && f <= fc + 0.5 + 1e-9
+                    {
+                        push(n, f, &mut reached, &mut queue);
+                        break;
+                    }
+                    y -= 1;
+                }
+            }
+            // (up and down: swimming, climbing a ladder or vine, or a spider on a wall)
+            for dy in [1, -1] {
+                let n = BlockPos::new(c.x, c.y + dy, c.z);
+                let fluid_or_climb = self.is_water(c) || self.is_climb(c) || self.is_water(n) || self.is_climb(n);
+                let wall = climbs_walls && !self.w.collision_shapes(redsim::entity::Aabb::new(cx - hw - 0.06, n.y as f64 + 1e-6, cz - hw - 0.06, cx + hw + 0.06, n.y as f64 + h, cz + hw + 0.06)).is_empty();
+                if (fluid_or_climb || wall) && self.clear(cx, cz, hw, n.y as f64, h.min(1.0)) {
+                    let f = self.feet(n, hw, h).unwrap_or(n.y as f64);
+                    push(n, f, &mut reached, &mut queue);
+                }
+            }
+        }
+        reached
+    }
+}
+
+/// (ironspec Nov 14 15:22c (2), part 101) The PIGLIN REACHABILITY static: from every overworld zombified-piglin spawn
+/// position (26.3 `NetherPortalBlock.randomTick`: a portal cell whose block below is the frame, the piglin's feet on it)
+/// and every arrival position in the design's portal planes (any portal cell an arrival stands in), can a zombified
+/// piglin (0.6 x 1.95, and a baby 0.3 x 0.975; step 0.6, a jump of about 1.25: a 1-block rise) walk to any PAD FLOOR cell
+/// (a golem cell meeting a portal, the golem's feet there)? Each reached pad cell fails by name; the cells piglins can
+/// reach from the planes (where they accumulate, cramming at 24 the backstop) are printed. Returns the lines and the
+/// count of pad cells reached.
+pub fn piglin_reach(spec: &FarmSpec) -> Result<(Vec<String>, usize), String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    settle_full(&mut run)?;
+    let w = &run.world;
+    let (lo, hi) = (spec.lo, spec.hi);
+    let wk = Walk { w, lo, hi, ground_y: None, region: (BlockPos::new(lo.x - 2, lo.y - 2, lo.z - 2), BlockPos::new(hi.x + 2, hi.y + 2, hi.z + 2)) };
+    let is_portal = |c: BlockPos| w.get(c).to_string().starts_with("minecraft:nether_portal");
+    let portals: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| is_portal(*p)).collect();
+    let spawns: Vec<BlockPos> = portals.iter().copied().filter(|p| !is_portal(BlockPos::new(p.x, p.y - 1, p.z))).collect();
+    let mut seeds: Vec<BlockPos> = portals.clone();
+    seeds.sort_by_key(|p| (p.y, p.z, p.x));
+    let (_, _, gcells) = route_golem_floors(spec, "minecraft:plains")?;
+    let mut pad: Vec<BlockPos> = gcells.into_iter().filter(|g| golem_box_meets_portal(w, *g)).collect();
+    pad.sort_by_key(|p| (p.y, p.z, p.x));
+    pad.dedup();
+    let cell = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    for (who, hw, h) in [("an adult zombified piglin (0.6 x 1.95)", 0.3, 1.95), ("a baby zombified piglin (0.3 x 0.975)", 0.15, 0.975)] {
+        let reached = wk.flood(&seeds, hw, h, false);
+        let mut hits: Vec<(BlockPos, BlockPos)> = pad.iter().filter_map(|p| reached.get(p).map(|(_, s)| (*p, *s))).collect();
+        hits.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+        bad += hits.len();
+        let mut region: Vec<BlockPos> = reached.keys().copied().collect();
+        region.sort_by_key(|p| (p.y, p.z, p.x));
+        let (ylo, yhi) = (region.iter().map(|p| p.y).min().unwrap_or(0), region.iter().map(|p| p.y).max().unwrap_or(0));
+        let in_planes = region.iter().filter(|p| is_portal(**p)).count();
+        lines.push(format!("{who}: from {} seed cell(s) ({} spawn cell(s) on the frame, every portal cell an arrival stands in): {} cell(s) reached, {in_planes} of them portal cells, y {ylo}..{yhi}; {} pad floor cell(s) reached (bar 0){}", seeds.len(), spawns.len(), region.len(), hits.len(), if hits.is_empty() { " (PASS)" } else { " (FAIL)" }));
+        for (p, s) in hits.iter().take(48) {
+            lines.push(format!("  REACHED the pad cell {} from the portal cell {}", cell(p), cell(s)));
+        }
+        let outside: Vec<String> = region.iter().filter(|p| !is_portal(**p)).take(60).map(cell).collect();
+        lines.push(format!("  where they accumulate: the {in_planes} portal cell(s) of the planes{}", if outside.is_empty() { " only".to_string() } else { format!(" and {} cell(s) beside them: {}", region.len() - in_planes, outside.join(" ")) }));
+    }
+    lines.insert(0, format!("the piglin reachability static (ironspec Nov 14 15:22c (2)): {} portal cell(s), {} pad floor cell(s) (golem cells meeting a portal); step 0.6, a jump of a 1-block rise (about 1.25): {bad} pad cell reach(es)", portals.len(), pad.len()));
+    Ok((lines, bad))
+}
+
 /// (ironspec Nov 14 13:32p / 13:38p, G1 13:27; part 94) The ENCLOSURE check: no path from any EXTERIOR standable cell (the
 /// ground plane around the box widened by `margin`, and every top surface on the design's outside: its roof, ledges,
 /// outer walls' tops, as the spawn static's outside reads them) to any TARGET cell (every rail cell, every villager
@@ -3895,8 +4062,7 @@ pub fn cat_reach(spec: &FarmSpec, ground_y: i32, margin: i32, shell_boxes: &[(Bl
 /// every design water body touching the outside, and every zombie scarer whose eye is in water (a submerged zombie
 /// converts). Returns the lines and the failure count.
 pub fn enclosure(spec: &FarmSpec, ground_y: i32, margin: i32, target_boxes: &[(BlockPos, BlockPos)], afk: Option<Vec3>) -> Result<(Vec<String>, usize), String> {
-    use redsim::entity::Aabb;
-    use std::collections::{HashMap, HashSet, VecDeque};
+    use std::collections::{HashMap, HashSet};
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     settle_full(&mut run)?;
@@ -3910,96 +4076,10 @@ pub fn enclosure(spec: &FarmSpec, ground_y: i32, margin: i32, target_boxes: &[(B
     }
     let (x0, x1, z0, z1, y0, y1) = (lo.x - margin, hi.x + margin, lo.z - margin, hi.z + margin, ground_y + 1, hi.y + 3);
     let in_box = |c: BlockPos| c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z;
-    let in_region = |c: BlockPos| c.x >= x0 && c.x <= x1 && c.y >= y0 && c.y <= y1 && c.z >= z0 && c.z <= z1;
-    let state = |c: BlockPos| w.get(c).to_string();
-    let is_water = |c: BlockPos| {
-        let s = state(c);
-        s.starts_with("minecraft:water") || s.starts_with("minecraft:bubble_column") || s.contains("waterlogged=true")
-    };
-    let is_climb = |c: BlockPos| {
-        let s = state(c);
-        ["minecraft:ladder", "minecraft:vine", "minecraft:scaffolding", "minecraft:twisting_vines", "minecraft:weeping_vines", "minecraft:cave_vines"].iter().any(|k| s.starts_with(k))
-    };
-    let clear = |cx: f64, cz: f64, hw: f64, y: f64, h: f64| w.collision_shapes(Aabb::new(cx - hw, y + 1e-6, cz - hw, cx + hw, y + h, cz + hw)).is_empty();
-    // (where a mob of half-width hw and height h stands in cell c: the highest collision top under its box within half a
-    // block of c's floor, or the ground plane; its box clear above; or floating in water / on a climbable: c's floor)
-    let feet = |c: BlockPos, hw: f64, h: f64| -> Option<f64> {
-        let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
-        let ground = (c.y == ground_y + 1 && !in_box(BlockPos::new(c.x, ground_y, c.z))).then_some(c.y as f64);
-        let probe = Aabb::new(cx - hw, c.y as f64 - 0.5, cz - hw, cx + hw, c.y as f64 + 0.5, cz + hw);
-        let shape = w.collision_shapes(probe).iter().map(|a| a.max_y).filter(|t| *t >= c.y as f64 - 0.5 && *t <= c.y as f64 + 0.5 + 1e-9).fold(None, |m: Option<f64>, t| Some(m.map_or(t, |m: f64| m.max(t))));
-        let f = match (ground, shape) {
-            (Some(g), Some(s)) => Some(g.max(s)),
-            (g, s) => g.or(s),
-        };
-        match f {
-            Some(f) if clear(cx, cz, hw, f, h) => Some(f),
-            _ if (is_water(c) || is_climb(c)) && clear(cx, cz, hw, c.y as f64, h.min(1.0)) => Some(c.y as f64),
-            _ => None,
-        }
-    };
-    // (the flood: each reached cell with its feet and the seed it came from)
-    let flood = |seeds: &[BlockPos], hw: f64, h: f64, climbs_walls: bool| -> HashMap<BlockPos, (f64, BlockPos)> {
-        let mut reached: HashMap<BlockPos, (f64, BlockPos)> = HashMap::new();
-        let mut queue: VecDeque<BlockPos> = VecDeque::new();
-        for s in seeds {
-            if let Some(f) = feet(*s, hw, h)
-                && reached.insert(*s, (f, *s)).is_none()
-            {
-                queue.push_back(*s);
-            }
-        }
-        while let Some(c) = queue.pop_front() {
-            let (fc, seed) = reached[&c];
-            let mut push = |n: BlockPos, f: f64, reached: &mut HashMap<BlockPos, (f64, BlockPos)>, queue: &mut VecDeque<BlockPos>| {
-                if in_region(n) && !reached.contains_key(&n) {
-                    reached.insert(n, (f, seed));
-                    queue.push_back(n);
-                }
-            };
-            let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
-            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                let (nx, nz) = (c.x + dx, c.z + dz);
-                let (ncx, ncz) = (nx as f64 + 0.5, nz as f64 + 0.5);
-                // (a step up 1: the head room over the mob where it stands)
-                let up = BlockPos::new(nx, c.y + 1, nz);
-                if let Some(f) = feet(up, hw, h)
-                    && f - fc <= 1.0 + 1e-9
-                    && f > fc + 0.5
-                    && clear(cx, cz, hw, fc, h + 1.0)
-                {
-                    push(up, f, &mut reached, &mut queue);
-                    continue;
-                }
-                // (level, or a drop of any height down the neighbour's column, clear all the way)
-                let mut y = c.y;
-                while y >= y0 {
-                    let n = BlockPos::new(nx, y, nz);
-                    if !clear(ncx, ncz, hw, y as f64, (c.y - y) as f64 + h.min(1.0)) && feet(n, hw, h).is_none() {
-                        break;
-                    }
-                    if let Some(f) = feet(n, hw, h)
-                        && f <= fc + 0.5 + 1e-9
-                    {
-                        push(n, f, &mut reached, &mut queue);
-                        break;
-                    }
-                    y -= 1;
-                }
-            }
-            // (up and down: swimming, climbing a ladder or vine, or a spider on a wall)
-            for dy in [1, -1] {
-                let n = BlockPos::new(c.x, c.y + dy, c.z);
-                let fluid_or_climb = is_water(c) || is_climb(c) || is_water(n) || is_climb(n);
-                let wall = climbs_walls && !w.collision_shapes(Aabb::new(cx - hw - 0.06, n.y as f64 + 1e-6, cz - hw - 0.06, cx + hw + 0.06, n.y as f64 + h, cz + hw + 0.06)).is_empty();
-                if (fluid_or_climb || wall) && clear(cx, cz, hw, n.y as f64, h.min(1.0)) {
-                    let f = feet(n, hw, h).unwrap_or(n.y as f64);
-                    push(n, f, &mut reached, &mut queue);
-                }
-            }
-        }
-        reached
-    };
+    let wk = Walk { w, lo, hi, ground_y: Some(ground_y), region: (BlockPos::new(x0, y0, z0), BlockPos::new(x1, y1, z1)) };
+    let is_water = |c: BlockPos| wk.is_water(c);
+    let feet = |c: BlockPos, hw: f64, h: f64| wk.feet(c, hw, h);
+    let flood = |seeds: &[BlockPos], hw: f64, h: f64, climbs_walls: bool| wk.flood(seeds, hw, h, climbs_walls);
     // (the seeds: the ground plane outside the box, and every top surface on the design's outside OPEN TO THE SKY (nothing
     // above it up to the region's top): the roof and the outer ledges; an enclosed top is no exterior cell, a mob reaches
     // it only by a path the flood finds)
