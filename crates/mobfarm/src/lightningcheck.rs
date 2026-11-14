@@ -28,6 +28,10 @@ pub struct Opts {
     pub positions: Vec<BlockPos>,
     /// Every rail cell a rider position (a rider seated in a cart there).
     pub rails: bool,
+    /// (loaderlay Nov 14 05:50, part 50) A declared stand-in ground: the world's surface at this y under
+    /// every column, so a strike's column top is max(its motion-blocking top, ground + 1) (a layout whose
+    /// `ground:` plane isn't in its cells; without it an empty column's top is the world's bottom).
+    pub ground: Option<i32>,
 }
 
 /// The lines, the number of findings (a bolt hitting a farm entity, a fire, a redstone part in a
@@ -88,15 +92,23 @@ pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usi
     let mut bolts: Vec<(BlockPos, String, bool)> = Vec::new();
     let (x0, x1) = (w.min.x - 3, w.min.x + w.size[0] + 2);
     let (z0, z1) = (w.min.z - 3, w.min.z + w.size[2] + 2);
+    let mut cols_to_rod = 0usize;
+    let mut cols_off_rod: Vec<String> = Vec::new();
     for z in z0..=z1 {
         for x in x0..=x1 {
-            let center = BlockPos::new(x, redsim::weather::motion_blocking_height(&w, x, z), z);
+            let mb = redsim::weather::motion_blocking_height(&w, x, z);
+            let center = BlockPos::new(x, o.ground.map_or(mb, |g| mb.max(g + 1)), z);
             let rods = lt::rod_targets(&w, center);
             let mut add = |p: BlockPos, why: String, rod: bool| {
                 if !bolts.iter().any(|(q, _, _)| *q == p) {
                     bolts.push((p, why, rod));
                 }
             };
+            if rods.is_empty() {
+                cols_off_rod.push(format!("{x},{z} (top {})", center.y));
+            } else {
+                cols_to_rod += 1;
+            }
             if !rods.is_empty() {
                 for r in rods {
                     add(r, format!("strikes near {x} {z} go to the rod under {r}"), true);
@@ -238,6 +250,14 @@ pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usi
     for r in &rods0 {
         lines.push(format!("  ROD {},{},{}: {}", r.x, r.y, r.z, w.get(*r).to_string().trim_start_matches("minecraft:")));
     }
+    // (ironspec Nov 14 05:25 (iii), loaderlay 05:50, part 50) the strike area column by column: how many send
+    // their strike to a rod; the rest named (their strike lands at the column's own top)
+    lines.push(format!(
+        "strike columns to a rod: {cols_to_rod} of {}{}{}",
+        (x1 - x0 + 1) * (z1 - z0 + 1),
+        o.ground.map(|g| format!(" (a declared stand-in ground at y {g}: each column's top at least {})", g + 1)).unwrap_or_default(),
+        if cols_off_rod.is_empty() { "; every column to a rod".to_string() } else { format!("; {} column(s) to no rod: {}", cols_off_rod.len(), cols_off_rod.iter().take(12).cloned().collect::<Vec<_>>().join(" ")) + if cols_off_rod.len() > 12 { " ..." } else { "" } }
+    ));
     for e in &struck_entities {
         lines.push(format!("  STRUCK {e}"));
     }
@@ -272,7 +292,7 @@ mod tests {
         let b = |x, y, z| BlockPos::new(x, y, z);
         let cells = [(b(0, 0, 0), "minecraft:glass"), (b(10, 0, 10), "minecraft:glass"), (b(10, 1, 10), "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]")];
         let ents = vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], None)];
-        let opts = Opts { positions: Vec::new(), rails: false };
+        let opts = Opts { positions: Vec::new(), rails: false, ground: None };
         let spec = spec_of(&cells, ents.clone());
         let (l, n, s) = check(&spec, &opts).unwrap();
         assert_eq!((n, s), (0, 1), "{l:?}");
@@ -288,5 +308,22 @@ mod tests {
         on_stone.extend([(b(9, 0, 10), "minecraft:stone"), (b(11, 0, 10), "minecraft:stone")]);
         let (ls, ns, _) = check(&spec_of(&on_stone, ents), &opts).unwrap();
         assert!(ns > 0 && ls.iter().any(|x| x.contains("an ignition surviving in the rod's 3x3x3")), "{ls:?}");
+    }
+
+    /// (loaderlay Nov 14 05:50, ironspec 05:25 (iii), part 50) A rod high over an empty spread: the empty
+    /// columns' tops are the world's bottom, more than 128 below the rod, so without a ground their strikes
+    /// go to no rod (named); with the declared stand-in ground every column's top sits on it and every column
+    /// sends its strike to the rod.
+    #[test]
+    fn ground_sends_empty_columns_to_the_rod() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let cells = [(b(0, 0, 0), "minecraft:glass"), (b(6, 0, 6), "minecraft:glass"), (b(6, 70, 6), "minecraft:glass"), (b(6, 71, 6), "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]")];
+        let ents = vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], None)];
+        let mut spec = spec_of(&cells, ents);
+        spec.hi = BlockPos::new(12, 80, 12);
+        let (l0, _, _) = check(&spec, &Opts { positions: Vec::new(), rails: false, ground: None }).unwrap();
+        assert!(l0.iter().any(|x| x.starts_with("strike columns to a rod: ") && x.contains("column(s) to no rod: ")), "no ground: {l0:?}");
+        let (l1, _, _) = check(&spec, &Opts { positions: Vec::new(), rails: false, ground: Some(0) }).unwrap();
+        assert!(l1.iter().any(|x| x.starts_with("strike columns to a rod: ") && x.contains("(a declared stand-in ground at y 0: each column's top at least 1)") && x.ends_with("; every column to a rod")), "ground: {l1:?}");
     }
 }
