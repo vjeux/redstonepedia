@@ -105,6 +105,28 @@ pub const UP_DRIVE: P = [5, -1, 3];
 /// T's ride: none (the extractor pushes T straight into the up-dropper).
 pub const T_RIDE: [P; 0] = [];
 
+/// THE LOGIC, west part (the lane's inputs POP and G; ring-local cells): POP's line ends in the block POP_IN (the bench's
+/// stand-in a redstone block), which powers the hub dust on it (y 1) and the dust under it (y -1).
+/// - THE STEP = POP's rising edge: a subtract comparator (rear the hub, north side POP 4 gt late through a delay-2
+///   repeater fed by the hub's dust north and east) gives a 4-gt pulse into the step repeater (delay 4: an 8-gt step, 10
+///   gt after the pop); the SKIP feeds the patch through its own repeater (the patch's north-west corner).
+/// - T's WINDOW = POP AND G AND NOT (POP 18 gt late): a subtract comparator (rear POP, its north side POP 18 gt late
+///   through two delay-4 repeaters and the side repeater, its south side NOT G from a torch on G's block); its output runs
+///   east under the ring's north row (a dust, a dust, a repeater) to a dust on the T lock comparator's SOUTH side: T's
+///   extractor opens 6 gt after the pop (4 before the step reaches the tap) and closes after T's push into the up-dropper.
+pub const POP_IN: P = [-6, 0, -1];
+pub const G_IN: P = [-6, 0, 1];
+pub const C_E: P = [-5, 1, -1];
+pub const C_W: P = [-4, -1, -1];
+pub const SKIP_IN: P = [-3, 1, -2];
+/// POP's width (a detector rail stays pressed >= 20 gt: its 20-gt recheck), the step's lag after the pop (the edge
+/// comparator 2 gt + the step repeater 8 gt), T's window's opening after the pop (the window comparator, two dusts, a
+/// repeater, the lock comparator).
+pub const POP_WIDTH: i64 = 20;
+pub const STEP_AFTER_POP: i64 = 10;
+/// The skip's step follows its trigger by SKIP_LAG (its delay-4 repeater into the patch).
+pub const SKIP_LAG: i64 = 8;
+
 /// The token items.
 pub const FILLER: &str = "minecraft:stone";
 pub const TARGET: &str = "minecraft:wooden_shovel";
@@ -125,6 +147,7 @@ pub const T_START: usize = 7;
 /// 67 tap (ironspec 13:24p's widening); lanes 3 / 7 read REL + 57 / 67 and REL + 80, i.e. the pop + 40 and + 63 / 53).
 pub const F_AT: i64 = 40;
 pub const UP_AT: i64 = 67;
+// (F_AT / UP_AT count from the POP since the logic's step follows the pop by STEP_AFTER_POP)
 
 /// The lock comparators' constant: a single chest holding one stone (the container-signal formula: floor(14 x (1/64)/27)
 /// + 1 = 1; any level >= 1 locks the hopper, and an unlock at 15 on the side takes the output to 0). A chest, not a
@@ -156,7 +179,7 @@ pub fn design(t_start: usize) -> Design {
             put([x, 1, z], &format!("minecraft:redstone_wire[east={east},north={north},power=0,south={south},west={west}]"));
         }
     }
-    put(STEP_REP, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
+    put(STEP_REP, "minecraft:repeater[delay=4,facing=west,locked=false,powered=false]");
     put([STEP_REP[0], 0, STEP_REP[2]], "minecraft:glass");
     // (T's extractor, the up-dropper, the tap comparator on the lock block, the lock comparator and its constant)
     // (both extractors start LOCKED: the hopper disabled, its lock comparator already outputting 15, so neither pulls
@@ -197,6 +220,46 @@ pub fn design(t_start: usize) -> Design {
     for p in [UP_REP1, UP_DUST, UP_REP2] {
         put([p[0], -2, p[2]], "minecraft:glass");
     }
+    // (THE LOGIC, west part: the step edge, T's window; every component on glass)
+    let wire = |e: bool, n: bool, s: bool, w: bool| {
+        let f = |b: bool| if b { "side" } else { "none" };
+        format!("minecraft:redstone_wire[east={},north={},power=0,south={},west={}]", f(e), f(n), f(s), f(w))
+    };
+    let mut on_glass = |d: &mut Design, p: P, b: &str| {
+        d.blocks.insert(p, b.to_string());
+        d.blocks.entry([p[0], p[1] - 1, p[2]]).or_insert_with(|| "minecraft:glass".to_string());
+    };
+    // (y 1: the hub on POP_IN (POP's line end: a solid block, the bench's stand-in a redstone block while POP is high),
+    // its dust north and east to the edge's side repeater; the edge comparator; the skip's entry)
+    d.blocks.insert(POP_IN, "minecraft:stone".to_string());
+    on_glass(&mut d, [-6, 1, -1], &wire(true, true, false, false));
+    on_glass(&mut d, [-6, 1, -2], &wire(false, true, true, false));
+    on_glass(&mut d, [-6, 1, -3], &wire(true, false, true, false));
+    on_glass(&mut d, [-5, 1, -3], &wire(false, false, true, true));
+    on_glass(&mut d, [-5, 1, -2], "minecraft:repeater[delay=2,facing=north,locked=false,powered=false]");
+    on_glass(&mut d, C_E, "minecraft:comparator[facing=west,mode=subtract,powered=false]");
+    // (the SKIP feeds the dust patch directly through its own delay-4 repeater on the patch's north-west corner, so it
+    // never merges with POP's hub (a skip right after a pop would be swallowed by the edge's delayed side))
+    on_glass(&mut d, SKIP_IN, "minecraft:repeater[delay=4,facing=north,locked=false,powered=false]");
+    // (y -1: POP under POP_IN, east to the window comparator's rear; north and east through the 16-gt delay to its north
+    // side; NOT G (a torch on G's block, G arriving as a dust on that block) into its south side)
+    on_glass(&mut d, [-6, -1, -1], &wire(true, true, false, false));
+    on_glass(&mut d, [-5, -1, -1], &wire(true, false, false, true));
+    on_glass(&mut d, [-6, -1, -2], "minecraft:repeater[delay=4,facing=south,locked=false,powered=false]");
+    on_glass(&mut d, [-6, -1, -3], &wire(true, false, true, false));
+    on_glass(&mut d, [-5, -1, -3], "minecraft:repeater[delay=4,facing=west,locked=false,powered=false]");
+    on_glass(&mut d, [-4, -1, -3], &wire(false, false, true, true));
+    on_glass(&mut d, [-4, -1, -2], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
+    on_glass(&mut d, C_W, "minecraft:comparator[facing=west,mode=subtract,powered=false]");
+    d.blocks.insert([-5, -1, 1], "minecraft:stone".to_string());
+    on_glass(&mut d, [-5, 0, 1], &wire(false, false, false, true));
+    d.blocks.insert([-4, -1, 1], "minecraft:redstone_wall_torch[facing=east,lit=true]".to_string());
+    on_glass(&mut d, [-4, -1, 0], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
+    // (the window's path east under the ring's north row into the T lock comparator's south side)
+    on_glass(&mut d, [-3, -1, -1], &wire(true, false, false, true));
+    on_glass(&mut d, [-2, -1, -1], &wire(true, false, false, true));
+    on_glass(&mut d, [-1, -1, -1], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
+    on_glass(&mut d, [0, -1, -1], &wire(false, true, false, true));
     // (the tokens and the two constants)
     for (i, p) in DROPPERS.iter().enumerate() {
         let id = if i == t_start { TARGET } else { FILLER };
@@ -239,6 +302,12 @@ pub struct Plan {
     pub stock_fire: Vec<i64>,
     /// A world open at this tick (between the tick and the next).
     pub restart: Option<(i64, crate::liveness::Restart)>,
+    /// THE LOGIC's inputs (when `pops` is non-empty the step and T's window come from the logic, not the stand-ins): POP
+    /// pulses (POP_WIDTH gt each, from these ticks), G's high intervals, the skip stand-in's 4-gt pulses (the skip logic
+    /// not yet laid).
+    pub pops: Vec<i64>,
+    pub g_high: Vec<(i64, i64)>,
+    pub skips: Vec<i64>,
     pub horizon: i64,
     /// Ticks [a, b) whose contents of the traced cells are recorded (a debug print).
     pub trace: Option<(i64, i64, Vec<P>)>,
@@ -300,6 +369,7 @@ pub fn run_plan(spec: &FarmSpec, plan: &Plan) -> Result<Read, String> {
     while run.settle_tick() {}
     let rb = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
+    let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
     let f_id = redsim::redstone::container::item_id(FILLER).ok_or("no filler item")?;
     let t_id = redsim::redstone::container::item_id(TARGET).ok_or("no target item")?;
@@ -312,23 +382,54 @@ pub fn run_plan(spec: &FarmSpec, plan: &Plan) -> Result<Read, String> {
     let mut stock_prev: u32 = 0;
     for t in 0..plan.horizon {
         // (the drives at this tick: a pulse's start and end)
+        let logic = !plan.pops.is_empty();
         for &s in &plan.steps {
             if t == s {
                 r.before.push(([0, 1, 2, 3, 4, 5, 6, 7].map(|i| tok_of(&run.world, DROPPERS[i], f_id, t_id, &mut r.extra_items)), run.world.best_neighbor_signal(crate::mirror::at(TAP_OUT)), r.before.len()));
-                run.world.set_block(crate::mirror::at(STEP_DRIVE), rb.clone(), all);
+                if !logic {
+                    run.world.set_block(crate::mirror::at(STEP_DRIVE), rb.clone(), all);
+                }
             }
-            if t == s + plan.step_width {
+            if t == s + plan.step_width && !logic {
                 run.world.set_block(crate::mirror::at(STEP_DRIVE), air.clone(), all);
             }
         }
         for &u in &plan.t_unlock {
             if t == u {
-                run.world.set_block(crate::mirror::at(T_UNLOCK_AT), rb.clone(), all);
+                if !logic {
+                    run.world.set_block(crate::mirror::at(T_UNLOCK_AT), rb.clone(), all);
+                }
                 t_unl = Some(t);
                 t_rode = false;
             }
-            if t == u + T_WINDOW {
+            if t == u + T_WINDOW && !logic {
                 run.world.set_block(crate::mirror::at(T_UNLOCK_AT), air.clone(), all);
+            }
+        }
+        for &p in &plan.pops {
+            if t == p {
+                run.world.set_block(crate::mirror::at(POP_IN), rb.clone(), all);
+            }
+            if t == p + POP_WIDTH {
+                // (POP's line end is a solid block, powered or not: the hub dust stands on it)
+                run.world.set_block(crate::mirror::at(POP_IN), stone.clone(), all);
+            }
+        }
+        for &(a, b) in &plan.g_high {
+            if t == a {
+                run.world.set_block(crate::mirror::at(G_IN), rb.clone(), all);
+            }
+            if t == b {
+                run.world.set_block(crate::mirror::at(G_IN), air.clone(), all);
+            }
+        }
+        for &k in &plan.skips {
+            let at = crate::mirror::at([SKIP_IN[0], SKIP_IN[1], SKIP_IN[2] - 1]);
+            if t == k {
+                run.world.set_block(at, rb.clone(), all);
+            }
+            if t == k + 4 {
+                run.world.set_block(at, air.clone(), all);
             }
         }
         for &u in &plan.f_unlock {
@@ -427,11 +528,12 @@ pub fn rotate(e: [Tok; 8]) -> [Tok; 8] {
     o
 }
 
-/// The reference script: steps every 100 gt from t 50 (`n` of them, a skip step 20 gt after any step that leaves the
-/// tap empty); T starts in D1, so it is at the tap before step 3: the GRANT there (T's extractor unlocked at the step -
-/// 8, the filler's at the step + `f_at`, the up-fire at the step + `up_at`); the RELEASE when D6 is empty before step 5
-/// (the stock fired 30 gt before that step) unless `no_release`. Returns the plan and the expected tokens before every
-/// step and at the end.
+/// The reference script, driven by the lane's inputs: a POP every 100 gt (`n` of them; the step follows each by
+/// STEP_AFTER_POP, at t = 50 + 100 k), a skip 20 gt after any step that leaves the tap empty (the skip logic's stand-in);
+/// T starts in P7, so it is at the tap before step 3: the GRANT there (G high from 8 gt before that pop to its pop + 85,
+/// cc767b78's capture and clear; T's window is the logic's; the filler's unlock at the pop + `f_at`, the up-fire at the pop
+/// + `up_at`: stand-ins); the RELEASE when P4 is empty (the stock fired 30 gt before the next step: a stand-in) unless
+/// `no_release`. Returns the plan and the expected tokens before every step and at the end.
 pub fn reference(n: usize, f_at: i64, up_at: i64, no_release: bool) -> (Plan, Vec<[Tok; 8]>, [Tok; 8]) {
     let mut e = [Tok::F; 8];
     e[T_START] = Tok::T;
@@ -442,17 +544,21 @@ pub fn reference(n: usize, f_at: i64, up_at: i64, no_release: bool) -> (Plan, Ve
     let mut granted = false;
     let mut released = no_release;
     while k < n {
+        let pop = t - STEP_AFTER_POP;
+        plan.pops.push(pop);
         if !granted && e[TAP] == Tok::T {
-            // (THE GRANT at this step: T lifted out before it (the read at the step sees the tap already empty); D0's
-            // filler (the slot picked + 5, after the step) lifted out after it; T into D0 by the up-fire)
-            plan.t_unlock.push(t - STEP_LAG);
+            // (THE GRANT at this pop: G high around it; T lifted out before the step (the read at the step sees the tap
+            // already empty); P6's filler (the slot picked + 5, after the step) lifted out after it; T into P6 by the
+            // up-fire)
+            plan.g_high.push((pop - 8, pop + 85));
+            plan.t_unlock.push(pop);
             e[TAP] = Tok::Empty;
             before.push(e);
             plan.steps.push(t);
             e = rotate(e);
-            plan.f_unlock.push(t + f_at);
+            plan.f_unlock.push(pop + f_at);
             e[T_INTO] = Tok::T;
-            plan.up_fire.push(t + up_at);
+            plan.up_fire.push(pop + up_at);
             granted = true;
         } else {
             before.push(e);
@@ -461,11 +567,12 @@ pub fn reference(n: usize, f_at: i64, up_at: i64, no_release: bool) -> (Plan, Ve
         }
         // (the skip: the tap empty after the step: one more step 20 gt later)
         if e[TAP] == Tok::Empty {
+            plan.skips.push(t + 20 - SKIP_LAG);
             plan.steps.push(t + 20);
             before.push(e);
             e = rotate(e);
         }
-        // (the release: D6 empty -> the stock fires into it, 30 gt before the next step)
+        // (the release: P4 empty -> the stock fires into it, 30 gt before the next step)
         if granted && !released && e[REL_AT] == Tok::Empty {
             plan.stock_fire.push(t + 70);
             e[REL_AT] = Tok::F;
@@ -499,7 +606,7 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     lines.push(format!("ctl-ring8: the two lock comparators' constant rears (a single chest holding one stone each) read {} / {} (the container-signal formula: 1): {w0}", r.consts.0, r.consts.1));
     lines.push(format!("ctl-ring8: the reference script ({} step reads; the end {:?} vs {:?}; the lift {} (reloaded), the stock {}; items {}): {}{}: {w}", r.before.len(), r.end, exp_end, r.lift_end, r.stock_end, r.items_total, if mism.is_empty() { "every read matches".to_string() } else { format!("MISMATCHES {}", mism.join("; ")) }, if r.extra_items.is_empty() { String::new() } else { format!("; two items in a dropper: {:?}", r.extra_items.iter().take(3).collect::<Vec<_>>()) }));
     // (the timings: the grant's step is plan.steps[k] for the unlock at its - 8)
-    let g_step = plan.t_unlock[0] + STEP_LAG;
+    let g_step = plan.t_unlock[0] + STEP_AFTER_POP;
     let t_out = r.t_out.first().copied().unwrap_or(i64::MAX) - plan.t_unlock[0];
     let t_up = r.t_up.first().copied().unwrap_or(i64::MAX);
     let t_in = r.t_in.first().copied().unwrap_or(i64::MAX);
@@ -509,7 +616,7 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let w = v.bar("ctl-ring8: THE GRANT's TIMES: T out of the tap before the grant's step, T in the up-dropper before the up-fire, T in D0 before the next step, the filler in the stock before the release's fire", g_step > plan.t_unlock[0] + t_out && t_up < up_fire && t_in < next_step && plan.stock_fire.first().is_none_or(|&s| f_st < s));
     // (the up-dropper's quasi-connected fire at the grant's own step: the step repeater's 2 gt + the dropper's 4 gt after
     // the step; T must reach the up-dropper after it, or that fire would send T into P6's feeder early)
-    let qc_fire = g_step + 2 + 4;
+    let qc_fire = g_step + 4;
     let w_qc = v.bar("ctl-ring8: T reaches the up-dropper AFTER that dropper's quasi-connected fire at the grant's step (the step powers every ring cell, the up-dropper's above included)", t_up > qc_fire);
     lines.push(format!("  THE GRANT's TIMES (measured): T out of the tap {t_out} gt after the unlock (the step {} gt after it); T into the up-dropper (ONE hop) at the grant step + {} gt, after the up-dropper's quasi-connected fire at + {} (margin {} gt: {w_qc}); the up-fire at + {} (margin {} gt); T in P6 at + {} (the next step at + {}: margin {} gt); the filler in the stock at + {} (the release's fire at + {}): {w}", g_step - plan.t_unlock[0], t_up - g_step, qc_fire - g_step, t_up - qc_fire, up_fire - g_step, up_fire - t_up, t_in - g_step, next_step - g_step, next_step - t_in, f_st - g_step, plan.stock_fire.first().map_or(-1, |&s| s - g_step)));
     // (G1 13:54 (1b): the up-dropper's quasi-connected power falls and its `triggered` clears BEFORE the real up-fire)
@@ -546,7 +653,8 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let r2 = run_plan(&spec, &p2)?;
     let m2 = r2.before.iter().zip(&e2b).filter(|(a, e)| a.0 != **e).count();
     let w = v.bar_n("ctl-ring8: THE SKIP (no release: the away slot reaches the tap and the skip step passes it): every read and the end match the model", r2.before.len(), m2 == 0 && r2.end == e2e && r2.extra_items.is_empty());
-    lines.push(format!("  THE SKIP (the no-release twin, {} reads, {} skip steps): mismatches {m2}, the end {:?} vs {:?}: {w}", r2.before.len(), p2.steps.len() - 16, r2.end, e2e));
+    let m2_list: Vec<String> = r2.before.iter().zip(&e2b).enumerate().filter(|(_, (a, e))| a.0 != **e).map(|(i, (a, e))| format!("read {i} (t {}): {:?} vs {:?}", p2.steps.get(i).copied().unwrap_or(-1), a.0, e)).take(3).collect();
+    lines.push(format!("  THE SKIP (the no-release twin, {} reads, {} skip steps): mismatches {m2}{}, the end {:?} vs {:?}: {w}", r2.before.len(), p2.steps.len() - 16, if m2_list.is_empty() { String::new() } else { format!(" ({})", m2_list.join("; ")) }, r2.end, e2e));
     // (WORLD OPENS at every tick from the grant's unlock to the release's fire + 20: the end state as the plain run's)
     let from = plan.t_unlock[0] - 2;
     let to = plan.stock_fire.first().copied().unwrap_or(up_fire) + 20;
@@ -592,10 +700,11 @@ mod tests {
     #[ignore]
     fn trace_release() {
         let spec = super::spec_of(super::design(super::T_START)).unwrap();
-        let (mut plan, _, _) = super::reference(16, super::F_AT, super::UP_AT, false);
-        plan.trace = Some((340, 425, vec![super::UP, super::T_EXTRACT, super::RING_HOPPERS[5], super::DROPPERS[6]]));
+        let (mut plan, _, _) = super::reference(16, super::F_AT, super::UP_AT, true);
+        let k = plan.skips[0];
+        plan.trace = Some((k - 3, k + 30, vec![[-3, 1, -3], super::SKIP_IN, [-3, 1, -1], super::DROPPERS[2]]));
         let r = super::run_plan(&spec, &plan).unwrap();
-        println!("stock fires {:?}", plan.stock_fire);
+        println!("skips {:?} pops {:?}", plan.skips, plan.pops);
         for l in &r.trace {
             println!("{l}");
         }
