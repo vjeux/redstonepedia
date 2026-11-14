@@ -1229,6 +1229,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     // (ironspec 16:45 (2)) MCTAS_REPLAY_EVENTS_FILE=<path>: every hostile set / clear, every stamp clear with
     // its place and lane, every PANIC period's attempts, each villager's sensor phase
     let mut night_log: Option<Vec<String>> = std::env::var("MCTAS_REPLAY_EVENTS_FILE").ok().map(|_| Vec::new());
+    // (ironspec 19:22 (1)) MCTAS_REPLAY_R1=<rule>: R_1's waveform per lane by command (r1override.rs)
+    let r_acts: Vec<(u32, [i32; 3], String)> = acts
+        .iter()
+        .filter(|a| a.verb == "set" && a.args.len() == 4)
+        .filter_map(|a| {
+            let p: Vec<i32> = a.args[..3].iter().filter_map(|s| s.parse().ok()).collect();
+            (p.len() == 3).then(|| (a.t, [p[0], p[1], p[2]], a.args[3].clone()))
+        })
+        .collect();
+    let mut r1 = crate::r1override::R1Override::from_env(&r_acts)?;
     for t in 0..=ticks {
         // (ironspec 07:05 / 08:02: the lift-top fault rows) MCTAS_REPLAY_SWAP="x,y,z;STATE;t0;t1": the cell
         // set to STATE before tick t0 and its own state restored before t1 (each write must change it);
@@ -1343,8 +1353,25 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 v.home_path = None;
             }
         }
+        if let Some(o) = r1.as_mut() {
+            o.before_acts(&mut srv, t, &cart_tags)?;
+        }
         while ai < acts.len() && acts[ai].t == t {
             let a = &acts[ai];
+            if let Some(o) = r1.as_mut()
+                && a.verb == "set"
+                && let [x, y, z, _] = a.args.as_slice()
+                && let (Ok(x), Ok(y), Ok(z)) = (x.parse::<i32>(), y.parse::<i32>(), z.parse::<i32>())
+                && o.replaces([x, y, z])
+            {
+                // (the override writes this cell itself)
+                o.dropped += 1;
+                if a.expect.is_some() {
+                    o.dropped_expects += 1;
+                }
+                ai += 1;
+                continue;
+            }
             match a.verb.as_str() {
                 "home" | "last-slept" => {
                     let who = a.args.first().ok_or_else(|| anyhow::anyhow!("t{t}: {} with no entity", a.verb))?.replace('.', "");
@@ -1475,6 +1502,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             println!("  t0: the drive's declared HOME holders: {} of {} ({}); every other villager HOME-less, read back", declared_home.len(), vs.len(), if declared_home.len() == vs.len() { "all".to_string() } else { declared_home.iter().cloned().collect::<Vec<_>>().join(" ") });
         }
         srv.step(1)?;
+        if let Some(o) = r1.as_mut() {
+            o.after_step(&mut srv, t, &cart_tags)?;
+        }
         let now = gt0 + t as i64 + 1;
         let day = (day_base + t as i64 + 1).rem_euclid(24000);
         for l in log.drain(&srv)? {
@@ -2347,6 +2377,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     for sv in &stop_visits {
         println!("    visit {sv}");
     }
+    if let Some(o) = r1.as_ref() {
+        o.report()?;
+    }
     println!(
         "  printed only (ironspec 09:42 (R1)): night REST ticks without a complete HOME path {partial} of {judged} villager-ticks (trips excluded: {complete}); villagers whose stamp ever reached 1,000 gt: {old}"
     );
@@ -2385,12 +2418,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         "  run kind: {}; expect lines {expect_lines} ({expect_in_run} inside the run), checked {expects_checked}",
         if expect_lines > 0 { "closed-loop checked (a design run)" } else if fidelity_only { "OPEN LOOP, declared fidelity-only (MCTAS_REPLAY_FIDELITY_ONLY): mechanics only, no design verdict" } else { "OPEN LOOP (no `# expect` lines): not a design run" }
     );
-    anyhow::ensure!(expects_checked == expect_in_run, "{expects_checked} of the {expect_in_run} `# expect` line(s) inside the run's {ticks} gt checked: the run fails");
+    // (the R_1 override) the drive's R-line writes it replaced are neither applied nor checked: counted apart
+    let (r1_acts, r1_expects) = r1.as_ref().map(|o| (o.dropped, o.dropped_expects)).unwrap_or((0, 0));
+    anyhow::ensure!(
+        expects_checked + r1_expects == expect_in_run,
+        "{expects_checked} of the {expect_in_run} `# expect` line(s) inside the run's {ticks} gt checked ({r1_expects} on writes the R_1 override replaced): the run fails"
+    );
     anyhow::ensure!(expect_lines > 0 || fidelity_only, "an OPEN-LOOP drive (no `# expect` lines) is no design run: declare it with MCTAS_REPLAY_FIDELITY_ONLY=1 for a mechanics-only row; the run fails");
     anyhow::ensure!(judged > 0, "no night tick judged: NOT JUDGED, the run fails");
     // (G1 on K #2) the acts inside the run (the loop runs t = 0..=ticks, so acts at t <= ticks apply)
     let acts_in_run = acts.iter().filter(|a| a.t <= ticks).count();
-    anyhow::ensure!(applied == acts_in_run, "only {applied} of the {acts_in_run} acts inside the run applied within {ticks} gt");
+    anyhow::ensure!(applied + r1_acts == acts_in_run, "only {applied} of the {acts_in_run} acts inside the run applied within {ticks} gt ({r1_acts} replaced by the R_1 override)");
     anyhow::ensure!(first_div.is_none() || expects_checked == 0, "the replay diverged from redsim's recorded state at t{}: every design result after it is NOT JUDGED (drift): the run fails as a design run", first_div.unwrap_or(0));
     anyhow::ensure!(
         at_entry_bad.is_empty() && releases == 0 && lost == 0 && collisions.is_empty() && farm_stop.is_empty() && noop.is_empty() && gone.is_empty() && drowning.is_empty(),
