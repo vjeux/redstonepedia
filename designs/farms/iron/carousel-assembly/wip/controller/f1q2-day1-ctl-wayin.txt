@@ -305,7 +305,7 @@
 ## loop through the latch ends it: ~12 gt, measured)
 3,19,-2 minecraft:glass
 3,20,-2 minecraft:comparator[facing=north,mode=subtract,powered=false]
-3,20,-1 minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+3,20,-1 minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
 3,19,0 minecraft:glass
 3,20,0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
 3,20,1 minecraft:glass
