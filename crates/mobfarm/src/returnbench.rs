@@ -495,8 +495,7 @@ fn build_base(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // (ironspec 10:12 / 10:23 PT, form (C), the pocket-exit joins shape-stable by construction: on
         // path (a) each join T's support is slime, strongly powered by a lit torch under it on glass,
         // so the T is powered and every re-settle lands north_west (its powered preference); the torch
-        // at Manhattan 2 re-shapes it on its placement whatever the rail order (build: the torch last;
-        // repair: re-place the torch))
+        // at Manhattan 2 re-shapes it on its placement whatever the rail order (build: the torch last))
         if o.path_a && (x == 3 || x == -1) {
             put(x, -1, mz, &slime);
             put(x, -2, mz, &torch);
@@ -2504,6 +2503,10 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
     let mut place_order: Vec<String> = Vec::new();
     let mut ts: Vec<String> = Vec::new();
     let mut shapes: Vec<String> = Vec::new();
+    // (ironspec 12:37p (3)) the harness-thrown J / K levers' `emulated:` entries
+    let mut lever_emu: Vec<String> = Vec::new();
+    // (ironspec 12:22p) each join T's holding torch, declared `always-on:` with the T's held shape
+    let mut join_torches: Vec<String> = Vec::new();
     let cell = |p: BlockPos| format!("({},{},{})", p.x, p.y, p.z);
     for (k, name) in &d.blocks {
         let p = BlockPos::new(k[0], k[1], k[2]);
@@ -2551,18 +2554,30 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
             } else if held {
                 // (ironspec 10:12 PT's `# shape:` form, in settle-check's grammar (vcompose 10:38: main's V rev 2.1
                 // failed settle-check by parse on the free form): `x,y,z=STATE (held: powered via the slime (x,-1,7)
-                // by the torch (x,-2,7), CONSTANT, on glass; build: the torch last; repair: re-place the torch)`, the
-                // STATE the stored block state in full (the parser reads it as a block), entries split on ';' outside
-                // parentheses)
+                // by the torch (x,-2,7), CONSTANT, on glass; build: the torch last)`, the STATE the stored block state
+                // in full (the parser reads it as a block), entries split on ';' outside parentheses; no repair clause
+                // (ironspec 12:22p: repairs are out of scope); the torch is declared `always-on:` below (ironspec
+                // 12:22p: an always-on source, the T power-forced north_west at all times)
                 let below = p.below();
                 let under = below.below();
                 let holder = if w.get(below).to_string() == "minecraft:slime_block" && w.get(under).to_string().starts_with("minecraft:redstone_torch") {
                     let base = w.get(under.below()).to_string();
+                    join_torches.push(format!(
+                        "{},{},{}=the join T {}'s torch on {} {}, under the slime {}: an always-on source, the T held {} at all times",
+                        under.x,
+                        under.y,
+                        under.z,
+                        cell(p),
+                        base.trim_start_matches("minecraft:"),
+                        cell(under.below()),
+                        cell(below),
+                        stored.name()
+                    ));
                     format!("powered via the slime {} by the torch {}, CONSTANT, on {}", cell(below), cell(under), base.trim_start_matches("minecraft:"))
                 } else {
                     format!("powered (its sources: {})", if m2.is_empty() { "none named".to_string() } else { m2.join(", ") })
                 };
-                shapes.push(format!("{},{},{}={} (held: {holder}; build: the torch last; repair: re-place the torch)", p.x, p.y, p.z, w.get(p).to_string().trim_start_matches("minecraft:")));
+                shapes.push(format!("{},{},{}={} (held: {holder}; build: the torch last)", p.x, p.y, p.z, w.get(p).to_string().trim_start_matches("minecraft:")));
                 format!("held by its power: {holder}")
             } else if stored == j.unpowered && !j.signal {
                 "settled (unpowered)".to_string()
@@ -2747,6 +2762,7 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         if o.row9 && o.k_relay {
             ao.push(if o.no_torches { format!("-6,{ex},8=the lift exit booster (-5,{ex},8)'s side redstone block") } else { format!("-6,{ex},8=the lift exit's torch on glass (-6,{top},8), beside the booster (-5,{ex},8)") });
         }
+        ao.extend(join_torches.iter().cloned());
         if !ao.is_empty() {
             head.push(format!("# always-on: {}", ao.join("; ")));
         }
@@ -2791,6 +2807,18 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
                 sw.push(format!("{},25,9=K({x}): the lever ({},26,9) (day-1's timed taps; a ceiling lever under glass ({},27,9)), on -> north_west, off -> north_east", x - 2, x - 2, x - 2));
             }
             head.push(format!("# switches: {}", sw.join("; ")));
+            // (77b7a74af, G1 Nov 13 21:58: the five split-row Ts' `# travel:` lines, each stating that every cart on
+            // the row comes off the lift's top at the row's west end and runs east, so it enters its T from the west;
+            // the lines and their evidence locator as 77b7a74af laid them in the file, now emitted by the generator
+            // (B1: the emitter and its file together))
+            if o.path_a {
+                for (from, j, name, t) in [(-2, -1, "J(-1)", 2854), (0, 1, "K(3)", 2861), (2, 3, "J(3)", 2869), (4, 5, "K(7)", 2877), (6, 7, "J(7)", 2885)] {
+                    head.push(format!(
+                        "# travel: {from},25,9>{j},25,9=a batch cart on the split row enters {name} from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night; every cart on the split row (a batch cart, the returning lane-7 napper, the outbound picked cart) comes off the lift's top at the row's west end and runs east, so each enters this T from the west: G1 Nov 13 21:58); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t {t}..{} cart 46",
+                        t + 1
+                    ));
+                }
+            }
         }
         // (ironspec 23:50 PT: the way-in's curve (9,25,9), north_west in record7 (b8949c96's file), laid
         // here as the shape a rail with only its west neighbour settles to: a declared stand-in;
@@ -2799,13 +2827,19 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         // record ships them. Written in record-match's header format (`declared_from_header`):
         // `x,y,z (why); …`, the owner-checked verdicts on `# stand-in-guard:`)
         if o.row9 && o.k_relay && o.napper_delay.is_some() && !o.mirror_z {
-            let mut si: Vec<String> = vec!["9,25,9 (the way-in's curve: north_west in record7, b8949c96's file; here a rail east_west, the shape a rail with only its west neighbour settles to; this bench ends the napper's route at its K(x) and the batch carts' at their J, so no cart of the bench reaches it)".to_string()];
+            let mut si: Vec<String> = vec!["9,25,9 support=9,24,9 (the way-in's curve: north_west in record7, b8949c96's file; here a rail east_west, the shape a rail with only its west neighbour settles to; this bench ends the napper's route at its K(x) and the batch carts' at their J, so no cart of the bench reaches it)".to_string()];
             if o.path_a {
+                // (ironspec 12:35p / 12:37p (3): the six J / K levers are THROWN by the harness, so they are
+                // `emulated:` entries in the ruled grammar, `x,26,9=STATE (support=x,27,9; drive=j:<lane>|k:<lane>;
+                // why)`, not `# stand-in:` lines (a stand-in asserts a copy of another part's block); one
+                // `emulated:` line per file)
                 for x in [-1, 3, 7] {
-                    si.push(format!("{x},26,9 (J({x})'s lever, a ceiling lever under the glass ({x},27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))"));
+                    let st = w.get(BlockPos::new(x, 26, 9)).to_string();
+                    lever_emu.push(format!("{x},26,9={} (support={x},27,9; drive=j:{x}; J({x})'s lever, a ceiling lever under the glass ({x},27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))", st.trim_start_matches("minecraft:")));
                 }
                 for x in [-1, 3, 7] {
-                    si.push(format!("{},26,9 (K({x})'s lever, a ceiling lever under the glass ({},27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))", x - 2, x - 2));
+                    let st = w.get(BlockPos::new(x - 2, 26, 9)).to_string();
+                    lever_emu.push(format!("{},26,9={} (support={},27,9; drive=k:{x}; K({x})'s lever, a ceiling lever under the glass ({},27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))", x - 2, st.trim_start_matches("minecraft:"), x - 2, x - 2));
                 }
             }
             head.extend(si.iter().map(|e| format!("# stand-in: {e}")));
@@ -2877,6 +2911,9 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
     // (settle-check's grammar has no "none": the line is left out when no T is declared)
     if !shapes.is_empty() {
         head.push(format!("# shape: {}", shapes.join("; ")));
+    }
+    if !lever_emu.is_empty() {
+        d.meta.insert("emulated".to_string(), lever_emu.join("; "));
     }
     let text = format!("{}\n{}", head.join("\n"), d.to_text());
     let back = mctas::design::Design::parse(&text).map_err(|e| format!("parse(write()): {e}"))?;
@@ -5993,6 +6030,39 @@ mod record_file_tests {
         assert!(emitted == committed, "the committed record lift file differs from the bench's emission of its run line: re-emit it with that run line");
     }
 
+    /// G1 12:34 / vcompose 12:33: the committed LIFT file (the generator's emission, pinned by the test above) passes the
+    /// COMPOSER's OWN stand-in support check (`column::stand_in_supports`, the reader's rule, not a copy) on its
+    /// `# stand-in:` line (the way-in's curve 9,25,9, its support 9,24,9 held); the six harness-thrown J / K levers are
+    /// `emulated:` entries in the ruled grammar (ironspec 12:37p (3)), `(support=x,27,9; drive=j:<lane>|k:<lane>; why)`,
+    /// each support a cell the record holds (main's `stand_in_supports` reads an emulated entry's support right after
+    /// its state, the pre-ruling form, so the entries are checked here until vcompose's composer car moves it onto
+    /// `declkeys::emulated_entries`).
+    #[test]
+    fn the_lift_files_stand_ins_pass_the_composers_support_check() {
+        let committed = include_str!("../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt");
+        let d = mctas::design::Design::parse(committed).expect("the LIFT file parses");
+        let heads: Vec<String> = committed.lines().filter(|l| l.starts_with("# stand-in:")).map(str::to_string).collect();
+        let record: BTreeMap<[i32; 3], String> = d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(c, s)| ([c[0], c[1], c[2]], s.clone())).collect();
+        let checked = crate::column::stand_in_supports(&heads, &[], &record).expect("every stand-in names a support the record holds");
+        assert!(checked.iter().any(|c| c.contains("9,25,9")), "the curve stand-in 9,25,9 checked: {checked:?}");
+        let emu = d.meta.get("emulated").expect("the levers' emulated: line");
+        for (x, role) in [(-1, "j:-1"), (3, "j:3"), (7, "j:7"), (-3, "k:-1"), (1, "k:3"), (5, "k:7")] {
+            let at = emu.find(&format!("{x},26,9=lever[")).unwrap_or_else(|| panic!("the lever ({x},26,9) is an emulated: entry"));
+            assert!(emu[at..].contains(&format!("(support={x},27,9; drive={role}; ")), "({x},26,9): its support and drive {role} right inside its note");
+            assert!(record.contains_key(&[x, 27, 9]), "({x},26,9)'s support ({x},27,9) is a block of the record");
+        }
+        // (ironspec 12:37p (3) / 12:47p (2): ONE READER) the `emulated:` line through the parsers car's
+        // `declkeys::emulated_entries`: 0 refusals, each lever's support and drive read as declared
+        let (entries, _) = crate::declkeys::emulated_entries(committed).expect("the emulated: line reads through emulated_entries with 0 refusals");
+        assert_eq!(entries.len(), 6, "six lever entries: {entries:?}");
+        for (x, role) in [(-1, "j:-1"), (3, "j:3"), (7, "j:7"), (-3, "k:-1"), (1, "k:3"), (5, "k:7")] {
+            let e = entries.iter().find(|e| e.cells == vec![[x, 26, 9]]).unwrap_or_else(|| panic!("({x},26,9) read"));
+            assert_eq!(e.support, Some([x, 27, 9]), "({x},26,9)'s support");
+            assert_eq!(e.drive.as_deref(), Some(&[role.to_string()][..]), "({x},26,9)'s drive");
+            assert!(e.state.trim_start_matches("minecraft:").starts_with("lever["), "({x},26,9)'s state is a lever: {}", e.state);
+        }
+    }
+
     /// G1 on 2dc7e46bb, H12: `record_as_run` reads strictly: a malformed `emulated:` entry and a state
     /// redsim doesn't model (other than the Nether pad's portal) are errors, every `emulated:` line read.
     #[test]
@@ -6025,12 +6095,19 @@ mod record_file_tests {
     fn the_record_header_reads_as_record_match_declarations() {
         let committed = include_str!("../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt");
         let d = crate::recordmatch::declared_from_header(committed).expect("the header reads");
-        for c in [[9, 25, 9], [-1, 26, 9], [3, 26, 9], [7, 26, 9], [-3, 26, 9], [1, 26, 9], [5, 26, 9]] {
-            assert!(d.standins.contains_key(&c), "{c:?} declared a stand-in");
-        }
+        assert!(d.standins.contains_key(&[9, 25, 9]), "the way-in's curve declared a stand-in");
         let g = &d.standins[&[9, 25, 9]].guard;
         assert!(g.passes(), "{:?}", g.gaps());
-        assert!(!d.standins[&[-1, 26, 9]].guard.passes(), "a lever standing in for day-1's line has no verdicts until that line is laid");
+        // (ironspec 12:35p / 12:37p (3): the six J / K levers the harness throws are `emulated:` entries, not
+        // `# stand-in:` lines: each with its support and its drive role, in the ruled grammar)
+        let emu = committed.lines().find_map(|l| l.strip_prefix("emulated: ")).expect("the file carries one emulated: line");
+        assert_eq!(committed.lines().filter(|l| l.starts_with("emulated:")).count(), 1, "one emulated: line per file");
+        for (x, role) in [(-1, "j:-1"), (3, "j:3"), (7, "j:7"), (-3, "k:-1"), (1, "k:3"), (5, "k:7")] {
+            assert!(!d.standins.contains_key(&[x, 26, 9]), "the lever ({x},26,9) is no `# stand-in:`");
+            let want = format!("{x},26,9=lever[");
+            let at = emu.find(&want).unwrap_or_else(|| panic!("the lever ({x},26,9) is an emulated: entry"));
+            assert!(emu[at..].contains(&format!("(support={x},27,9; drive={role}; ")), "the lever ({x},26,9) names its support and its drive {role}");
+        }
     }
 }
 
