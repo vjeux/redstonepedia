@@ -177,6 +177,60 @@ lanes' feed are emulated until the circuit is laid).
   T+70, none at rest off its rails; ridden carts planted in all three holds at T+55, so the R line
   launches each slot-1 cart north into a full hold: each rests on its R_1 at z 1.28, on the rail,
   none off its rails (the refill rows fail by design: the holds were full).
+- THE STATION'S CASE (commit F; ironspec 01:41 / 01:45 / 02:18 / 04:08 / 05:18, G1 01:36 / 02:17b /
+  04:05; the halt bar: a halt from any cause must never cost a HOME): a pocket still occupied when
+  its hold opens takes the ~16-block drop onto a ridden cart (tick-exact's car 4, the HP reference:
+  11 damage, 9 of 20 left; onto an empty cart or the rail, none). The holds open on EVIDENCE: 4 gt
+  after the exit detector D_k (x,0,2) rises after REL + offset k (the departing cart has left the
+  landing cell; the cold start: the pocket's string off at its release), AND, since F, the pocket's
+  own string (x,1,0) reading off (the string-AND, `--string-and`, station-judge's default; it gates
+  the trigger only, the pulse runs its declared width): the string is RIDER-KEYED (tick-exact
+  05:23, a/1431755755793513: a seated rider presses a string its seat box reaches, every tick, AI on
+  or off; the cart's own box tops out 0.300 below the band; empty carts never), its rider's box over
+  the band at every rest position in the pocket (the least overlap 0.0938, the band's full height),
+  ONE TICK BEHIND THE CART (the seat box is the vehicle's position from the previous tick's end): so
+  with the drive's 2-gt lead the AND is blind to a re-entry in the last ~3 gt before an open (the
+  bench's 1-tick race: a cart back at T+49, the string pressed in tick 50, the trigger at T+50).
+  The stuck-pocket rows (E, lane 0's drive off): evidence-keyed, the hold never opens (a STALL, its
+  cause class a pocket drive that never fires); timed, it opens onto the occupied pocket (9.0 of
+  20). THE BOUNCE SWEEP (`--bounce-sweep`): a stationary cart, ridden and empty, planted at T at
+  every cell a departed cart rolls through past D_k (to the lift's foot on the module of record):
+  a departed cart turned back into its pocket INSIDE ITS HOLD'S FALL WINDOW (open, fall's end],
+  about 33 gt, or a hold opened onto an occupied pocket, fails by name. With the string-AND: 30 of
+  the module's 66 rows fail (13 of the station-only bench's 30): lane -1 from jams at (-1,0,5) and
+  the foot ramp (-3,1,7), lane 7 from every jam on its climb (the stalled cart rolls back down);
+  every failing return lands after the trigger, during the fall. The departure-gating forms priced
+  beside it (the next batch at rest vs the next summon, +24 gt today): the per-cart evidence form
+  (`--dep-evidence`: lane 7's crest (-3,13,7) edge; lanes -1 / 3 both waiting for two foot (-4,2,7)
+  edges, G1's conservative form) opens at T+65 / 65 / 85: -19 gt, a cadence break, and 7 rows still
+  fail (a jam cart's own press counted as evidence); the temporal form (`--dep-wait W`, W 33 / 40
+  after D_k): -8 / -15 gt, 3 rows fail. None passes ironspec's judge; ironspec 05:18 (4) prices the
+  PHYSICAL no-return fix instead (b8949c96 benches a one-block drop after lanes -1 / 3's exit
+  detectors and a one-way foot on lane 7's climb on this bench's 66 rows): with 0 returns proven, no
+  gating form is needed. The designed drops (G1 03:24 (5)): each hold -> pocket drop, landing (x,0,0)
+  from y 16.19 to 0.06 (16.12 blocks), the horizontal speed at the open 0.000 (a trapdoor drop of a
+  cart at rest: the all-phase band 0.27 / 0.25 is a rail end's), the rider at 20 of 20 in normal
+  running.
+- THE ARM3 INTERLOCK (commit F, ironspec 04:23 (4), ironfarm's 04:59 list, redsim-verified by its
+  `designs/gadgets/ironfarm-arm3-interlock.drive`, 31 checks): a once-per-batch release latch on
+  lane 7's climb so a rolled-back cart's second press can't release a second napper: ARM3 the
+  detector (4,6,7) (the plain climb rail it replaces) fires dropper A (4,6,8), built holding one
+  stone (ARMED); the stone moves into dropper B (3,6,8): the release; the REL SET (day-1's line end
+  (1,7,8)) reaches B only through the repeater (2,7,8) facing west on stone (2,6,8) powering the
+  air (3,7,8) (quasi-connectivity: (3,7,8) stays air; B is never powered, or A beside it fires
+  too); the comparator (3,6,9) on stone (3,5,9) reads B: strength 1, a level from the release to the
+  next REL, into the release limiter (`designs/gadgets/arm3-release-limiter.drive`, 8 checks, the
+  real droppers and comparator: q strength 1 at its input, ONE 8-gt pulse per rise, a rolled-back
+  re-press fires A empty, nothing on the REL fall): the repeater (3,6,10), the dust (3,6,11) /
+  (2,6,11) / (1,6,11) / (1,6,12), the delay-4 repeater (2,6,12) facing west into the side of the
+  subtract comparator (3,6,12); its output (3,6,13) is day-1's release line end (to the napper's
+  hold, left out). Must stay unpowered or air: (4,7,8), (4,5,8), (3,5,8), (5,6,8), (4,6,9),
+  (2,6,9), (2,7,9). The bench emulates the napper's release (its lever stand-in) as before; the
+  interlock's cells are laid and inert there but for ARM3's first press.
+- The station benches are PUSH-FREE (ironspec 04:41: the riders' seated travel push is not
+  emulated): the slot-1 rests, R_1, the refill and hold timings are a lower bound on the spread,
+  and settled-queue figures are judged at both push phases (PUSH-PHASE DEPENDENT): the slot-1
+  string's least band overlap prints at redsim's rest and pushed 0.108 b up the slope.
 - The station's string classes (9fc3155f's string-audit, tools10 part 20; ironspec 01:11 / 02:22
   (2), G1 01:32): the slot-1 strings (-1|3|7,18,1) are CART-KEYED (a cart on R_1 presses it, ridden
   or empty: ironspec 14:26; tick-exact AI / AH), declared in the station file's header, part 35's

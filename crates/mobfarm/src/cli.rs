@@ -4372,6 +4372,31 @@ pub enum MobfarmCmd {
         /// run line must fail by "a hold's trapdoor off its declared tick (the holds' built drive)".
         #[arg(long, allow_hyphen_values = true)]
         hold_lead_control: Option<i64>,
+        /// (commit F, ironspec 02:18 (1)) The string-AND: each hold's trigger also waits for its
+        /// pocket's own string (x,1,0) to read off (a ridden cart back in the pocket keeps it
+        /// pressed: the hold stays shut, a stall); it gates the trigger only. station-judge uses it.
+        #[arg(long)]
+        string_and: bool,
+        /// (commit F, ironspec 04:08 (3)) Departure evidence per cart at the lanes' points of no
+        /// return (with --module: the foot (-4,2,7) and lane 7's crest (-3,13,7) laid): lane 7's hold
+        /// waits for a rising edge at the crest since REL; lanes -1 / 3's holds both wait for two
+        /// rising edges at the foot since REL (G1's conservative form; the napper's press excluded
+        /// by its own evidence).
+        #[arg(long)]
+        dep_evidence: bool,
+        /// (commit F, ironspec 04:04 (c)) The temporal form: each hold's trigger also waits W gt after
+        /// its exit detector's rise.
+        #[arg(long)]
+        dep_wait: Option<i64>,
+        /// (commit F, ironspec 02:18 (1) / 02:33 (1)) The bounce sweep: after the run line's first
+        /// row (its baseline: each departed cart's path from its exit detector D_k on, traced), one
+        /// row per traced cell x {ridden, empty}: a stationary cart planted there at T (the jam: a
+        /// halted cart ahead of the departure), its role printed at the planting; each row prints per
+        /// lane D_k's rise, the departed cart back in its pocket, the hold's trigger and its fall
+        /// window, and fails by name on a return inside the fall window or a hold opened onto an
+        /// occupied pocket. Its other failures are the jam's collateral (printed, not judged).
+        #[arg(long)]
+        bounce_sweep: bool,
         /// (G1 on 44d4bbfae) The placement count's positive control: the world built N cells short
         /// of the design's top (its top cells dropped at the placement).
         #[arg(long, default_value_t = 0)]
@@ -10562,7 +10587,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 (None, None) => crate::drop::station_reference(&crate::drop::design_extra(lo, hold_y, [true; 3], [true; 3], true, true, &ex), lo, hold_y).map_err(|e| anyhow::anyhow!(e))?,
             });
             anyhow::ensure!(day_time.is_none_or(|d| (0..24000).contains(&d)), "--day-time: a day time 0..23999");
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, hold_repeater: world.is_none(), hold_lead: 0, box_short: 0, track_lift: world.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y).into_iter().chain(world_stops.iter().copied()).collect(), provisional: Vec::new(), lever_off: None, sight_control, hold_poke: None, pocket_levers: None, napper_held: None, sight_ref: Some(judge_ref.clone()), remove_departing: None, rate_control: false, foreign_caller: false, reseat: false, fluid_control: false, t_control: false, activity_control: false, t_hold: false, late_drive: None, drive_slack: 0, plant_carts: Vec::new(), plant_blocks: Vec::new(), watch_west: Vec::new(), offrail_y: None, day0: day_time, release_world: false, rebrake_each: true, scarers: scarers_v, refill: if no_refill { None } else { Some((refill[0], refill[1])) }, ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, hold_repeater: world.is_none(), hold_lead: 0, string_and: true, dep_evidence: false, dep_wait: None, box_short: 0, track_lift: world.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y).into_iter().chain(world_stops.iter().copied()).collect(), provisional: Vec::new(), lever_off: None, sight_control, hold_poke: None, pocket_levers: None, napper_held: None, sight_ref: Some(judge_ref.clone()), remove_departing: None, rate_control: false, foreign_caller: false, reseat: false, fluid_control: false, t_control: false, activity_control: false, t_hold: false, late_drive: None, drive_slack: 0, plant_carts: Vec::new(), plant_blocks: Vec::new(), watch_west: Vec::new(), offrail_y: None, day0: day_time, release_world: false, rebrake_each: true, scarers: scarers_v, refill: if no_refill { None } else { Some((refill[0], refill[1])) }, ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, summon_gate: !no_summon_gate, declared: world_stops.clone(), bite: sight_control.then_some("a sight ray crossing a stand-in's support"), bite_collateral: if sight_control { vec!["a cart never landed", "not all at rest", "a wrong pocket", "a rider hurt", "NOT JUDGED (summons in the world, the check not run): the summon gate, the stamps and the rate"] } else { vec![] }, jobs };
             // (the sight control's declared collateral, ironspec 14:47 (c), each caused by its own
             // glass: laid on a villager -> villager segment inside the station, it stands in a falling
@@ -10646,7 +10671,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // rows fail (the threshold rows are a passing-range report))
             anyhow::ensure!(fails == 0, "station-judge: {fails} failing runs in the lead's rows");
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, hold_repeater, hold_lead_control, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, unsynced_sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, t_hold_control, late_drive_control, drive_slack, plant_cart, plant_block, plant_shift, watch_west, offrail_y, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, hold_repeater, hold_lead_control, string_and, dep_evidence, dep_wait, bounce_sweep, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, unsynced_sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, t_hold_control, late_drive_control, drive_slack, plant_cart, plant_block, plant_shift, watch_west, offrail_y, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -10720,6 +10745,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // is a twin of a built-drive run)
             anyhow::ensure!(!hold_repeater || open_delay >= crate::drop::HOLD_DRIVE_LEAD_ITERATIONS + hold_lead_control.unwrap_or(0).max(0), "--hold-repeater: --open-delay must be at least the drive's lead (HOLD_DRIVE_LEAD_ITERATIONS {}, plus a positive --hold-lead-control): the lever goes on before the gate's tick otherwise", crate::drop::HOLD_DRIVE_LEAD_ITERATIONS);
             anyhow::ensure!(hold_lead_control.is_none_or(|d| (d == 1 || d == -1) && hold_repeater), "--hold-lead-control D: D is -1 or 1, with --hold-repeater");
+            anyhow::ensure!(!dep_evidence || module.is_some(), "--dep-evidence: with --module (the foot (-4,2,7) and the crest (-3,13,7) laid)");
             anyhow::ensure!(!unsynced_sight_control || (record.is_some() && module.is_none()), "--unsynced-sight-control: --record on a station built from its design");
             let split_at = |s: &str| -> anyhow::Result<(String, i64)> {
                 let (a, k) = s.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("{s}: ...@k (the tick after T)"))?;
@@ -11142,6 +11168,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // machine-readable header, the design's single source; the slot-1 strings
                             // cart-keyed by 9fc3155f's string audit)
                             format!("string-class: -1,{0},1+3,{0},1+7,{0},1=cart-keyed (a cart on R_1 presses it, ridden or empty: ironspec 14:26; tick-exact AI / AH)", *h + 2),
+                            // (commit F, ironspec 04:23 (4): the ARM3 interlock's cells, a comment)
+                            "The ARM3 interlock (commit F, ironspec 04:23 (4); ironfarm's 04:59 list, redsim-verified by its `designs/gadgets/ironfarm-arm3-interlock.drive`, 31 checks): ARM3 the detector (4,6,7) on lane 7's climb fires dropper A (4,6,8), built holding ONE stone (ARMED); the stone moves into dropper B (3,6,8): the release; the REL SET (day-1's line end (1,7,8), left out) reaches B only through the repeater (2,7,8) facing west on stone (2,6,8) powering the air (3,7,8) (quasi-connectivity: (3,7,8) stays AIR, B is never powered); the comparator (3,6,9) on stone (3,5,9) reads B (strength 1), a level from the release to the next REL, into dfb89499's pulse limiter (designs/gadgets/arm3-release-limiter.drive, 8 checks: one 8-gt pulse per rise, none on the fall): the repeater (3,6,10), the dust (3,6,11) / (2,6,11) / (1,6,11) / (1,6,12), the delay-4 repeater (2,6,12) facing west into the side of the subtract comparator (3,6,12); its output (3,6,13) is day-1's release line end (to the napper's hold, left out). Must stay unpowered or air: (4,7,8), (4,5,8), (3,5,8), (5,6,8), (4,6,9), (2,6,9), (2,7,9). A rolled-back cart's second press fires A empty: one release per batch.".to_string(),
                             // (9fc3155f's part 9 `# travel:` grammar, part 12's durable citation: the
                             // trace's artifact and md5 in the `rows:` part; ironspec 14:39 / 14:41)
                             "travel: -1,0,6>-1,0,7>-2,0,7=lane x -1's pocket cart leaves onto the station row, then west onto the foot ramp; rows: tr-exit-t20-50.txt (a/1431309932489877, md5 5c28af275ab135c836929519a93d1fd2) t 31..33 cart 0; the station-module row: drop-bench on record7f12 (7a9b95ba1's ROWS run line, REL 5 seed 1; the station's T: game time = 0 mod 100, REL = T + 5; post-tick positions, bench frame = loop + (6,0,6)): departing cart 0 at loop (-0.50,0.06,6.85) > (-0.50,0.06,7.25) > (-1.03,0.09,7.53) moving west; the composed row beside it: onechunk's t14 night n-p0_0_0-d0-s1 (today's ring + A6; onechunk tool under review; today's controller as emulated: t9-t17), cart #0: (-1,0,6) 131 > (-1,0,7) 134 > (-2,0,7) 135 (REL 105, each tick the first end-of-tick in the cell); release-only: every flow through these cells is the station's departing carts and the napper, westward (ironspec 14:41); the link cells and their supports identical in record7f12 and record7f13t (onechunk's cell diff, 14:40)".to_string(),
@@ -11159,6 +11187,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (_c, fspec) = load(version, &path)?;
                     println!("drop bench {lo:?}, hold y {h}: {}", crate::drop::footprint(lo, *h as i32));
                     let mut runs: Vec<crate::drop::DropStats> = Vec::new();
+                    // (commit F: the bounce sweep's baseline, the run line's first row)
+                    let mut base_o: Option<crate::drop::DropOpts> = None;
                     let mut by_rel: std::collections::BTreeMap<i64, Vec<crate::drop::DropStats>> = std::collections::BTreeMap::new();
                     for f in &frz {
                     for rset in &reload_sets {
@@ -11169,11 +11199,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     for s in seed..seed + seeds {
                                         let plant_carts_d: Vec<([f64; 3], i64, bool)> = plant_carts_v.iter().map(|(p, k, rd)| (*p, k + d, *rd)).collect();
                                         let plant_blocks_d: Vec<(redsim::pos::BlockPos, redsim::block::Block, i64)> = plant_blocks_v.iter().map(|(c, b, k)| (*c, b.clone(), k + d)).collect();
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, hold_repeater, hold_lead: hold_lead_control.unwrap_or(0), box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, t_hold: t_hold_control, late_drive: late_drive_v, drive_slack, plant_carts: plant_carts_d, plant_blocks: plant_blocks_d, watch_west: watch_west_v.clone(), offrail_y, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, hold_repeater, hold_lead: hold_lead_control.unwrap_or(0), string_and, dep_evidence, dep_wait, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, t_hold: t_hold_control, late_drive: late_drive_v, drive_slack, plant_carts: plant_carts_d, plant_blocks: plant_blocks_d, watch_west: watch_west_v.clone(), offrail_y, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         // (G1 on 834d6329d (T1): the rail-T check's positive control
                                         // bites through the failure list: the run stops at the edge
                                         // with "a held rail's driver edge reaching a rail T")
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                                        if base_o.is_none() {
+                                            base_o = Some(o.clone());
+                                        }
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
                                         if !summary {
@@ -11199,6 +11232,82 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (ironspec 14:47 (d): each REL-level failure carries its exact kind, the name a
                     // control's collateral matches)
                     let mut rel_fail: Vec<(&'static str, String)> = Vec::new();
+                    // (commit F, ironspec 02:18 (1) / 02:33 (1) / 02:26 (B): the bounce sweep: the jam
+                    // cells are the baseline row's departed paths past each exit detector D_k (each
+                    // cell's first sample the jam's place), up to the lift's foot (loop x -4) where a
+                    // module lays it; per cell a stationary cart planted at T, ridden and empty, its
+                    // role printed at the planting (the plant rule); the summon check off in these rows,
+                    // so no planted rider arms a stamp a bar reads (01:41b); each row fails by name on a
+                    // departed cart back in its pocket inside its hold's fall window or a hold opened
+                    // onto an occupied pocket; the jam's other effects (a stall, a lane short) are its
+                    // collateral, printed)
+                    if bounce_sweep {
+                        let (Some(bo), Some(first)) = (base_o.as_ref(), runs.first()) else {
+                            anyhow::bail!("--bounce-sweep: no baseline row");
+                        };
+                        anyhow::ensure!(lo == crate::drop::DropLayout::Station, "--bounce-sweep: the station layout");
+                        anyhow::ensure!(!first.disturbed, "--bounce-sweep: the baseline (the first row) must be undisturbed (no freeze, login or restart)");
+                        let pk = crate::drop::DropLayout::Station.pockets();
+                        let mut cells: Vec<([i32; 3], [f64; 3], Vec<usize>)> = Vec::new();
+                        for (k, (_, _, pz)) in pk.iter().enumerate() {
+                            for (c, p) in &first.dep_samples[k] {
+                                // (past the exit detector (pz + 2), the pocket and its plain rail out)
+                                if c[2] <= pz + 2 {
+                                    continue;
+                                }
+                                match cells.iter_mut().find(|e| e.0 == *c) {
+                                    Some(e) => e.2.push(k),
+                                    None => cells.push((*c, *p, vec![k])),
+                                }
+                                if c[0] - 6 <= -4 {
+                                    break;
+                                }
+                            }
+                        }
+                        anyhow::ensure!(!cells.is_empty(), "--bounce-sweep: the baseline traced no departed path past a D_k");
+                        println!(
+                            "the bounce sweep (commit F, ironspec 02:18 (1) / 02:33 (1)): {} jam cells (bench frame; loop = bench - (6,0,6)) from the baseline row's departed paths: {} rows (ridden, empty); the departing speed is each lane's drive's (one per lane)",
+                            cells.len(),
+                            cells.len() * 2
+                        );
+                        let (mut bad, mut rows_n) = (0usize, 0usize);
+                        for (c, p, lanes) in &cells {
+                            for ridden in [true, false] {
+                                let mut plants = bo.plant_carts.clone();
+                                plants.push((*p, 0, ridden));
+                                let o = crate::drop::DropOpts { plant_carts: plants, summon_check: false, ..bo.clone() };
+                                let (lines, s) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                                rows_n += 1;
+                                let f = crate::stationjudge::fails(&s, 0, crate::stationjudge::EDGE_BAR);
+                                let named: Vec<&&str> = f.iter().filter(|x| x.contains("inside its hold's fall window") || x.contains("opened onto an occupied pocket")).collect();
+                                let collateral: Vec<&&str> = f.iter().filter(|x| !(x.contains("inside its hold's fall window") || x.contains("opened onto an occupied pocket"))).collect();
+                                if !named.is_empty() {
+                                    bad += 1;
+                                }
+                                let at = lines.iter().find(|l| l.starts_with("the pockets at the opens")).map_or("-".to_string(), |l| l.split_once("): ").map_or(l.clone(), |(_, r)| r.to_string()));
+                                println!(
+                                    "jam loop ({},{},{}) {} (its role at the planting, T+0: a stationary {} cart at ({:.3},{:.3},{:.3}) on lane(s) {}'s departure path, the halted cart a backup leaves ahead of the departure; {}): {} | {}{}",
+                                    c[0] - 6,
+                                    c[1],
+                                    c[2] - 6,
+                                    if ridden { "ridden" } else { "empty" },
+                                    if ridden { "ridden" } else { "empty" },
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                    lanes.iter().map(|k| ["-1", "3", "7"][*k]).collect::<Vec<_>>().join(", "),
+                                    if ridden { "its rider a passenger for the jam's mass and box only; no summon judged in the row" } else { "no rider" },
+                                    at,
+                                    if named.is_empty() { "PASS by the bounce bars".to_string() } else { format!("FAILS: {}", named.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; ")) },
+                                    if collateral.is_empty() { String::new() } else { format!(" | the jam's collateral (printed, not judged): {}", collateral.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; ")) }
+                                );
+                            }
+                        }
+                        println!("the bounce sweep: {rows_n} rows, {bad} failing by name (a departed cart back in its pocket inside its hold's fall window; a hold opened onto an occupied pocket)");
+                        if bad > 0 {
+                            rel_fail.push(("the bounce sweep", format!("the bounce sweep: {bad} of {rows_n} rows fail by name")));
+                        }
+                    }
                     if let (Some(rt), Some(rp), true) = (&record_text, &record, module.is_some()) {
                         let r = mctas::design::Design::parse(rt).map_err(|e| anyhow::anyhow!("--record: {e}"))?;
                         let b = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("the composed world: {e}"))?;

@@ -471,6 +471,42 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
     }
     b.set(12, 4, 12, "redstone_torch[lit=true]");
     b.set(12, 3, 12, "glass");
+    // (commit F, ironspec 04:23 (4): the ARM3 interlock, a once-per-batch release latch so a
+    // rolled-back lane-7 cart's second press at ARM3 can't release a second napper: ironfarm's
+    // 04:59 list, verified in redsim (`mctas door drive designs/gadgets/ironfarm-arm3-interlock.drive`,
+    // 31 checks): ARM3 a detector on the climb at loop (4,6,7) (bench + (6,0,6)) firing dropper A
+    // (4,6,8), which holds ONE stone when ARMED: the stone moves into dropper B (3,6,8): the release;
+    // the REL SET reaches B only by quasi-connectivity (the repeater (2,7,8) facing west on stone
+    // (2,6,8) powers the AIR above B, (3,7,8), which must stay air: B itself is never powered, or A
+    // beside it fires too), the stone back in A; the comparator (3,6,9) reads B (one stone in a 9-slot
+    // dropper: strength 1), a level from the release to the next REL; then dfb89499's pulse limiter
+    // (designs/gadgets/arm3-release-limiter.drive, 8 checks: one 8-gt pulse per rise, none on the
+    // fall): the repeater (3,6,10) amplifies q, the dust (3,6,11) into the subtract comparator
+    // (3,6,12)'s back and round the delay branch (2,6,11) (1,6,11) (1,6,12) into the delay-4 repeater
+    // (2,6,12)'s west-facing output at its side; the comparator's output (3,6,13) is day-1's release
+    // line end (to the napper's hold), and (1,7,8) its REL SET line end, both left out)
+    b.set(10, 6, 13, "detector_rail[powered=false,shape=ascending_west,waterlogged=false]");
+    b.set(10, 6, 14, "dropper[facing=west,triggered=false]");
+    b.d.block_entities.insert([10, 6, 14], "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}".to_string());
+    b.set(9, 6, 14, "dropper[facing=east,triggered=false]");
+    b.set(8, 6, 14, "stone");
+    b.set(8, 7, 14, "repeater[delay=1,facing=west,locked=false,powered=false]");
+    b.set(9, 6, 15, "comparator[facing=north,mode=compare,powered=false]");
+    b.set(9, 5, 15, "stone");
+    b.set(9, 6, 16, "repeater[delay=1,facing=north,locked=false,powered=false]");
+    b.set(9, 5, 16, "glass");
+    b.set(9, 6, 17, "redstone_wire[east=none,north=side,power=0,south=side,west=side]");
+    b.set(9, 5, 17, "glass");
+    b.set(8, 6, 17, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    b.set(8, 5, 17, "glass");
+    b.set(7, 6, 17, "redstone_wire[east=side,north=none,power=0,south=side,west=none]");
+    b.set(7, 5, 17, "glass");
+    b.set(7, 6, 18, "redstone_wire[east=side,north=side,power=0,south=none,west=none]");
+    b.set(7, 5, 18, "glass");
+    b.set(8, 6, 18, "repeater[delay=4,facing=west,locked=false,powered=false]");
+    b.set(8, 5, 18, "glass");
+    b.set(9, 6, 18, "comparator[facing=north,mode=subtract,powered=false]");
+    b.set(9, 5, 18, "glass");
     b.set(3, 13, 13, "rail[shape=east_west,waterlogged=false]");
     b.set(3, 12, 13, "glass");
     if pad {
@@ -1543,6 +1579,23 @@ pub struct DropOpts {
     /// this many iterations ahead (0: the design's lead; +-1 the twins, which must fail by "a
     /// hold's trapdoor off its declared tick").
     pub hold_lead: i64,
+    /// (commit F, ironspec 02:18 (1) / G1 02:17b) The string-AND: a hold's trigger also waits for its
+    /// pocket's own string (x,1,0) to read off (rider-keyed: a ridden cart back in the pocket keeps
+    /// it pressed and the hold shut, a stall; an empty one doesn't, and lands under nobody). It gates
+    /// the TRIGGER only: once the trapdoor's pulse starts it runs its declared width.
+    pub string_and: bool,
+    /// (commit F, ironspec 04:08 (3), G1 04:05 (2)) Departure evidence, per cart, taken at each lane's
+    /// point of no return (the bounce sweep's: a cart past it can't come back within a fall): lane 7's
+    /// hold waits for a rising edge at its crest (loop (-3,13,7), a detector in the real build) since
+    /// REL; lanes -1 / 3's holds BOTH wait for two rising edges at the foot (loop (-4,2,7), gate G's
+    /// foot detector, a second consumer) since REL, the napper's press excluded by its own evidence
+    /// (here its cart's identity): G1's conservative order-independent form. A stalled leader keeps
+    /// the cell pressed and a bounced follower makes no edge, so their holds stay shut (a stall).
+    /// With a module only (the foot and the crest laid).
+    pub dep_evidence: bool,
+    /// (commit F, ironspec 04:04 (c)) The temporal form: each hold's trigger also waits this many gt
+    /// after its exit detector's rise (priced beside the evidence form).
+    pub dep_wait: Option<i64>,
     /// (golem-stamp path (a)) The module laid (the merge row and the shared lift): the departing
     /// carts roll on past the station's exit, each rider tracked against every next-batch caller's
     /// 10-box.
@@ -1937,6 +1990,31 @@ pub struct DropStats {
     /// (commit E) The holds' trapdoors seen open or shut off their declared iteration, or never
     /// (the holds' built drive).
     pub hold_drive_off: u32,
+    /// (commit F, the bounce sweep, ironspec 02:18 (1) / 02:33 (1)) Per lane: the exit detector D_k's
+    /// first rise after the release; the departed cart's first sample in each cell it rolls through
+    /// from then on (bench frame: the cell, the cart's position), the jam cells' source; its first
+    /// tick back in its pocket's cell; the hold's trigger (the lever on, or the emulated open); the
+    /// open; the fall's end (the arriving cart below y 1, or stopped on something); the ticks the
+    /// pocket string held the trigger back (the string-AND).
+    pub dep_rise: [Option<i64>; 3],
+    pub dep_samples: [Vec<([i32; 3], [f64; 3])>; 3],
+    pub reentry: [Option<i64>; 3],
+    pub trigger: [Option<i64>; 3],
+    pub open_at: [Option<i64>; 3],
+    pub fall_end: [Option<i64>; 3],
+    pub string_held: [i64; 3],
+    /// Holds that opened onto an occupied pocket (a cart other than the arriving one in the pocket's
+    /// cell at the open), and departed carts back in their pocket inside the hold's fall window
+    /// (open, fall's end] (ironspec 02:18 (1): fails by name).
+    pub occupied_open: u32,
+    pub reentry_in_fall: u32,
+    /// (G1 03:24 (5), the designed-drops table) Per hold drop: the arriving cart's horizontal speed at
+    /// the open, its rider's health at its last read (of 20).
+    pub drop_speed: [Option<f64>; 3],
+    pub arriving_hp: [Option<f32>; 3],
+    /// (G1 02:17b (1)) The pocket strings' least overlap with a ridden cart's rider box over the
+    /// pocket's rest range (the string's band against the box, per lane; None: no rider read).
+    pub band_overlap: [Option<f64>; 3],
     /// (ironfarm's C-fix rows) Carts that left a watched cell westward; carts at rest off their
     /// rails above the off-rail line.
     pub west_leaves: u32,
@@ -2401,6 +2479,32 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     // arriving cart's position, the departing cart's gap, the rider's feet) and at a possible shut
     // (dt, the arriving cart still in the hold cell, frozen))
     let mut hold_lever_on: [Option<i64>; 3] = [None; 3];
+    // (commit F: the lever's clock at its trigger, for the declared open; the string-AND's hold-back
+    // count; the bounce sweep's per-lane record)
+    let mut hold_lever_clock: [Option<i64>; 3] = [None; 3];
+    let mut string_held = [0i64; 3];
+    let mut dep_rise: [Option<i64>; 3] = [None; 3];
+    let mut dep_samples: [Vec<([i32; 3], [f64; 3])>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut reentry: [Option<i64>; 3] = [None; 3];
+    let mut fall_end: [Option<i64>; 3] = [None; 3];
+    let mut open_checked = [false; 3];
+    let mut occupied_open: Vec<String> = Vec::new();
+    // (commit F: the departure evidence's cells, bench frame (loop + (6,0,6)): the foot (-4,2,7)
+    // and lane 7's crest (-3,13,7); each one's rising edges since REL, by any cart but the napper's)
+    let foot_cell = BlockPos::new(2, 2, 13);
+    let crest_cell = BlockPos::new(3, 13, 13);
+    let mut foot_edges: Vec<i64> = Vec::new();
+    let mut crest_edges: Vec<i64> = Vec::new();
+    let (mut foot_was, mut crest_was) = (false, false);
+    let mut foot_real = false;
+    // (ironspec 05:55 (6)(iii), G1 05:52: each exit detector D_k's power windows (rise, fall) under
+    // its 20-gt recheck hold, and each departed cart's (and the napper's) first tick in the foot cell)
+    let mut dk_windows: [Vec<(i64, Option<i64>)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut foot_arrival: [Option<i64>; 4] = [None; 4];
+    let mut drop_speed: [Option<f64>; 3] = [None; 3];
+    let mut band_box: [Option<redsim::entity::Aabb>; 3] = [None; 3];
+    let mut slot1_box: [Option<redsim::entity::Aabb>; 3] = [None; 3];
+    let mut slot1_ridden = [false; 3];
     let mut hold_lever_off: [Option<i64>; 3] = [None; 3];
     let mut hold_declared_open: [Option<i64>; 3] = [None; 3];
     let mut hold_declared_shut: [Option<i64>; 3] = [None; 3];
@@ -2816,7 +2920,13 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         for k in 0..3 {
             let (x, _, z) = pockets[k];
             let cell = BlockPos::new(x, o.hold_y, z);
-            let occupied = if o.exit_gate { !exit_seen[k] } else { o.occupancy && on_since[k].is_some_and(|s| clock - s >= 20) };
+            // (commit F: departure evidence, per cart, at the lanes' points of no return; the
+            // temporal form's wait after D_k's rise; a pocket empty at its release (the cold start)
+            // sends no cart, so it owes no edge)
+            let foot_need = (0..2).filter(|j| !empty_at_release[*j]).count();
+            let no_evidence = o.dep_evidence && !empty_at_release[k] && (if k == 2 { crest_edges.is_empty() } else { foot_edges.len() < foot_need });
+            let not_waited = !empty_at_release[k] && o.dep_wait.is_some_and(|w| dep_rise[k].is_none_or(|r| dt < r + w));
+            let occupied = if o.exit_gate { !exit_seen[k] || no_evidence || not_waited } else { o.occupancy && on_since[k].is_some_and(|s| clock - s >= 20) };
             // (the cold start's evidence: the pocket empty at its own release, its string off)
             if o.exit_gate && !exit_seen[k] && clock == o.rel + o.stagger[k] && !string_on(&run.world, k) {
                 exit_seen[k] = true;
@@ -2836,18 +2946,28 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     // (commit E, ironspec 00:43 (2): the trapdoor driven through its built drive:
                     // the lever stand-in at the line end (x,16,-3) on HOLD_DRIVE_LEAD_ITERATIONS before
                     // the declared open (the emulation's open tick); the open itself is the
-                    // trapdoor's own state, read after the tick)
+                    // trapdoor's own state, read after the tick. Commit F, ironspec 02:18 (1): with
+                    // the string-AND the trigger also waits for the pocket's own string (x,1,0) to
+                    // read off; it gates the trigger only: once the lever is on, the pulse runs its
+                    // declared width (no runt, no re-fire from a string flicker))
                     if hold_lever_on[k].is_none() && t_now >= ready_at[k].unwrap_or(t_now) + o.open_delay - HOLD_DRIVE_LEAD_ITERATIONS - o.hold_lead {
-                        let lp = BlockPos::new(x, o.hold_y, z - 3);
-                        // (G1 on d10045e0b: the lever's flip read back: each of its two flips a
-                        // deliberate change, so a no-op flip is counted)
-                        chain[k].push(format!("the lever set ON between ticks (game time {})", run.world.time));
-                        if !set_lever(&mut run.world, lp, true)? {
-                            lever_noops += 1;
+                        if o.string_and && string_on(&run.world, k) {
+                            string_held[k] += 1;
+                        } else {
+                            let lp = BlockPos::new(x, o.hold_y, z - 3);
+                            // (G1 on d10045e0b: the lever's flip read back: each of its two flips a
+                            // deliberate change, so a no-op flip is counted)
+                            chain[k].push(format!("the lever set ON between ticks (game time {})", run.world.time));
+                            if !set_lever(&mut run.world, lp, true)? {
+                                lever_noops += 1;
+                            }
+                            hold_lever_on[k] = Some(dt);
+                            // (the nominal flip's clock: the declared open stays where the design's
+                            // lead puts it, so the lead control's flip lands off it)
+                            hold_lever_clock[k] = Some(t_now + o.hold_lead);
                         }
-                        hold_lever_on[k] = Some(dt);
                     }
-                    if ready && hold_declared_open[k].is_none() {
+                    if hold_declared_open[k].is_none() && hold_lever_clock[k].is_some_and(|c| t_now >= c + HOLD_DRIVE_LEAD_ITERATIONS) {
                         hold_declared_open[k] = Some(dt);
                     }
                     if hold_lever_on[k].is_some() {
@@ -2860,6 +2980,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                             feet_of(&run.world, riders[3 + k]),
                         ));
                     }
+                } else if ready && o.string_and && string_on(&run.world, k) {
+                    // (commit F: the string-AND on the emulated pulse: the open waits for the
+                    // pocket's string to read off)
+                    string_held[k] += 1;
                 } else if ready {
                     opened[k] = Some(dt);
                     opened_live[k] = clock;
@@ -2869,6 +2993,8 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     let (px, _, pz) = pockets[k];
                     gap_at_open[k] = Some(pos(&run.world, carts[k]).map_or(f64::INFINITY, |(p, _)| ((p.x - (px as f64 + 0.5)).powi(2) + (p.z - (pz as f64 + 0.5)).powi(2)).sqrt()));
                     feet[k] = feet_of(&run.world, riders[3 + k]);
+                    // (G1 03:24 (5): the drop's horizontal speed at the open)
+                    drop_speed[k] = pos(&run.world, carts[3 + k]).map(|(_, v)| (v.x * v.x + v.z * v.z).sqrt());
                     // (the trapdoor the world holds keeps its kind: the station's iron, the module of
                     // record's own; only its open / powered state is the pulse's)
                     let t = trapdoor_state(&run.world.get(cell), true).unwrap_or_else(|| td_open.clone());
@@ -3235,6 +3361,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     gap_at_open[k] = Some(g);
                     feet[k] = ft;
                     hold_seen_open[k] = Some(d);
+                    drop_speed[k] = pos(&run.world, carts[3 + k]).map(|(_, v)| (v.x * v.x + v.z * v.z).sqrt());
                 }
                 if opened[k].is_some() && !shut_again[k] && !open_now && hold_lever_off[k].is_some() {
                     shut_again[k] = true;
@@ -3244,6 +3371,121 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                         }
                         hold_seen_shut[k] = Some(d);
                     }
+                }
+            }
+        }
+        // (commit F, ironspec 02:18 (1) / 02:33 (1): per lane, after the tick: the departed cart's
+        // path from D_k's rise on (its first sample in each cell: the bounce sweep's jam cells), its
+        // first tick back in its pocket's cell; at the open, any cart but the arriving one in the
+        // pocket's cell (a hold opened onto an occupied pocket); the fall's end: the arriving cart
+        // below y 1, or stopped above it on something)
+        if o.layout == DropLayout::Station {
+            // (commit F: the departure evidence's cells read after the tick: a rising edge after REL,
+            // by any minecart but the napper's (its press excluded by its own evidence))
+            if o.dep_evidence {
+                let in_cell = |c: BlockPos| {
+                    run.world.entities.list.iter().any(|e| {
+                        !e.removed
+                            && matches!(e.kind, EntityKind::Minecart(_))
+                            && Some(e.id) != napper_cart
+                            && e.pos.x.floor() as i32 == c.x
+                            && e.pos.y.floor() as i32 == c.y
+                            && e.pos.z.floor() as i32 == c.z
+                    })
+                };
+                // (ironspec 05:59 (1): the foot read from the world's own detector where it has one
+                // (gate G's detector_rail at the foot in a module of record: redsim's detector, the
+                // game's +1 gt and 20-gt recheck hold modelled), else, as the crest always (no detector
+                // there in record7f12), the cart's presence per tick: a BENCH EMULATION, modelling
+                // neither, its figures labelled so)
+                let det = |c: BlockPos| {
+                    let s = run.world.get(c).to_string();
+                    s.contains("detector_rail").then(|| s.contains("powered=true"))
+                };
+                let f = det(foot_cell).unwrap_or_else(|| in_cell(foot_cell));
+                foot_real = det(foot_cell).is_some();
+                let c = in_cell(crest_cell);
+                if f && !foot_was && clock > o.rel {
+                    foot_edges.push(dt);
+                }
+                if c && !crest_was && clock > o.rel {
+                    crest_edges.push(dt);
+                }
+                (foot_was, crest_was) = (f, c);
+            }
+            // (the napper's first tick in the foot cell, G1 05:52 (2))
+            if foot_arrival[3].is_none()
+                && let Some(nc) = napper_cart
+                && let Some(e) = run.world.entities.list.iter().find(|e| e.id == nc && !e.removed)
+                && [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32] == [foot_cell.x, foot_cell.y, foot_cell.z]
+            {
+                foot_arrival[3] = Some(dt);
+            }
+            // (G1 02:17b (1): each departing rider's box at rest in its pocket after T's first tick,
+            // the pocket string's band read against it over the pocket's rest range)
+            if dt == 0 {
+                for k in 0..3 {
+                    if let Some(r) = riders[k]
+                        && let Some(e) = run.world.entities.list.iter().find(|e| e.id == r && !e.removed)
+                    {
+                        band_box[k] = Some(e.bb);
+                    }
+                }
+            }
+            // (G1 04:38 (2): the slot-1 carts' boxes at rest on R_1, for the slot-1 string's band at
+            // both push phases: the last read before the R line starts, the carts settled)
+            if r_from.is_none() {
+                for k in 0..3 {
+                    if let Some(id) = next_carts.get(k)
+                        && let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed)
+                    {
+                        // (the PRESSER's box: a ridden cart's rider (its seat box reaches the band,
+                        // tick-exact 05:23), an empty cart's own box)
+                        let rider = e.passengers.first().and_then(|r| run.world.entities.list.iter().find(|q| q.id == *r && !q.removed));
+                        slot1_box[k] = Some(rider.map_or(e.bb, |q| q.bb));
+                        slot1_ridden[k] = rider.is_some();
+                    }
+                }
+            }
+            for k in 0..3 {
+                let (px, py, pz) = pockets[k];
+                let in_pocket = |p: Vec3| (p.x - (px as f64 + 0.5)).abs() < 0.5 && p.z >= pz as f64 && p.z < pz as f64 + 1.0 && p.y < py as f64 + 1.0;
+                if dep_rise[k].is_some()
+                    && let Some((p, _)) = pos(&run.world, carts[k])
+                {
+                    let cell = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+                    // (the departed cart's first tick in the foot cell, G1 05:52 (2))
+                    if foot_arrival[k].is_none() && cell == [foot_cell.x, foot_cell.y, foot_cell.z] {
+                        foot_arrival[k] = Some(dt);
+                    }
+                    if dep_samples[k].last().is_none_or(|(c, _)| *c != cell) && !dep_samples[k].iter().any(|(c, _)| *c == cell) {
+                        dep_samples[k].push((cell, [p.x, p.y, p.z]));
+                    }
+                    if reentry[k].is_none() && in_pocket(p) && dep_samples[k].len() > 1 {
+                        reentry[k] = Some(dt);
+                    }
+                }
+                if opened[k].is_some() && !open_checked[k] {
+                    open_checked[k] = true;
+                    let arriving = carts[3 + k];
+                    let inside: Vec<String> = run
+                        .world
+                        .entities
+                        .list
+                        .iter()
+                        .filter(|e| !e.removed && e.id != arriving && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)) && in_pocket(e.pos))
+                        .map(|e| format!("cart {} at ({:.2},{:.2},{:.2}){}", e.id, e.pos.x, e.pos.y, e.pos.z, if e.passengers.is_empty() { " empty" } else { " ridden" }))
+                        .collect();
+                    if !inside.is_empty() {
+                        occupied_open.push(format!("lane {k} at T+{}: {}", opened[k].unwrap_or(dt), inside.join(", ")));
+                    }
+                }
+                if opened[k].is_some()
+                    && fall_end[k].is_none()
+                    && let Some((p, v)) = pos(&run.world, carts[3 + k])
+                    && (p.y < py as f64 + 1.0 || (p.y < o.hold_y as f64 - 0.5 && v.y.abs() < 1e-3))
+                {
+                    fall_end[k] = Some(dt);
                 }
             }
         }
@@ -3864,6 +4106,17 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 let on = run.world.get(BlockPos::new(x, y, z + 2)).to_string().contains("powered=true");
                 if on && !exit_was[k] && clock_after > o.rel + o.stagger[k] {
                     exit_seen[k] = true;
+                    // (commit F: D_k's first rise, the departed cart's path traced from it)
+                    dep_rise[k].get_or_insert(dt);
+                }
+                // (ironspec 05:55 (6)(iii): D_k's power windows, every rise and fall)
+                if on && !exit_was[k] {
+                    dk_windows[k].push((dt, None));
+                }
+                if !on && exit_was[k]
+                    && let Some(w) = dk_windows[k].last_mut()
+                {
+                    w.1 = Some(dt);
                 }
                 exit_was[k] = on;
             }
@@ -4369,6 +4622,187 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 .join("; ")
         ));
         stats.hold_drive_off = off;
+    }
+    // (commit F, ironspec 02:18 (1) / 02:33 (1): per lane, the pocket at its hold's open: D_k's
+    // rise, the departed cart back in its pocket, the trigger (the lever on; the emulated open), the
+    // fall window [open, fall's end]; a departed cart back in its pocket inside (open, fall's end]
+    // fails by name, as does a hold opened onto an occupied pocket (cc767b78's halt rows assert it))
+    if o.layout == DropLayout::Station {
+        let t = |v: Option<i64>| v.map_or("never".to_string(), |d| format!("T+{d}"));
+        let mut in_fall = 0u32;
+        let mut lines: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let trig = if o.hold_repeater { hold_lever_on[k] } else { opened[k] };
+            let inside = match (reentry[k], opened[k], fall_end[k]) {
+                (Some(r), Some(op), Some(fe)) => r > op && r <= fe,
+                (Some(r), Some(op), None) => r > op,
+                _ => false,
+            };
+            if inside {
+                in_fall += 1;
+            }
+            lines.push(format!(
+                "lane {k}: D_k {}, the departed cart back in its pocket {}, the trigger {}{}, the fall [{}, {}]{}{}",
+                t(dep_rise[k]),
+                t(reentry[k]),
+                t(trig),
+                if string_held[k] > 0 { format!(" (the string held it {} gt)", string_held[k]) } else { String::new() },
+                t(opened[k]),
+                t(fall_end[k]),
+                match (opened[k], fall_end[k]) {
+                    (Some(a), Some(b)) => format!(" ({} gt)", b - a),
+                    _ => String::new(),
+                },
+                if inside { " BACK INSIDE THE FALL WINDOW" } else { "" }
+            ));
+        }
+        out.push(format!(
+            "the pockets at the opens (commit F, ironspec 02:18 (1): the string-AND {}{}; a departed cart back in its pocket inside its hold's fall window (open, fall's end] fails by name, as does a hold opened onto an occupied pocket): {}{}",
+            if o.string_and { "on (it gates the trigger only)" } else { "off" },
+            if o.dep_evidence || o.dep_wait.is_some() {
+                format!(
+                    "; departure evidence{}{}",
+                    if o.dep_evidence { format!(" per cart (ironspec 04:08 (3); NOT ADOPTED, ironspec 05:58: the shared foot count retired; priced only): the foot (-4,2,7)'s rising edges since REL {} ({}), lanes -1 / 3 each waiting for two; lane 7's crest (-3,13,7) {} (a BENCH EMULATION, the cart's presence per tick: no detector there in this world, so neither the press's +1 gt nor the 20-gt recheck hold is modelled)", if foot_edges.is_empty() { "none".to_string() } else { foot_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", ") }, if foot_real { "redsim's own detector there: the game's +1 gt and 20-gt hold" } else { "a BENCH EMULATION, the cart's presence per tick, modelling neither the press's +1 gt nor the 20-gt recheck hold" }, if crest_edges.is_empty() { "none".to_string() } else { crest_edges.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", ") }) } else { String::new() },
+                    o.dep_wait.map_or(String::new(), |w| format!("; the temporal form: each trigger {w} gt or more after its D_k"))
+                )
+            } else {
+                String::new()
+            },
+            lines.join("; "),
+            if occupied_open.is_empty() { String::new() } else { format!("; OPENED ONTO AN OCCUPIED POCKET: {}", occupied_open.join("; ")) }
+        ));
+        stats.reentry_in_fall = in_fall;
+        // (ironspec 05:55 (6)(iii): each exit detector's power windows under its 20-gt recheck hold
+        // (redsim's detector = the game's, tick-exact 05:55), its same-lane press gap; G1 05:52 (2): the
+        // foot arrivals, each departed cart's and the napper's first tick in the foot cell, the gaps
+        // and the pairs under the 20-gt hold)
+        let t = |v: Option<i64>| v.map_or("-".to_string(), |d| format!("T+{d}"));
+        out.push(format!(
+            "the exit detectors' power windows (ironspec 05:55 (6)(iii): each D_k (x,0,2) on from its cart's press until the first 20-gt recheck that finds none; a second cart inside a window merges into one press): {}",
+            (0..3)
+                .map(|k| {
+                    let w = &dk_windows[k];
+                    let gaps: Vec<i64> = w.windows(2).map(|p| p[1].0 - p[0].0).collect();
+                    format!(
+                        "lane {k}: {}{}",
+                        if w.is_empty() { "never on".to_string() } else { w.iter().map(|(a, b)| format!("T+{a}..{}", b.map_or("on".to_string(), |b| format!("T+{b}")))).collect::<Vec<_>>().join(", ") },
+                        if gaps.is_empty() { " (one press: no same-lane gap)".to_string() } else { format!(" (same-lane press gaps {})", gaps.iter().map(|g| format!("{g} gt")).collect::<Vec<_>>().join(", ")) }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+        if o.track_lift {
+            let mut arr: Vec<(i64, &str)> = (0..4).filter_map(|k| foot_arrival[k].map(|d| (d, ["lane -1", "lane 3", "lane 7", "the napper"][k]))).collect();
+            arr.sort();
+            let gaps: Vec<String> = arr.windows(2).map(|p| format!("{} -> {} {} gt{}", p[0].1, p[1].1, p[1].0 - p[0].0, if p[1].0 - p[0].0 < 20 { " (UNDER the 20-gt hold)" } else { "" })).collect();
+            out.push(format!(
+                "the foot (-4,2,7) arrivals (G1 05:52 (2): each departed cart's and the napper's first tick in the foot cell; the pairs under the detector's 20-gt hold would merge into one press): {}{}; {} pair(s) under 20 gt",
+                (0..4).map(|k| format!("{} {}", ["lane -1", "lane 3", "lane 7", "the napper"][k], t(foot_arrival[k]))).collect::<Vec<_>>().join(", "),
+                if gaps.is_empty() { String::new() } else { format!("; in order: {}", gaps.join(", ")) },
+                arr.windows(2).filter(|p| p[1].0 - p[0].0 < 20).count()
+            ));
+        }
+        stats.occupied_open = occupied_open.len() as u32;
+        stats.dep_rise = dep_rise;
+        stats.dep_samples = dep_samples.clone();
+        stats.reentry = reentry;
+        stats.trigger = if o.hold_repeater { hold_lever_on } else { opened };
+        stats.open_at = opened;
+        stats.fall_end = fall_end;
+        stats.string_held = string_held;
+        stats.drop_speed = drop_speed;
+        // (G1 03:24 (5), ironspec 03:27 (7): the station's ridden designed drops in the drop-landing
+        // tables: per hold drop the landing cell, the height, the horizontal speed at the open
+        // against the all-phase band, the rider's health)
+        let mut drops: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let Some(op) = opened[k] else { continue };
+            let (px, py, pz) = pockets[k];
+            let end = pos(&run.world, carts[3 + k]).map(|(p, _)| p);
+            stats.arriving_hp[k] = health[3 + k];
+            drops.push(format!(
+                "hold {k} (open T+{op}) onto pocket loop ({},{},{}): from y {} to y {}{}; the horizontal speed at the open {}; the rider's health at its last read {}",
+                px - 6,
+                py,
+                pz - 6,
+                from[k].map_or("-".to_string(), |p| format!("{:.2}", p.y)),
+                end.map_or("-".to_string(), |p| format!("{:.2}", p.y)),
+                match (from[k], end) {
+                    (Some(a), Some(b)) => format!(" ({:.2} blocks)", a.y - b.y),
+                    _ => String::new(),
+                },
+                drop_speed[k].map_or("-".to_string(), |s| format!("{s:.3}")),
+                health[3 + k].map_or("- (not read)".to_string(), |h| format!("{h:.1} of 20"))
+            ));
+        }
+        out.push(format!(
+            "the designed drops (G1 03:24 (5), ironspec 03:27 (7): the station's ridden drops, hold -> pocket; a trapdoor drop of a cart at rest: the all-phase band (0.27 empty / 0.25 ridden, ironspec 03:10) is a rail end's, and a cart leaving from rest is below it, its fall straight down on every phase; the HP reference tick-exact's car 4 (onto a ridden cart 11 damage from 16 blocks, 9 of 20 left; onto an empty cart or the rail, none)): {}",
+            if drops.is_empty() { "no hold opened".to_string() } else { drops.join("; ") }
+        ));
+        // (G1 02:17b (1): the pocket string reads a ridden cart at rest at every position in the
+        // pocket: the rider's box after T's first tick moved along the pocket's rest range, cart z
+        // [cell, cell + 1] in 0.05 steps, against the string's band (its shape 0.0625..0.15625 over
+        // the cell, full x / z: the game reads the entities in the shape's bounds); and a departed
+        // cart's rider back at rest in its pocket at the run's end, read as it stands)
+        let mut bands: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let (px, py, pz) = pockets[k];
+            let (b0, b1) = (py as f64 + 1.0 + 0.0625, py as f64 + 1.0 + 0.15625);
+            let overlap = |bb: redsim::entity::Aabb, dz: f64| {
+                let ox = bb.max_x.min(px as f64 + 1.0) - bb.min_x.max(px as f64);
+                let oy = bb.max_y.min(b1) - bb.min_y.max(b0);
+                let oz = (bb.max_z + dz).min(pz as f64 + 1.0) - (bb.min_z + dz).max(pz as f64);
+                ox.min(oy).min(oz)
+            };
+            let Some(bb) = band_box[k] else {
+                bands.push(format!("lane {k}: no rider read at T+0"));
+                continue;
+            };
+            let cz0 = (bb.min_z + bb.max_z) / 2.0;
+            let (mut least, mut at) = (f64::INFINITY, pz as f64);
+            for i in 0..=20 {
+                let cz = pz as f64 + i as f64 * 0.05;
+                let m = overlap(bb, cz - cz0);
+                if m < least {
+                    least = m;
+                    at = cz;
+                }
+            }
+            stats.band_overlap[k] = Some(least);
+            let back = if reentry[k].is_some()
+                && let Some(r) = riders[k]
+                && let Some(e) = run.world.entities.list.iter().find(|e| e.id == r && !e.removed)
+                && (e.pos.x - (px as f64 + 0.5)).abs() < 0.8
+                && e.pos.z > pz as f64 - 0.5
+                && e.pos.z < pz as f64 + 1.5
+            {
+                format!("; its departed rider back at the run's end at z {:.3}: overlap {:.4}", e.pos.z, overlap(e.bb, 0.0))
+            } else {
+                String::new()
+            };
+            bands.push(format!("lane {k}: the rider's box y {:.4}..{:.4} against the band y {b0:.5}..{b1:.5}: the least overlap {least:.4} (cart z {:.2} into the cell){back}", bb.min_y, bb.max_y, at - pz as f64));
+        }
+        out.push(format!("the pocket strings (x,1,0) against a ridden cart at rest anywhere in the pocket (G1 02:17b (1)): {}", bands.join("; ")));
+        // (G1 04:38 (2) / 04:39: the slot-1 strings (x,18,1) against each slot-1 cart's box at rest on
+        // R_1 after T's first tick, at both push phases: redsim's rest and the game's pushed phase,
+        // 0.108 b further up the ascending slope (z and y +0.108); push-free figures, a lower bound)
+        if o.refill.is_some() {
+            let mut s1: Vec<String> = Vec::new();
+            for k in 0..3 {
+                let Some(bb) = slot1_box[k] else { continue };
+                let (px, _, pz) = pockets[k];
+                let (b0, b1) = (o.hold_y as f64 + 2.0 + 0.0625, o.hold_y as f64 + 2.0 + 0.15625);
+                let ov = |d: f64| {
+                    let ox = bb.max_x.min(px as f64 + 1.0) - bb.min_x.max(px as f64);
+                    let oy = (bb.max_y + d).min(b1) - (bb.min_y + d).max(b0);
+                    let oz = (bb.max_z + d).min(pz as f64 + 2.0) - (bb.min_z + d).max(pz as f64 + 1.0);
+                    ox.min(oy).min(oz)
+                };
+                s1.push(format!("lane {k} ({}): at the bench's rest (box z {:.3}..{:.3}, y {:.3}..{:.3}) {:.4}, pushed 0.108 up the slope {:.4}", if slot1_ridden[k] { "ridden: its rider's seat box" } else { "empty: the cart's own box, without redsim's raised check" }, bb.min_z - pz as f64, bb.max_z - pz as f64, bb.min_y, bb.max_y, ov(0.0), ov(0.108)));
+            }
+            out.push(format!("the slot-1 strings (x,18,1) against each slot-1 presser at rest on R_1 (the last read before the R line), the least band overlap at both push phases (G1 04:38 (2): push-phase dependent; push-free, the riders' travel push not emulated: a lower bound on the spread): {}", s1.join("; ")));
+        }
     }
     if !empty_planted.is_empty() {
         let mut lines = Vec::new();

@@ -223,6 +223,13 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     if s.hold_drive_off > 0 {
         v.push("a hold's trapdoor off its declared tick (the holds' built drive)");
     }
+    // (commit F, ironspec 02:18 (1): the pocket at its hold's open)
+    if s.occupied_open > 0 {
+        v.push("a hold opened onto an occupied pocket");
+    }
+    if s.reentry_in_fall > 0 {
+        v.push("a departed cart back in its pocket inside its hold's fall window");
+    }
     // (ironfarm's C-fix rows, ironspec 10:29 (2) / 10:56: no cart leaves a watched cell westward;
     // no cart rests off its rails at the lip; G1 on 407a29682 (N1): a check that saw no cart is
     // NOT JUDGED, a failure)

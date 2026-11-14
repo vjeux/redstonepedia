@@ -331,7 +331,15 @@ line and the slope tap are stand-ins at their declared phases, the rest out of i
 "a pocket drive off its clock slot"; `--late-drive-control K,D` (pocket K's drive D gt late) must
 fail by it. `--t-hold-control` is the T-shape bar's negative row: the first station T's constant
 source (form (C): slime under the T, a lit torch under the slime, on glass) laid before the settle,
-the same lever switched on and off beside it: the T must not re-shape. `--hold-repeater` (commit E)
+the same lever switched on and off beside it: the T must not re-shape. `--string-and` (commit F)
+makes each hold's trigger also wait for its pocket's own string (x,1,0) to read off (rider-keyed;
+it gates the trigger only); `--bounce-sweep` adds, after the run line's first row, one row per cell
+a departed cart rolls through past its exit detector x {ridden, empty} (a stationary cart planted
+there at T), failing by name on a departed cart back in its pocket inside its hold's fall window or
+a hold opened onto an occupied pocket; `--dep-evidence` (with --module) and `--dep-wait W` price
+the departure-gating forms (the foot / crest edges per REL; a fixed wait after D_k). Every station
+run prints the pockets at the opens, the designed drops (landing, height, speed at the open, the
+rider's health) and the pocket strings' band against a rider at rest. `--hold-repeater` (commit E)
 drives the holds' iron trapdoors through their built drive (the ring's north cell a slime block fed
 by a delay-1 repeater (x,16,-2) from a lever stand-in at the line end (x,16,-3)), the lever flipped
 `HOLD_DRIVE_LEAD_ITERATIONS` (1 bench iteration = 2 gt: the lever flips between ticks; tick-exact's
