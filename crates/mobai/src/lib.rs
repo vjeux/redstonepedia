@@ -53,6 +53,7 @@ pub mod cartfall;
 pub mod latchformb;
 pub(crate) mod latchformbcells;
 pub mod latchrig;
+pub mod lifttop;
 pub(crate) mod slotholdcells;
 pub mod stringrelease;
 pub mod r1override;

@@ -926,6 +926,16 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-14, ironspec 00:10 .. 00:52 / G1 00:10 .. 01:18 / ironfarm 00:08 .. 00:37) The return's shared
+    /// lift pasted from its design file in the official server: the foot detector (gate G), foot pairs, lone risers, two
+    /// bunched risers (0.60..2.0 b apart, both lateral offsets), and pairs (a lone riser held 100 gt; the exit open with a
+    /// follower 1..14 gt behind; the booster glass for N gt against a follower G behind); MCTAS_LIFT_TOP_PLANT=k inverts
+    /// assert k
+    LiftTop {
+        design: std::path::PathBuf,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, ironspec 21:42 / 22:07 / 22:58) (g)'s latch alone from 58f770cc's block list (the control)
     LatchRig {
         #[arg(long, default_value = "26.3")]
@@ -2296,6 +2306,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             Some(p) => crate::latchformb::latch_rig_form_b(&version, &p),
             None => crate::latchrig::latch_rig(&version),
         },
+        MobaiCmd::LiftTop { design, version } => crate::lifttop::lift_top(&version, &design),
         MobaiCmd::CartFall { version } => crate::cartfall::cart_fall(&version),
         MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
