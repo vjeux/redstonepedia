@@ -9639,6 +9639,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let (c, k) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--expect {e}: x,y,z=rider-keyed|cart-keyed|never-pressed"))?;
                 ex.push((cell(c)?, k.trim().to_string()));
             }
+            // (dfb89499 Nov 14 01:21, part 35) the design's own `# string-class:` declarations beside --expect
+            let header = crate::fleecheck::string_classes_from_header(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            println!("string classes: {} from --expect, {} from the design's `# string-class:` lines", ex.len(), header.len());
+            ex.extend(header);
             let mut ranges = Vec::new();
             for r in &rail_range {
                 let (c, t) = r.split_once('=').ok_or_else(|| anyhow::anyhow!("--rail-range {r}: x,y,z=T0..T1"))?;
