@@ -1779,6 +1779,8 @@ fn rebalance_block(v: &mut Verdict, lines: &mut Vec<String>) {
     // (3) 0 LATCH SETS on the normal nights, the reference timing row and the restart rows; a lane merely late sets none
     let mut quiet_bad = Vec::new();
     let mut depth: [std::collections::BTreeMap<i64, usize>; 3] = Default::default();
+    // (the late rows whose late cart makes a REAL imbalance: judged as heal rows (G1 CHANGES 5 on eef084284 (4)(b)))
+    let mut late_imb: Vec<(String, Row)> = Vec::new();
     let mut n_rows = 0usize;
     let mut check = |name: String, r: Row, depth: &mut [std::collections::BTreeMap<i64, usize>; 3]| {
         let o = run(&r, Defects::default());
@@ -1821,11 +1823,14 @@ fn rebalance_block(v: &mut Verdict, lines: &mut Vec<String>) {
         for late in [10i64, 30, 60] {
             let mut r = lanes_row(Some((5, s, late)), [8; 3]);
             r.rebalance = true;
-            // (a lane merely late: only rows whose late cart makes no real imbalance (the twin without (b') ends at delta 0))
+            // (a lane merely late: only rows whose late cart makes no real imbalance (the twin without (b') ends at delta 0);
+            // G1 CHANGES 5 on eef084284 (4)(b): the late rows that DO make a real imbalance are judged below as heal rows)
             let mut r0 = r.clone();
             r0.rebalance = false;
             if run(&r0, Defects::default()).lane_delta == [0; 3] {
                 check(format!("batch 5's lane {} cart {late} late (no imbalance)", LANES[s]), r, &mut depth);
+            } else {
+                late_imb.push((format!("batch 5's lane {} cart {late} late", LANES[s]), r));
             }
         }
     }
@@ -1833,6 +1838,20 @@ fn rebalance_block(v: &mut Verdict, lines: &mut Vec<String>) {
     let hist: Vec<String> = (0..3).map(|l| format!("lane {}: {:?}", LANES[l], depth[l])).collect();
     lines.push(format!("  (b') NO FIRING WITHOUT AN IMBALANCE: {n_rows} rows, sets {}: {w}", if quiet_bad.is_empty() { "none".to_string() } else { quiet_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
     lines.push(format!("  (b') THE QUEUE DEPTH AT REL (from REL 10; depth: count) over those rows, the threshold's data (over = depth >= 2, the model's; the real one from ironfarm / cc767b78's measured depths): {}", hist.join("; ")));
+    // (G1 CHANGES 5 on eef084284 (4)(b): THE LATE ROWS THAT MAKE A REAL IMBALANCE (the twin without (b') ends with the
+    // lanes' counts unequal) are judged as HEAL rows: (b') heals each (the lanes' delta 0, the store correct, the cadence
+    // 100 by the end, none into the leg))
+    {
+        let mut bad = Vec::new();
+        for (name, r) in &late_imb {
+            let o = run(r, Defects::default());
+            if !(store_correct_bars(&o).is_empty() && o.lane_delta == [0; 3] && tail_ok(&o) && o.leg_entries.is_empty()) {
+                bad.push(format!("{name}: delta {:?}, store [{}]", o.lane_delta, store_correct_bars(&o).join("; ")));
+            }
+        }
+        let w = if late_imb.is_empty() { v.scope("ctl-credit: (b') heals the late rows that make a real imbalance", "no late row makes one") } else { v.bar_n("ctl-credit: (b') HEALS THE LATE ROWS THAT MAKE A REAL IMBALANCE (G1 CHANGES 5 (4)(b): the lanes' counts equal, the store correct, the cadence 100 by the end, none into the leg)", late_imb.len(), bad.is_empty()).to_string() };
+        lines.push(format!("  (b') THE LATE ROWS WITH A REAL IMBALANCE: {} ({}){}: {w}", late_imb.len(), late_imb.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", "), if bad.is_empty() { String::new() } else { format!(" (FAILED: {})", bad.join(" | ")) }));
+    }
     // (4) EVERY ORDERED (short X, over Y) PAIR PLANTED (G1 03:45 (a)): one lane a cart over, another a cart short from the
     // start: healed, the lanes' counts equal at the end
     let mut pair_bad = Vec::new();
@@ -1892,13 +1911,42 @@ fn rebalance_block(v: &mut Verdict, lines: &mut Vec<String>) {
     // printed (the batch's next cart through the still-armed J(Y)) and judged bounded: the store correct and the lanes
     // healed by the end (a later latch set)
     {
-        let (name, l) = swaps[0];
-        let mut r = lanes_row(Some(l), [8; 3]);
-        r.rebalance = true;
-        let o = run(&r, Defects { reb_standin_missed: true, ..Default::default() });
-        let ok = store_correct_bars(&o).is_empty() && o.lane_delta == [0; 3] && tail_ok(&o) && o.leg_entries.is_empty();
-        let w = v.bar(&format!("ctl-credit: (b')'s THROUGH-BRANCH SENSOR MISSED (G1 04:19 (5)(b)), {name}: the consequence bounded and healed (the store correct, the lanes' counts equal and the cadence 100 by the end, none into the leg)"), ok);
-        lines.push(format!("  (b') THE THROUGH-BRANCH SENSOR MISSED: misroutes {:?}, sets {}, moves {}, the lanes' delta {:?}, the store [{}]: {w}", o.misroutes.iter().take(4).collect::<Vec<_>>(), o.reb_sets.len(), o.reb_assigned.len(), o.lane_delta, store_correct_bars(&o).join("; ")));
+        // (G1 CHANGES 5 on eef084284 (4)(a): the plant READ BACK: the row is the first (of the swap rows and the six
+        // ordered pairs) whose J(Y)-first stand-in count CHANGES under the planted miss; none = the override fails)
+        let mut cands: Vec<(String, Row)> = swaps.iter().map(|(name, l)| (name.to_string(), lanes_row(Some(*l), [8; 3]))).collect();
+        for x in 0..3usize {
+            for y in 0..3usize {
+                if x != y {
+                    let mut cnt = [8i64; 3];
+                    cnt[x] -= 1;
+                    cnt[y] += 1;
+                    cands.push((format!("lane {} short, lane {} over", LANES[x], LANES[y]), lanes_row(None, cnt)));
+                }
+            }
+        }
+        let mut pick: Option<(String, Row, Out, Out)> = None;
+        for (name, mut r) in cands {
+            r.rebalance = true;
+            let o_ok = run(&r, Defects::default());
+            let o = run(&r, Defects { reb_standin_missed: true, ..Default::default() });
+            if o.reb_standins.len() != o_ok.reb_standins.len() {
+                pick = Some((name, r, o_ok, o));
+                break;
+            }
+        }
+        match pick {
+            Some((name, _r, o_ok, o)) => {
+                let ov = v.over("(b')'s through-branch stand-in missed (the first J(Y)-first move)", &format!("{} stand-ins", o_ok.reb_standins.len()), &format!("{} stand-ins", o.reb_standins.len()));
+                lines.push(format!("  (b') THE THROUGH-BRANCH SENSOR MISSED, the plant read back on {name}: {ov}"));
+                let ok = store_correct_bars(&o).is_empty() && o.lane_delta == [0; 3] && tail_ok(&o) && o.leg_entries.is_empty();
+                let w = v.bar(&format!("ctl-credit: (b')'s THROUGH-BRANCH SENSOR MISSED (G1 04:19 (5)(b)), {name}: the consequence bounded and healed (the store correct, the lanes' counts equal and the cadence 100 by the end, none into the leg)"), ok);
+                lines.push(format!("  (b') THE THROUGH-BRANCH SENSOR MISSED: misroutes {:?}, sets {}, moves {}, the lanes' delta {:?}, the store [{}]: {w}", o.misroutes.iter().take(4).collect::<Vec<_>>(), o.reb_sets.len(), o.reb_assigned.len(), o.lane_delta, store_correct_bars(&o).join("; ")));
+            }
+            None => {
+                let ov = v.over("(b')'s through-branch stand-in missed (no swap row nor ordered pair exercises a J(Y)-first stand-in)", "unchanged", "unchanged");
+                lines.push(format!("  (b') THE THROUGH-BRANCH SENSOR MISSED: {ov}"));
+            }
+        }
     }
     lines.push(format!("  (b') THE HARDWARE PER PAIR (to price, ~12-18 blocks + the hold-off): J(X) upstream of J(Y): J(X) re-armed for the moved cart after X's own cart passed, the moved cart's D(X) masked from every D(X) output, the stand-in D(Y) keyed on that D(X) press landing at the Y cart's natural D(Y) tick; J(Y) first: HOLD at J(Y) (and every J between) for the moved cart, its stand-in D(Y) at the suppressed J(Y)'s through-branch detector; THE LATCH: set at the SECOND consecutive lane wait naming the same (short X, over Y), one move per set, a {REB_HOLDOFF}-REL hold-off; THE EVIDENCE: dfb89499's slot-1 string tap (x-1,18,0) and a depth detector at the R_k the measured threshold names"));
 }
@@ -4484,6 +4532,7 @@ mod tests {
         }
         let fails = v.fails();
         let expected = [
+            ("the override (b')'s through-branch stand-in missed (no swap row nor ordered pair exercises a J(Y)-first stand-in) leaves its target unchanged", ""),
             ("THE ITEM FORM (G1 CHANGES 5 (A)): a cart lost before its D press (batch 5's lane -1 slot missing) then a LATER lost credit (batch 12's dropped): the net recovers the later loss", ""),
             ("THE ITEM FORM (G1 CHANGES 5 (B)): TWO STRAY D presses 30 gt apart (the count driven to -2) never mint falsely", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
