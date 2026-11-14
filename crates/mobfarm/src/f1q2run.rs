@@ -756,6 +756,7 @@ struct Ctl {
     a_rls_log: Vec<String>,
     /// (G1 17:33) the park rest tick per visit and its margin against PARKED's ARM + 52
     a_park_rest: Option<i64>,
+    a_park_prev: Option<[f64; 3]>,
     a_park_log: Vec<String>,
     /// (G1 16:00, night check 4) each tick the bed is occupied: every awake HOME-holder within 16 of
     /// the bed head's centre (tick, villager, distance), bar 0
@@ -780,6 +781,8 @@ struct Ctl {
     d3_presses: Vec<i64>,
     /// (ironspec 17:29, day-1 17:22's BATCH_DONE) SEEN(-1) / SEEN(3) / SEEN(7): each lane's D press since REL
     seen: [Option<i64>; 3],
+    /// (G1 18:17 (1)) which setter fired SEEN3 (real or G11-emulated)
+    seen3_src: &'static str,
     delta7: i64,
     a_open_at: Option<i64>,
     nap_lane_of: BTreeMap<u32, usize>,
@@ -1882,6 +1885,7 @@ impl Ctl {
                 // emulated D(3) sets SEEN3 (t23's smoke: without it a lane-3-pick batch never re-armed)
                 if self.a_stop && self.seen[1].is_none() {
                     self.seen[1] = Some(now + 2);
+                    self.seen3_src = "G11-emulated (lane 3's pick)";
                 }
             } else {
                 self.rt_j3_latch = true;
@@ -1928,13 +1932,14 @@ impl Ctl {
         // at REL; G10: J(-1)'s re-arm the same AND
         if self.a_stop {
             if b1 && !self.branch_prev[1] && self.seen[1].is_none() {
+                self.seen3_src = "real";
                 self.seen[1] = Some(now);
             }
             if !events.is_empty() {
                 if let Some(s3) = self.seen[1] {
                     if !self.re_armed {
                         self.re_armed = true;
-                        self.re_armed_setters.push(format!("t {now}: D(7) ({}) AND SEEN3 (D(3) t {s3})", sources.join(" / ")));
+                        self.re_armed_setters.push(format!("t {now}: D(7) ({}) AND SEEN3 (D(3) t {s3}, {})", sources.join(" / "), self.seen3_src));
                     }
                 } else {
                     self.re_armed_setters.push(format!("t {now}: D(7) ({}) WITHOUT SEEN3: RE_ARMED not set (G8a)", sources.join(" / ")));
@@ -2739,13 +2744,22 @@ impl Ctl {
             self.a_log.push(format!("t {now}: ARM's edge (-2,-27,0)"));
         }
         // (G1 17:33) the park rest against PARKED's timer (ARM + 52): the tick the empty cart first rests on
-        // the park (1,-27,3), its margin printed per visit (a rest after ARM + 52 would be held unreleased)
+        // the park (1,-27,3) (its position unchanged from the tick before: a braked cart on the ascending
+        // park rail keeps a slope term in its delta), its margin printed per visit
+        let park_pos = w
+            .entities
+            .list
+            .iter()
+            .find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [1, -27, 3] && e.passengers.is_empty())
+            .map(|e| {
+                let p = dpos(e.pos);
+                [p.x, p.y, p.z]
+            });
+        let rested = park_pos.is_some_and(|p| self.a_park_prev.is_some_and(|q| (p[0] - q[0]).abs() + (p[1] - q[1]).abs() + (p[2] - q[2]).abs() < 1e-6));
+        self.a_park_prev = park_pos;
         if self.a_park_rest.is_none()
             && let Some(a) = self.a_arm_at
-            && w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [1, -27, 3] && e.passengers.is_empty() && {
-                let v = dpos(e.delta_movement);
-                v.x.abs() + v.y.abs() + v.z.abs() < 1e-3
-            })
+            && rested
         {
             self.a_park_rest = Some(now);
             self.a_park_log.push(format!("ARM t {a}: the park rest t {now} (ARM + {}), PARKED at ARM + 52: margin {}", now - a, a + 52 - now));
