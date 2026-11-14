@@ -71,21 +71,29 @@ pub const CMP: i64 = 2;
 pub const AND: i64 = 4;
 /// RLS to the park's powered rail, p (ironspec 17:35 (3) / 17:53 (1): one delay-1 repeater, 2 gt).
 pub const PARK: i64 = 2;
-/// The park's minimum powered width (found by the world-open sweep on every forced row, day-1 19:35): RLS can be as
-/// narrow as 3 gt when a previous pulse's W line closes WIN just after PARKED releases, and a world open's entity lag
-/// (3) then swallows the whole PARK pulse: the cart stays on the park with RLS spent (a permanent hold). PARK = RLS
-/// stretched to >= PARK_W gt by a pulse extender (RLS and RLS through an 8-gt repeater pair, ORed into the rail's
-/// drive: ~3 blocks).
+/// THE PARK's GAPLESS EXTENDER (G1's C5 on 5dd4204be, a design item): RLS can be as narrow as 3 gt (a previous pulse's W
+/// line closes WIN just after PARKED releases, the early wake at ARM + 9), and a world open's entity lag (3) then
+/// swallows the whole PARK pulse: the cart stays on the park with RLS spent (a permanent hold). A two-input OR (RLS and
+/// RLS through an 8-gt line) leaves a GAP whenever RLS is shorter than 8 gt, and a cart that misses the first part
+/// boards 8 gt later, at the cooldown edge (kept as a control). THE BUILT FORM: PARK = RLS OR P_HOLD, P_HOLD a latch SET
+/// by RLS and RESET by RLS through an 8-gt repeater pair (two delay-4): the park powered without a gap from RLS's rise
+/// until RLS's end + 8 at the earliest (P_HOLD's Q from RLS + SET_IN to RLS's fall + 8 + RESET_IN), ~4 blocks (the two
+/// torches, the pair, the OR's dust).
 pub const PARK_W: i64 = 8;
+/// The cart reads the park's power in its next tick (the rail's state of the previous block tick: G1's C1, a step of
+/// its own in the closed form beside the cart's first move).
+pub const PARK_READ: i64 = 1;
 /// WIN's end: the pulse through the W line (6 x delay 4 + 1 x delay 4 - 4 = 48: ironspec on G1's N1, day-1 19:25,
 /// one repeater tick shorter than the ruled 50): the latest RLS lands at pulse + W_LINE + W_SLACK = pulse + 59, so
 /// the cooldown edge keeps its >= 10 at boarding with every term (see `COOL_EDGE`).
 pub const W_LINE: i64 = 48;
 /// WIN's start, the D line: two delay-2 repeaters (8 gt).
 pub const D_LINE: i64 = 8;
-/// The hold RLS reads (ironspec 16:00: P_STRING held from the pulse through pulse + 12): WIN's set reaches Q's block
-/// SET_IN after the D line and its NOT-Q output REP + TORCH later, and the AND reads P_STRING's torch AND after that,
-/// so P is read at pulse + D_LINE + SET_IN + REP (one source: the D line).
+/// The hold RLS reads (ironspec 16:00: P_STRING held from the pulse through pulse + 12). RLS's AND reads WIN through
+/// WIN's NOT-Q output (REP + TORCH after Q's block) and P_STRING through P's own torch (TORCH); both then pass the AND.
+/// WIN's Q block rises SET_IN after the D line, so at a given RLS tick the AND sees WIN's state of (that tick - AND -
+/// REP - TORCH) and P's of (that tick - AND - TORCH): the two torches and the AND cancel, and P is read REP after
+/// WIN's Q block: pulse + D_LINE + SET_IN + REP = 12 (one source: the D line).
 pub const HOLD: i64 = D_LINE + SET_IN + REP;
 /// SINCE's sample through one delay-2 repeater (a new pulse's restart closes WIN before SINCE can pass).
 pub const SINCE_DELAY: i64 = 0;
@@ -123,14 +131,21 @@ pub const COOLDOWN_BAR: i64 = 10;
 /// The latest RLS rise a pulse's window allows, after the pulse + W_LINE: WIN's reset (4 to Q's block), its NOT-Q
 /// output (4), the AND (4), less the first blocked tick.
 pub const W_SLACK: i64 = RESET_IN + TORCH + REP + AND - 1;
-/// The board band's slowest park -> P ride and the world-open terms (idle 2, the entity domain 3 behind).
-pub const BOARD_MAX: i64 = 19;
-pub const OPEN_IDLE: i64 = 2;
-pub const OPEN_KJ: i64 = 3;
-/// G1's N1: the cooldown edge's closed form, every term: the latest boarding after the wake = the pulse's rise
-/// (OBS_RISE) + the latest RLS (W_LINE + W_SLACK) + PARK + the cart's response + the slowest ride + a world open's idle +
-/// the entity domain's lag; the margin COOLDOWN - that >= COOLDOWN_BAR.
-pub const COOL_EDGE: i64 = OBS_RISE + W_LINE + W_SLACK + PARK + CART_RESPONSE + BOARD_MAX + OPEN_IDLE + OPEN_KJ;
+/// The bands the sweeps run (58f770cc's stop bench and its real-cell pass -> rest), and the world opens: the closed
+/// form takes its maxima from these arrays (G1's B7: no hand-typed copies).
+pub const RESTS: [i64; 3] = [33, 40, 46];
+pub const BOARDS: [i64; 3] = [13, 16, 19];
+pub const PASS_TO_REST: [i64; 2] = [16, 26];
+pub const LIES: [i64; 2] = [4, 5];
+pub const OPENS: [(i64, i64); 4] = [(1, 1), (2, 1), (1, 3), (2, 3)];
+pub const BOARD_MAX: i64 = BOARDS[2];
+pub const OPEN_IDLE: i64 = OPENS[3].0;
+pub const OPEN_KJ: i64 = OPENS[3].1;
+/// G1's N1 / C1: the cooldown edge's closed form, every term: the latest boarding after the wake = the pulse's rise
+/// (OBS_RISE) + the latest RLS (W_LINE + W_SLACK) + PARK + the cart's read of the park (PARK_READ) + its first move
+/// (CART_RESPONSE) + the slowest ride + a world open's idle + the entity domain's lag; the margin COOLDOWN - that >=
+/// COOLDOWN_BAR, and the sweep's least margin must EQUAL it (a bound a run beats is not a bound).
+pub const COOL_EDGE: i64 = OBS_RISE + W_LINE + W_SLACK + PARK + PARK_READ + CART_RESPONSE + BOARD_MAX + OPEN_IDLE + OPEN_KJ;
 /// The tripwire's release bound after the napper's box leaves: a lie-down's string drops by its pulse + 8.
 pub const STRING_DROP: i64 = RECHECK - OBS_RISE;
 /// NEAREST_HOSTILE's clear after the shutter's first closed tick C (tick-exact 17:52: C + 19): the cart's first entry
@@ -163,6 +178,10 @@ pub struct Defects {
     pub w_delta: i64,
     /// PARK without its pulse extender (RLS's own width).
     pub no_park_stretch: bool,
+    /// PARK through the two-input OR (RLS and RLS through 8 gt): the gap G1's C5 names.
+    pub park_or2: bool,
+    /// The closed form without the park's read (G1's C1 control: the sweep then beats the bound).
+    pub edge_no_read: bool,
 }
 
 /// What a row asserts about its outcome (G1 on 5f79952c2 B6).
@@ -172,6 +191,9 @@ pub enum Kind {
     Normal,
     /// An early wake that boards on its first window: one RLS, aboard, the invariants (G1 on a2186649e B6 (1c)).
     BoardsEarly,
+    /// Boards on its first window where the band's window allows, after its re-sleep otherwise (G1's C2: the merged
+    /// rows whose release lands inside or past W by the band); the split is printed.
+    Boards,
     /// No release to a sleeper, then the napper boards within the horizon (after a re-sleep).
     Recovers,
     /// An EMPTY departure (the permanent halt the fault note names).
@@ -330,6 +352,11 @@ pub struct Out {
     /// The close bar for this run: CLOSE_BAR + a world open's idle (the block domain frozen between the press and the
     /// close delays the close by that much).
     pub close_allow: i64,
+    /// Presses on P made while the window was open that the window never closed after (G1's N5).
+    pub unclosed_presses: Vec<i64>,
+    /// The first window's boarding bound (G1's C2): the first RLS + PARK + PARK_READ + CART_RESPONSE + the row's ride
+    /// + a world open's idle and lag when one falls in between.
+    pub first_window_by: Option<i64>,
     /// (SelfEnding rows) the game tick of the scripted later lie-down.
     pub self_end_lie: Option<i64>,
 }
@@ -358,6 +385,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut obs = vec![false; n];
     let mut rls = vec![false; n];
     let mut park = vec![false; n];
+    let mut p_hold = vec![false; n];
     let (mut q_so, mut q_sen, mut q_cool, mut q_open, mut q_since, mut q_win) = (vec![false; n], vec![false; n], vec![false; n], vec![false; n], vec![false; n], vec![false; n]);
     let mut kb: i64 = -1;
     let mut te: i64 = -1;
@@ -373,7 +401,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut board_cd: i64 = if row.start_on_p { 0 } else { -1 };
     let mut cells = String::new();
     let mut shut_prev = true;
-    let mut pending_press_close: Option<i64> = None;
+    let mut pending_press_close: Vec<i64> = Vec::new();
     let mut on_p_run = 0i64;
     let mut pulses_kb: Vec<i64> = Vec::new();
     for g in 0..t_max {
@@ -430,7 +458,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
             let park_prev = prev(&park);
             match cart {
                 C::Arriving if e >= row.arm + row.rest => cart = C::Rest,
-                C::Rest if park_prev => cart = C::ToP(e + 1 + row.board),
+                C::Rest if park_prev => cart = C::ToP(e + CART_RESPONSE + row.board),
                 C::ToP(t) if e >= t => {
                     o.cart_at_p = Some(g);
                     if nap == N::OnP && board_cd <= 0 {
@@ -521,7 +549,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 next_check = kb + RECHECK;
                 // (G1's N5: every press while the window is open, the wake's or any other, must close it)
                 if win || (!o.wakes.is_empty() && o.wakes.last() == Some(&g)) {
-                    pending_press_close = Some(g);
+                    pending_press_close.push(g);
                 }
             }
             if head_changes > 0 && ob.is_none() {
@@ -574,7 +602,15 @@ pub fn run(row: &Row, def: Defects) -> Out {
         q_open[k] = v_open;
         let rls_block = notp(kb - AND) || (!def.no_since && nqv(&q_since, kb - AND)) || nqv(&q_win, kb - AND) || (!def.no_parked_in_rls && parked_block(kb - AND));
         rls[k] = !rls_block;
-        park[k] = if def.no_park_stretch { at(&rls, kb - PARK, false) } else { (0..PARK_W).any(|i| at(&rls, kb - PARK - i, false)) };
+        // (the park's drive: the gapless latch extender as built; the two-input OR and the bare RLS as controls)
+        p_hold[k] = latch(k > 0 && p_hold[k - 1], at(&rls, kb - SET_IN, false), at(&rls, kb - PARK_W - RESET_IN, false));
+        park[k] = if def.no_park_stretch {
+            at(&rls, kb - PARK, false)
+        } else if def.park_or2 {
+            at(&rls, kb - PARK, false) || at(&rls, kb - PARK - PARK_W, false)
+        } else {
+            at(&rls, kb - PARK, false) || at(&p_hold, kb - PARK, false)
+        };
         let shut_now = !at(&q_open, kb - TORCH, false);
         // ---- records (game ticks)
         let rise = |v: &Vec<bool>| v[k] && (k == 0 || !v[k - 1]);
@@ -594,8 +630,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
         if rise(&park) {
             o.park.push(g);
         }
-        let pk_now = q_sen[k] && q_cool[k];
-        let pk_prev = k > 0 && q_sen[k - 1] && q_cool[k - 1];
+        // (PARKED as the logic sees it: a defect that removes SENSED or COOL from the gate removes it here too: G1's C3)
+        let pk = |i: usize| (def.no_sensed || q_sen[i]) && (def.no_cool || q_cool[i]);
+        let pk_now = pk(k);
+        let pk_prev = k > 0 && pk(k - 1);
         if pk_now && !pk_prev && !o.rls.is_empty() && g < row.next_arm {
             o.parked_after_rls = true;
         }
@@ -622,13 +660,13 @@ pub fn run(row: &Row, def: Defects) -> Out {
             if let Some(w) = o.window.last_mut() {
                 w.1 = g;
             }
-            if let Some(pr) = pending_press_close.take() {
+            for pr in pending_press_close.drain(..) {
                 o.close_after_press.push(g - pr);
             }
         }
-        if shut_now && pending_press_close.is_some() && o.window.last().map(|w| w.1 != i64::MAX).unwrap_or(true) {
+        if shut_now && !pending_press_close.is_empty() && o.window.last().map(|w| w.1 != i64::MAX).unwrap_or(true) {
             // (pressed while the window was already shut: nothing to close)
-            pending_press_close = None;
+            pending_press_close.clear();
         }
         shut_prev = shut_now;
         if o.departed.is_none() && nap == N::OnP && !o.wakes.is_empty() && boarding_wake.map(|b| b < *o.wakes.last().unwrap()).unwrap_or(true) {
@@ -653,6 +691,13 @@ pub fn run(row: &Row, def: Defects) -> Out {
             o.latches_at_next = [q_so[k], q_sen[k], q_cool[k], q_open[k], q_since[k], q_win[k]];
         }
     }
+    // (G1's C2: the first window's boarding bound, in game time: an open after the first RLS adds its idle and lag)
+    if let Some(&r0) = o.rls.first() {
+        let open_add = row.open.map_or(0, |(t0, idle, kj)| if t0 >= r0 - 4 && t0 <= r0 + PARK + PARK_READ + CART_RESPONSE + row.board { idle + kj } else { 0 });
+        o.first_window_by = Some(r0 + PARK + PARK_READ + CART_RESPONSE + row.board + open_add);
+    }
+    // (G1's N5: a press on P while the window is open whose close never comes)
+    o.unclosed_presses = pending_press_close.clone();
     o.cells = cells;
     if let Some(b) = o.boarded_at {
         if let Some(&w) = o.wakes.iter().filter(|&&w| w <= b).last() {
@@ -719,7 +764,10 @@ fn invariants(o: &Out) -> Vec<String> {
             bad.push(format!("the cart at P {ap} inside the napper's boarding cooldown (to {mb}): it passes empty"));
         }
     }
-    if o.close_after_press.iter().any(|&c| c > o.close_allow) {
+    if o.close_after_press.iter().any(|&c| c > o.close_allow) || !o.unclosed_presses.is_empty() {
+        if !o.unclosed_presses.is_empty() {
+            bad.push(format!("a press on P while the window was open never closed it (presses at {:?})", o.unclosed_presses));
+        }
         bad.push(format!("the shutter closed {:?} gt after a press on P (bar <= {CLOSE_BAR} + a world open's idle = {})", o.close_after_press, o.close_allow));
     }
     if o.parked_after_rls {
@@ -778,7 +826,28 @@ fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
                 b.push(format!("RLS rose {} times", o.rls.len()));
             }
             if o.departed.map(|d| !d.1).unwrap_or(true) {
-                b.push("the early-woken napper not aboard on its first window".into());
+                b.push("the early-woken napper not aboard".into());
+            }
+            // (G1's C2: ON ITS FIRST WINDOW: no lie-down between its first wake and its boarding, and the boarding
+            // within the first RLS's park + read + response + ride (+ a world open's idle and lag))
+            if let (Some(&w0), Some(bt)) = (o.wakes.first(), o.boarded_at) {
+                if o.lies.iter().any(|&l| l > w0 && l < bt) {
+                    b.push(format!("boarded at {bt} after a re-sleep, not on its first window"));
+                }
+            }
+            if let (Some(by), Some(bt)) = (o.first_window_by, o.boarded_at) {
+                if bt > by {
+                    b.push(format!("boarded at {bt}, past its first window's bound {by}"));
+                }
+            }
+            b
+        }
+        Kind::Boards => {
+            // (a row whose first window depends on the band: it boards on the first window where the window allows,
+            // after its re-sleep otherwise; both safe, the split printed)
+            let mut b = invariants(o);
+            if o.departed.map(|d| !d.1).unwrap_or(true) {
+                b.push("it never boards in the horizon".into());
             }
             b
         }
@@ -832,15 +901,20 @@ fn forced_rows() -> Vec<(Row, Kind, bool)> {
         r.hurt = vec![h];
         // (a wake at + 7 / + 8 falls inside the lie-down's own pulse and is absorbed: no fresh pulse, so it recovers
         // through its re-sleep; from + 9 the wake has its own pulse and boards on its first window: G1 B6 (1c))
-        f.push((r, if h <= 8 { Kind::Recovers } else { Kind::BoardsEarly }, false));
+        // (a wake at + 7 / + 8 falls inside the lie-down's own pulse and is absorbed: no fresh pulse, so it recovers
+        // through its re-sleep; at + 9 / + 30 the wake's restarted window is cut by the lie-down pulse's W line (lie
+        // pulse + 59), so it boards on its first window where COOL / SENSED release in time and recovers through its
+        // re-sleep otherwise (Boards, the split printed: G1's C2); at + 60 the window is the wake's own: BoardsEarly)
+        f.push((r, if h <= 8 { Kind::Recovers } else if h < 60 { Kind::Boards } else { Kind::BoardsEarly }, false));
     }
     let mut r = Row::normal("an early wake (a hurt at ARM + 30) with a later park (the cart rests at ARM + 70, past COOL's bound): the sensed park holds RLS for the rest", 5, 10, 70, 16).long(900);
     r.hurt = vec![30];
-    f.push((r, Kind::BoardsEarly, false));
+    // (the later park's SENSED comes after the cut window: it recovers through its re-sleep in every band)
+    f.push((r, Kind::Recovers, false));
     for (lie, d) in [(4, 0), (5, 0), (7, 0), (6, 1), (6, 2), (7, 3), (218, 0), (218, 2)] {
         let mut r = Row::normal(&format!("the merged path from the bed (lie-down at ARM + {lie}, a hurt at + {d})"), lie, 10, 40, 16).long(900);
         r.hurt = vec![lie + d];
-        f.push((r, Kind::Recovers, lie > 100));
+        f.push((r, if lie > 100 { Kind::Recovers } else if d == 0 && lie >= 7 { Kind::BoardsEarly } else if d == 0 { Kind::Boards } else { Kind::Recovers }, lie > 100));
     }
     let mut r = Row::normal("the self-healing homeless napper (re-homed while seated, it lies down at the set-down tick ARM + 3: tick-exact 17:42's game row on 58f770cc's bench)", 3, 10, 40, 16).long(900);
     r.lie = vec![3];
@@ -930,6 +1004,42 @@ fn forced_rows() -> Vec<(Row, Kind, bool)> {
 }
 
 /// The bench: the normal sweep, every forced row across the bands, a world open at every tick, the controls.
+/// Every band variant of a forced row (G1 on a2186649e / 5dd4204be B1): rest (when the row's own rest is in the band)
+/// x park -> P x pass -> rest x the lie band (when the row's first lie-down is the band's; a hurt tied to it, within 3
+/// gt, moves with it).
+fn band_variants(row: &Row) -> Vec<Row> {
+    let lies: Vec<i64> = if row.lie.first().is_some_and(|l| LIES.contains(l)) { LIES.to_vec() } else { vec![row.lie.first().copied().unwrap_or(0)] };
+    let mut out = Vec::new();
+    for &rest in &RESTS {
+        if row.rest > RESTS[2] && rest != RESTS[0] {
+            continue;
+        }
+        for &board in &BOARDS {
+            for &ptr in &PASS_TO_REST {
+                for &lie in &lies {
+                    let mut rr = row.clone();
+                    if row.rest <= RESTS[2] {
+                        rr.rest = rest;
+                    }
+                    rr.board = board;
+                    rr.pass_to_rest = ptr;
+                    if lies.len() > 1 {
+                        let d = lie - row.lie[0];
+                        for h in rr.hurt.iter_mut() {
+                            if (0..=3).contains(&(*h - row.lie[0])) {
+                                *h += d;
+                            }
+                        }
+                        rr.lie[0] = lie;
+                    }
+                    out.push(rr);
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut lines = vec!["ctl-shutter (LOGIC LEVEL: designed gate delays, ctl-junction's measured latch; the real-cell bench on the stop's placement follows its layout): the form of record (ironspec 16:00 / 17:32 / 17:35: the release on sustained presence from the latest pulse with its onset, held to pulse + 12, within W, PARKED = SENSED AND COOL; OPEN set PARKED AND SO AND NOT P, reset RLS OR P; PARK = RLS + 2)".to_string()];
     lines.push(format!(
@@ -997,48 +1107,37 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         margin - 1,
         margin - 3
     ));
-    // (2) every forced row across the bands (rest 33/40/46 x park -> P 13/16/19)
+    // (2) every forced row across its full band (band_variants)
     for (row, kind, late) in forced_rows() {
         let mut nb = 0usize;
         let mut bad: Vec<String> = Vec::new();
         let mut boards: (i64, i64) = (i64::MAX, i64::MIN);
         let mut cool: (i64, i64) = (i64::MAX, i64::MIN);
-        // (G1 on a2186649e B1: the lie band and the pass -> rest swept on every row; a row's own scripted lie-down
-        // kept unless it is the band's 5 with no hurt tied to it)
-        let lies: Vec<i64> = if row.lie.first() == Some(&5) && row.hurt.iter().all(|&h| h > 8) { vec![4, 5] } else { vec![row.lie.first().copied().unwrap_or(0)] };
-        for rest in [33, 40, 46] {
-            for board in [13, 16, 19] {
-                for ptr in [16, 26] {
-                    for &lie in &lies {
-                        let mut rr = row.clone();
-                        if row.rest <= 46 {
-                            rr.rest = rest;
-                        }
-                        rr.board = board;
-                        rr.pass_to_rest = ptr;
-                        if lies.len() > 1 {
-                            rr.lie[0] = lie;
-                        }
-                        let o = run(&rr, Defects::default());
-                        nb += 1;
-                        let b = kind_bars(&o, kind, late);
-                        if !b.is_empty() && bad.len() < 2 {
-                            bad.push(format!("rest {} board {board} pass -> rest {ptr} lie {lie}: {}", rr.rest, b.join("; ")));
-                        }
-                        if let Some(bt) = o.boarded_at {
-                            boards = (boards.0.min(bt), boards.1.max(bt));
-                        }
-                        if let Some(m) = o.cooldown_margin {
-                            cool = (cool.0.min(m), cool.1.max(m));
-                        }
-                    }
+        let (mut first_w, mut later_w) = (0usize, 0usize);
+        for rr in band_variants(&row) {
+            let o = run(&rr, Defects::default());
+            nb += 1;
+            let b = kind_bars(&o, kind, late);
+            if !b.is_empty() && bad.len() < 2 {
+                bad.push(format!("rest {} board {} pass -> rest {} lie {:?}: {}", rr.rest, rr.board, rr.pass_to_rest, rr.lie.first(), b.join("; ")));
+            }
+            if let Some(bt) = o.boarded_at {
+                boards = (boards.0.min(bt), boards.1.max(bt));
+                // (the first window or a later one: a lie-down between the first wake and the boarding)
+                if o.wakes.first().is_some_and(|&w0| o.lies.iter().any(|&l| l > w0 && l < bt)) {
+                    later_w += 1;
+                } else {
+                    first_w += 1;
                 }
+            }
+            if let Some(m) = o.cooldown_margin {
+                cool = (cool.0.min(m), cool.1.max(m));
             }
         }
         let o = run(&row, Defects::default());
         let mark = v.bar_n(&format!("ctl-shutter forced row ({kind:?}) across the bands: {}", row.name), nb, bad.is_empty());
         lines.push(format!(
-            "  {} [{kind:?}, {nb} band runs: boarding {}..{} gt after ARM, the cooldown margin at boarding {}..{}]: e.g. {}{}: {mark}{}",
+            "  {} [{kind:?}, {nb} band runs: boarding {}..{} gt after ARM ({first_w} on the first window, {later_w} after a re-sleep), the cooldown margin at boarding {}..{}]: e.g. {}{}: {mark}{}",
             row.name,
             if boards.0 == i64::MAX { "-".into() } else { boards.0.to_string() },
             if boards.1 == i64::MIN { "-".into() } else { boards.1.to_string() },
@@ -1085,46 +1184,56 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     }
     let w = v.bar_n("ctl-shutter: a world open at every tick 0..700 (idle 1 / 2, the entity domain 1 / 3 ticks behind the block domain), on the normal visit at three band corners and on G1's cooldown edge (lie 4, merged L + 0, rest 33, board 19): each row's bars", n, bad.is_empty());
     lines.push(format!("  a world open at every tick 0..700, idle 1 / 2, k + j 1 / 3, {n} runs (G1's cooldown edge's least margin at boarding {edge_cool}; the woken napper's press - its head change {}..{} gt, against the onset's allowance -{ONSET}): {w}{}", offs.0, offs.1, if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
-    // (G1 on a2186649e B1: the open sweep on EVERY forced row, at its own band and at the cooldown-edge corner (rest
-    // 46, park -> P 19, pass -> rest 16), every tick over the visit 0..300)
-    let mut n = 0usize;
-    let mut bad = Vec::new();
-    let mut least_cool = i64::MAX;
-    for (row, kind, late) in forced_rows() {
-        for corner in [false, true] {
-            for (idle, kj) in [(1, 1), (2, 1), (1, 3), (2, 3)] {
-                for t0 in 0..=300 {
-                    let mut r = row.clone();
-                    if corner {
-                        if r.rest <= 46 {
-                            r.rest = 46;
-                        }
-                        r.board = 19;
-                        r.pass_to_rest = 16;
-                    }
-                    r.open = Some((t0, idle, kj));
-                    let o = run(&r, Defects::default());
-                    n += 1;
-                    if let Some(m) = o.cooldown_margin {
-                        least_cool = least_cool.min(m);
-                    }
+    // (G1 on a2186649e B1 / on 5dd4204be B1: the open sweep on EVERY forced row across its FULL band (rest x park -> P x
+    // pass -> rest x the lie band, as the forced sweep), every tick over the visit 0..300, idle 1 / 2, the entity domain
+    // 1 / 3 behind; one thread a row)
+    let rows_all = forced_rows();
+    let results: Vec<(usize, i64, Vec<String>)> = std::thread::scope(|s| {
+        let hs: Vec<_> = rows_all
+            .iter()
+            .map(|(row, kind, late)| {
+                s.spawn(move || {
+                    let (mut n, mut least, mut bad) = (0usize, i64::MAX, Vec::new());
                     // (under a world open an early-woken napper may miss its first window and recover through its
-                    // re-sleep instead: both safe, so the open sweep judges BoardsEarly rows as Recovers)
-                    let k = if kind == Kind::BoardsEarly { Kind::Recovers } else { kind };
-                    let b = kind_bars(&o, k, late);
-                    if !b.is_empty() && bad.len() < 3 {
-                        bad.push(format!("{} (corner {corner}) open at {t0} idle {idle} kj {kj}: {}", row.name.chars().take(70).collect::<String>(), b.join("; ")));
+                    // re-sleep instead: both safe, so the open sweep judges BoardsEarly rows as Boards)
+                    let k = if *kind == Kind::BoardsEarly { Kind::Boards } else { *kind };
+                    for rr in band_variants(row) {
+                        for &(idle, kj) in &OPENS {
+                            for t0 in 0..=300 {
+                                let mut r = rr.clone();
+                                r.open = Some((t0, idle, kj));
+                                let o = run(&r, Defects::default());
+                                n += 1;
+                                if let Some(m) = o.cooldown_margin {
+                                    least = least.min(m);
+                                }
+                                let b = kind_bars(&o, k, *late);
+                                if !b.is_empty() && bad.len() < 2 {
+                                    bad.push(format!("{} (rest {} board {} pass -> rest {} lie {:?}) open at {t0} idle {idle} kj {kj}: {}", row.name.chars().take(60).collect::<String>(), r.rest, r.board, r.pass_to_rest, r.lie.first(), b.join("; ")));
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-    }
-    let w = v.bar_n("ctl-shutter: a world open at every tick 0..300 on EVERY forced row (its own band, and the cooldown-edge corner rest 46 / park -> P 19 / pass -> rest 16), idle 1 / 2, the entity domain 1 / 3 behind: each row's kind bars", n, bad.is_empty());
-    lines.push(format!("  a world open at every tick 0..300 on every forced row at two corners, idle 1 / 2, k + j 1 / 3, {n} runs (the least cooldown margin at boarding {least_cool}): {w}{}", if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
-    // (G1's N1: the cooldown edge's closed form, every term, against the bar)
+                    (n, least, bad)
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let n: usize = results.iter().map(|r| r.0).sum();
+    let least_cool = results.iter().map(|r| r.1).min().unwrap_or(i64::MAX);
+    let bad: Vec<String> = results.iter().flat_map(|r| r.2.iter().cloned()).take(4).collect();
+    let w = v.bar_n("ctl-shutter: a world open at every tick 0..300 on EVERY forced row across its full band (rest x park -> P x pass -> rest x the lie band), idle 1 / 2, the entity domain 1 / 3 behind: each row's kind bars", n, bad.is_empty());
+    lines.push(format!("  a world open at every tick 0..300 on every forced row across its full band, idle 1 / 2, k + j 1 / 3, {n} runs (the least cooldown margin at boarding {least_cool}): {w}{}", if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
+    // (G1's N1 / C1: the cooldown edge's closed form, every term, against the bar, and EQUAL to the sweep's least margin)
     let edge_margin = COOLDOWN - COOL_EDGE;
-    let w = v.bar("ctl-shutter: the cooldown edge's closed form (the wake's pulse 2 + the latest RLS W_LINE + W_SLACK + PARK + the cart's response + the slowest ride 19 + a world open's idle 2 + the entity lag 3) keeps COOLDOWN - it >= 10", edge_margin >= COOLDOWN_BAR);
-    lines.push(format!("  the cooldown edge, every term (G1's N1): the latest boarding = the wake + {OBS_RISE} (pulse) + {} (the latest RLS: W {W_LINE} + {W_SLACK}) + {PARK} (PARK) + {CART_RESPONSE} (the cart's response) + {BOARD_MAX} (the slowest ride) + {OPEN_IDLE} (an open's idle) + {OPEN_KJ} (the entity lag) = the wake + {COOL_EDGE}: margin {edge_margin} (>= {COOLDOWN_BAR}): {w}", W_LINE + W_SLACK));
+    let w = v.bar("ctl-shutter: the cooldown edge's closed form (the wake's pulse + the latest RLS + PARK + the park's read + the cart's first move + the slowest ride + a world open's idle + the entity lag) keeps COOLDOWN - it >= 10", edge_margin >= COOLDOWN_BAR);
+    lines.push(format!("  the cooldown edge, every term (G1's N1 / C1): the latest boarding = the wake + {OBS_RISE} (pulse) + {} (the latest RLS: W {W_LINE} + {W_SLACK}) + {PARK} (PARK) + {PARK_READ} (the park's read) + {CART_RESPONSE} (the cart's first move) + {BOARD_MAX} (the slowest ride) + {OPEN_IDLE} (an open's idle) + {OPEN_KJ} (the entity lag) = the wake + {COOL_EDGE}: margin {edge_margin} (>= {COOLDOWN_BAR}): {w}", W_LINE + W_SLACK));
+    let eq = |cool_edge: i64| COOLDOWN - cool_edge == least_cool;
+    let w = v.bar("ctl-shutter: the closed form is tight: the open sweep's least cooldown margin equals COOLDOWN - COOL_EDGE (a bound a run beats is not a bound)", eq(COOL_EDGE));
+    lines.push(format!("    the sweep's least margin {least_cool} against the closed form's {edge_margin}: {w}"));
+    let c = v.control("ctl-shutter CONTROL (G1's C1): the closed form without the park's read (one term dropped): the sweep's least margin no longer equals it", 1, !eq(COOL_EDGE - PARK_READ)).to_string();
+    lines.push(format!("  CONTROL (the closed form without PARK_READ: margin {} against the sweep's {least_cool}): {c}", COOLDOWN - (COOL_EDGE - PARK_READ)));
     // (the onset's +-1-gt edge, G1 18:16 (2): a press 1 gt before the change sets SINCE, 2 gt before doesn't)
     let edge_row = |kk: i64| {
         let mut r = Row::normal("onset edge", 5, 10, 40, 16).long(2000);
@@ -1163,10 +1272,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // row and the defect fails it
     let rows = forced_rows();
     let find = |key: &str| -> (Row, Kind, bool) { rows.iter().find(|(r, _, _)| r.name.contains(key)).cloned().unwrap_or_else(|| panic!("ctl-shutter: no forced row named {key:?}")) };
-    let mut twin = |name: &str, key: &str, band: Option<(i64, i64, i64)>, open: Option<(i64, i64, i64)>, def: Defects, lines: &mut Vec<String>| {
+    let mut twin = |name: &str, key: &str, band: Option<(i64, i64, i64)>, open: Option<(i64, i64, i64)>, def: Defects, need: &str, lines: &mut Vec<String>| {
         let (mut r, kind, late) = find(key);
         if let Some((rest, board, ptr)) = band {
-            if r.rest <= 46 {
+            if r.rest <= RESTS[2] {
                 r.rest = rest;
             }
             r.board = board;
@@ -1176,13 +1285,15 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let d = run(&r, Defects::default());
         let x = run(&r, def);
         let (db, xb) = (kind_bars(&d, kind, late), kind_bars(&x, kind, late));
-        let c = v.control(&format!("ctl-shutter CONTROL: {name}"), 1, db.is_empty() && !xb.is_empty()).to_string();
-        lines.push(format!("  CONTROL ({name}; on the forced row \"{}\" [{kind:?}]): the design {}; the defect: {} [{}]: {c}", key, if db.is_empty() { "passes".to_string() } else { format!("FAILS ({})", db.join("; ")) }, describe(&x), xb.join("; ")));
+        // (G1's C3 / C4: the defect must fail for the labelled reason: its named bar, not any)
+        let named = need.is_empty() || xb.iter().any(|b| b.contains(need));
+        let c = v.control(&format!("ctl-shutter CONTROL: {name}"), 1, db.is_empty() && !xb.is_empty() && named).to_string();
+        lines.push(format!("  CONTROL ({name}; on the forced row \"{}\" [{kind:?}]{}): the design {}; the defect: {} [{}]: {c}", key, if need.is_empty() { String::new() } else { format!(", failing on \"{need}\"") }, if db.is_empty() { "passes".to_string() } else { format!("FAILS ({})", db.join("; ")) }, describe(&x), xb.join("; ")));
     };
-    twin("PARKED (SENSED AND COOL) removed from RLS: the park released before the cart's rest", "a hurt at ARM + 9)", Some((46, 16, 26)), None, Defects { no_parked_in_rls: true, ..Default::default() }, &mut lines);
-    twin("SENSED removed (COOL alone): the park pulses before the later park's rest (the permanent hold the sensed park buys out)", "an early wake (a hurt at ARM + 30) with a later park", None, None, Defects { no_sensed: true, ..Default::default() }, &mut lines);
-    twin("COOL removed (SENSED alone): the merged path's cart reaches P inside the napper's boarding cooldown", "lie-down at ARM + 4, a hurt at + 0", Some((33, 13, 16)), None, Defects { no_cool: true, ..Default::default() }, &mut lines);
-    twin("the onset removed: G1's B2 box releases to the sleeper", "G1's B2 box", None, None, Defects { no_onset: true, ..Default::default() }, &mut lines);
+    twin("PARKED (SENSED AND COOL) removed from RLS: the park released before the cart's rest", "a hurt at ARM + 9)", Some((46, 16, 26)), None, Defects { no_parked_in_rls: true, ..Default::default() }, "the park released before the cart's rest", &mut lines);
+    twin("SENSED removed (COOL alone): the park pulses before the later park's rest (the permanent hold the sensed park buys out)", "an early wake (a hurt at ARM + 30) with a later park", None, None, Defects { no_sensed: true, ..Default::default() }, "the park released before the cart's rest", &mut lines);
+    twin("COOL removed (SENSED alone), pass -> rest 26 (the SENSED-limited RLS early): the merged path's cart reaches P inside the napper's boarding cooldown", "lie-down at ARM + 4, a hurt at + 0", Some((33, 13, 26)), None, Defects { no_cool: true, ..Default::default() }, "boarding cooldown", &mut lines);
+    twin("the onset removed: G1's B2 box releases to the sleeper", "G1's B2 box", None, None, Defects { no_onset: true, ..Default::default() }, "RLS while the napper sleeps", &mut lines);
     // (the D line: the hold covers the onset's allowance: a napper stepping onto P 1 gt before it lies down FROM P
     // passes the onset, and its string drops at the first re-check, press + 10 = pulse + 7, the latest an onset-passing
     // press can drop: a press beginning in the change's own tick would be a napper lying down in the tick it steps onto
@@ -1199,26 +1310,44 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             .join(", ")
     };
     lines.push(format!("  the D line's margin on the onset-allowance row (stepping onto P 1 gt before lying down from P: its string drops at pulse + 7, the latest drop an onset-passing press can have), the design: {}; with the old SINCE delay put back (the hold provided twice): {}", scan(false), scan(true)));
-    twin("the D line three steps shorter (2 gt: P read at pulse + 6, before the string's drop at + 7): a release to the sleeper", "stepping onto P and lying down within 1 gt", None, None, Defects { d_cut: 6, ..Default::default() }, &mut lines);
+    twin("the D line three steps shorter (2 gt: P read at pulse + 6, before the string's drop at + 7): a release to the sleeper", "stepping onto P and lying down within 1 gt", None, None, Defects { d_cut: 6, ..Default::default() }, "RLS while the napper sleeps", &mut lines);
+    lines.push("    (the latest drop, pulse + 7, rests on a modelling rule: a napper lying down in the tick it steps onto P never meets the string: tick-exact's pin, OWED)".into());
     // (W: G1's N1 cooldown edge, lie 5 merged at L + 0, the slowest rest with the shortest pass -> rest (SENSED binds RLS
     // at 68), the slowest ride, a world open of idle 2 with the entity domain 3 behind during the ride)
     let edge = Some((46, 19, 16));
     let edge_open = Some((80, OPEN_IDLE, OPEN_KJ));
-    twin("the W line one step longer (W 50, the ruled figure before N1): on G1's cooldown edge the merged release lands at pulse + 61 and boards 9 gt inside the cooldown bar", "lie-down at ARM + 5, a hurt at + 0", edge, edge_open, Defects { w_delta: 2, ..Default::default() }, &mut lines);
-    let (wr, wk, wl) = find("lie-down at ARM + 5, a hurt at + 0");
-    let mut wr = wr;
-    wr.rest = 46;
-    wr.board = 19;
-    wr.pass_to_rest = 16;
-    let wm = run(&wr, Defects { w_delta: -2, ..Default::default() });
-    let wd = run(&wr, Defects::default());
-    lines.push(format!("    W one step shorter (46), printed (no safety bar binds W from below: it only trades the merged path's first-window release for its re-sleep): the design {}; W 46 {}", if wd.boarded_at.is_some() { format!("boards at {:?}", wd.boarded_at) } else { "recovers later".into() }, if kind_bars(&wm, wk, wl).is_empty() { format!("passes (boards at {:?})", wm.boarded_at) } else { "fails".into() }));
-    twin("P_STRING removed from OPEN's reset: G1's awake napper re-crossing P at ARM + 300 doesn't close the shutter (the close bar on every press)", "CROSSING P", None, None, Defects { no_p_in_open_reset: true, ..Default::default() }, &mut lines);
-    twin("NOT P_STRING removed from OPEN's set: the window opens on the false-SO napper standing on P", "the false-SO path", None, None, Defects { no_notp_in_open: true, ..Default::default() }, &mut lines);
-    twin("SINCE removed: the box on the string after the lie-down from P releases to the sleeper", "SINCE's twin row", None, None, Defects { no_since: true, ..Default::default() }, &mut lines);
-    twin("COOL's resets removed: COOL still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_cool_reset: true, ..Default::default() }, &mut lines);
-    twin("SO's reset removed: SO still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_so_reset: true, ..Default::default() }, &mut lines);
-    twin("SENSED's ARM-edge reset removed: the stray park-entry press pre-sets SENSED at the next visit (G1 17:49 (a))", "a stray press of the park-entry detector after RLS", None, None, Defects { no_sensed_arm_reset: true, ..Default::default() }, &mut lines);
+    twin("the W line one step longer (W 50, the ruled figure before N1): on G1's cooldown edge the merged release lands at pulse + 61 and boards inside the cooldown bar", "lie-down at ARM + 5, a hurt at + 0", edge, edge_open, Defects { w_delta: 2, ..Default::default() }, "the cooldown margin at boarding", &mut lines);
+    // (W from below, G1's B5 / C2: the early wake at + 9 needs W >= 46 to board on its first window)
+    twin("P_STRING removed from OPEN's reset: G1's awake napper re-crossing P at ARM + 300 doesn't close the shutter (the close bar on every press)", "CROSSING P", None, None, Defects { no_p_in_open_reset: true, ..Default::default() }, "a press on P", &mut lines);
+    twin("NOT P_STRING removed from OPEN's set: the window opens on the false-SO napper standing on P (Printed's negative)", "the false-SO path", None, None, Defects { no_notp_in_open: true, ..Default::default() }, "standing on P", &mut lines);
+    twin("SINCE removed: the box on the string after the lie-down from P releases to the sleeper", "SINCE's twin row", None, None, Defects { no_since: true, ..Default::default() }, "RLS while the napper sleeps", &mut lines);
+    twin("COOL's resets removed: COOL still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_cool_reset: true, ..Default::default() }, "next ARM", &mut lines);
+    twin("SO's reset removed: SO still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_so_reset: true, ..Default::default() }, "next ARM", &mut lines);
+    twin("SENSED's ARM-edge reset removed: the stray park-entry press pre-sets SENSED at the next visit (G1 17:49 (a))", "a stray press of the park-entry detector after RLS", None, None, Defects { no_sensed_arm_reset: true, ..Default::default() }, "next ARM", &mut lines);
+    // (W from below and BoardsEarly's bar, G1's B5 / C2: the + 9 wake's window is cut at the lie pulse + W + 11, so at
+    // the COOL-limited band (SENSED early: rest 33, pass -> rest 26) it boards on its first window only with W >= 47;
+    // W 44 sends it through its re-sleep (liveness, not safety); and judged as BoardsEarly at rest 46 / pass -> rest
+    // 16, where SENSED releases past the cut, the strict first-window bar must fail)
+    {
+        let (mut r, _, _) = find("a hurt at ARM + 9)");
+        r.rest = 33;
+        r.board = 16;
+        r.pass_to_rest = 26;
+        let first = |o: &Out| o.boarded_at.is_some_and(|bt| !o.wakes.first().is_some_and(|&w0| o.lies.iter().any(|&l| l > w0 && l < bt)));
+        let d = run(&r, Defects::default());
+        let x = run(&r, Defects { w_delta: -4, ..Default::default() });
+        let c = v.control("ctl-shutter CONTROL: the W line two steps shorter (W 44): the early wake at ARM + 9 at the COOL-limited band (rest 33, pass -> rest 26) misses its first window (W's lower bound: 47 for this row)", 1, first(&d) && !first(&x) && x.boarded_at.is_some()).to_string();
+        lines.push(format!("  CONTROL (W 44 on the + 9 wake, rest 33 / pass -> rest 26): the design {}; W 44 {}: {c}", describe(&d), describe(&x)));
+        let (mut r2, _, _) = find("a hurt at ARM + 9)");
+        r2.rest = 46;
+        r2.board = 13;
+        r2.pass_to_rest = 16;
+        r2.lie = vec![4];
+        let o2 = run(&r2, Defects::default());
+        let b2 = kind_bars(&o2, Kind::BoardsEarly, false);
+        let c = v.control("ctl-shutter CONTROL (BoardsEarly's negative, G1's C2): the + 9 wake judged as BoardsEarly at rest 46 / pass -> rest 16 (SENSED past the cut window): the first-window bar fails", 1, b2.iter().any(|b| b.contains("first window"))).to_string();
+        lines.push(format!("  CONTROL (the + 9 wake judged BoardsEarly at rest 46 / pass -> rest 16): {} [{}]: {c}", describe(&o2), b2.join("; ")));
+    }
     // (each kind's negative, G1 on a2186649e B6: the row's script with its defining event removed must fail its kind)
     let mut neg = |name: &str, key: &str, edit: &dyn Fn(&mut Row), lines: &mut Vec<String>| {
         let (mut r, kind, late) = find(key);
@@ -1231,6 +1360,40 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     neg("PermanentHalt: the step-off row without its step-off has no empty departure", "the step-off (a forced displacement", &|r| r.step_off = None, &mut lines);
     neg("SelfEnding: the self-ending row without its later lie-down never boards after it", "self-ending at that lie-down", &|r| r.lie = vec![6], &mut lines);
     neg("Normal: the normal-kind self-heal row with a step-off fails the step-off line", "the self-healing homeless napper", &|r| r.step_off = Some(5), &mut lines);
+    neg("Recovers: the hurt + 7 row without its re-sleep never boards", "a hurt at ARM + 7)", &|r| r.resleep = None, &mut lines);
+    // (G1's N5 control: a planted box pressing P while the window is open (on the late lie-down's sleeper), with P
+    // removed from OPEN's reset: the press never closes the window in time)
+    let (mut nr, nk, nl) = find("a late lie-down (ARM + 218");
+    nr.planted = vec![(240, 246)];
+    let nd = run(&nr, Defects::default());
+    let nx = run(&nr, Defects { no_p_in_open_reset: true, ..Default::default() });
+    let (ndb, nxb) = (kind_bars(&nd, nk, nl), kind_bars(&nx, nk, nl));
+    let c = v.control("ctl-shutter CONTROL (G1's N5): a planted box on P at ARM + 240..246 while the window is open on the late sleeper, P removed from OPEN's reset: the box's press doesn't close the window (every press judged)", 1, ndb.is_empty() && nxb.iter().any(|b| b.contains("a press on P"))).to_string();
+    lines.push(format!("  CONTROL (the planted box on P while the window is open): the design {}; the defect {} [{}]: {c}", if ndb.is_empty() { "passes".to_string() } else { format!("FAILS ({})", ndb.join("; ")) }, describe(&nx), nxb.join("; ")));
+    // (G1's C5 control: the extender as a two-input OR (RLS and RLS through 8 gt) leaves a gap under a narrow RLS; over
+    // the open sweep of the cooldown-edge rows it fails where the gapless latch passes)
+    let mut or_n = 0usize;
+    let mut or_bad: Vec<String> = Vec::new();
+    for key in ["lie-down at ARM + 4, a hurt at + 0", "lie-down at ARM + 5, a hurt at + 0", "a hurt at ARM + 9)"] {
+        let (row, kind, late) = find(key);
+        let k = if kind == Kind::BoardsEarly { Kind::Boards } else { kind };
+        for rr in band_variants(&row) {
+            for &(idle, kj) in &OPENS {
+                for t0 in 40..=120 {
+                    let mut r = rr.clone();
+                    r.open = Some((t0, idle, kj));
+                    or_n += 1;
+                    let x = run(&r, Defects { park_or2: true, ..Default::default() });
+                    let xb = kind_bars(&x, k, late);
+                    if !xb.is_empty() && or_bad.len() < 2 {
+                        or_bad.push(format!("{key} (rest {} board {} pass -> rest {}) open at {t0} idle {idle} kj {kj}: {}", r.rest, r.board, r.pass_to_rest, xb.join("; ")));
+                    }
+                }
+            }
+        }
+    }
+    let c = v.control("ctl-shutter CONTROL (G1's C5): PARK through the two-input OR (RLS and RLS through 8 gt) instead of the gapless latch: over the open sweep of the cooldown-edge rows a swallowed first pulse moves the cart 8 gt later and a row fails", 1, !or_bad.is_empty()).to_string();
+    lines.push(format!("  CONTROL (the two-input OR extender over {or_n} open runs of the cooldown-edge rows): {}: {c}", if or_bad.is_empty() { "no row fails".to_string() } else { or_bad.join(" | ") }));
     // (the park's pulse extender: the early wake at ARM + 9, whose RLS is 3 gt wide (the lie-down pulse's W line closes
     // WIN just after PARKED), with a world open at 67 holding the entities 3 gt behind the blocks)
     let (mut pr, _, _) = find("a hurt at ARM + 9)");

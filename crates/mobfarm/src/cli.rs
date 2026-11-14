@@ -376,6 +376,26 @@ pub enum MobfarmCmd {
         #[arg(long)]
         report_only: bool,
     },
+    /// ctl-credit, LOGIC LEVEL (`ctlcredit.rs`, gate list rev 20:00): G8 as (B') (the credit count in a counting
+    /// hopper with a ballast, the four-dust read, SEEN3, the masks) with G10's REL-keyed ring reset and G11's picks:
+    /// the normal run, the single-fault rows judged on the ring's same-phase recovery within 2 batches, the store's
+    /// bars, a world open mid-batch, one control per gate.
+    CtlCreditBench {
+        /// Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
+    },
+    /// The gate list's cell audit (ironspec 20:17 (3)): every cell the list names, read from a design file (the
+    /// record): the block the file holds there against the block the list names (a substring of the block state; `air`
+    /// for a cell that must stay empty): LAID (it matches), EMPTY (air: to lay), DIFFERENT (another block: to replace,
+    /// or a mismatch to explain).
+    CellAudit {
+        /// The design file (e.g. the record).
+        design: PathBuf,
+        /// The cell list: one `x,y,z | expected | name` per line (`#` starts a comment line).
+        #[arg(long)]
+        cells: PathBuf,
+    },
     CtlJunctionBench {
         #[arg(long)]
         out: PathBuf,
@@ -13976,6 +13996,47 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::CtlShutterBench { report_only } => {
             let mut v = crate::verdict::Verdict::new("ctl-shutter-bench");
             for l in crate::ctlshutter::bench(&mut v) {
+                println!("{l}");
+            }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+        }
+        MobfarmCmd::CellAudit { design, cells } => {
+            let d = mctas::design::Design::load(&design)?;
+            let text = std::fs::read_to_string(&cells)?;
+            let (mut laid, mut empty, mut diff) = (0usize, 0usize, 0usize);
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let parts: Vec<&str> = line.splitn(3, '|').map(|s| s.trim()).collect();
+                if parts.len() < 3 {
+                    anyhow::bail!("cell-audit: a line needs `x,y,z | expected | name`: {line}");
+                }
+                let v: Vec<i32> = parts[0].split(',').map(|s| s.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                if v.len() != 3 {
+                    anyhow::bail!("cell-audit: a cell needs three coordinates: {}", parts[0]);
+                }
+                let held = d.blocks.get(&[v[0], v[1], v[2]]).map_or("minecraft:air", |s| s.as_str());
+                let want = parts[1];
+                let is_air = held.ends_with(":air");
+                let verdict = if (want == "air" && is_air) || (want != "air" && held.contains(want)) {
+                    laid += 1;
+                    "LAID"
+                } else if is_air {
+                    empty += 1;
+                    "EMPTY (to lay)"
+                } else {
+                    diff += 1;
+                    "DIFFERENT"
+                };
+                println!("{verdict:<15} ({},{},{}) {}: the list names `{want}`, the file holds `{held}`", v[0], v[1], v[2], parts[2]);
+            }
+            println!("cell-audit: {laid} laid, {empty} empty (to lay), {diff} different (to replace, or a mismatch) in {}", design.display());
+        }
+        MobfarmCmd::CtlCreditBench { report_only } => {
+            let mut v = crate::verdict::Verdict::new("ctl-credit-bench");
+            for l in crate::ctlcredit::bench(&mut v) {
                 println!("{l}");
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
