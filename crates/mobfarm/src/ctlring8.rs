@@ -71,32 +71,37 @@ pub const F_UNLOCK_AT: P = [-1, -1, 2];
 /// for P4's comparator and its output's support), east, north to the stock.
 pub const F_PATH: [P; 8] = [[0, -1, 1], [1, -1, 1], [2, -1, 1], [3, -1, 1], [3, -2, 1], [4, -2, 1], [5, -2, 1], [5, -2, 0]];
 const F_PATH_FACING: [&str; 8] = ["east", "east", "east", "down", "east", "east", "north", "north"];
-/// The stock (bottom layer) fires a filler up into the LIFT dropper, which fires it up into a RELAY hopper (5,0,-1) that
-/// pushes into P4's feeder (4,0,-1), which pushes it into P4. None of the three sits under a ring cell or beside a ring
-/// dropper: a dropper is also powered through the block above it (quasi-connectivity), and every ring cell is powered
-/// at each step, so a stock under one would be fired by every step (and left triggered); the relay has no powered
-/// neighbour; the lift's fire quasi-powers the (then empty) stock below it, harmlessly.
+/// THE RELEASE's chain: the LIFT dropper holds ONE filler (loaded at the build) under a RELAY hopper (5,0,-1) that pushes
+/// into P4's feeder (4,0,-1), which pushes it into P4; the STOCK (bottom layer, the filler path's end) sits under the
+/// lift. ONE release pulse into the lift fires the lift's filler up (into P4) and, through the lift's cell above it
+/// (quasi-connectivity), the stock, which reloads the lift with one filler: exactly one filler per release, whatever
+/// the two fires' order in the tick. The stock's `triggered` is cleared when the pulse ends (the release dust sits on
+/// the filler path's last hopper, whose ENABLED flip updates the stock). None of the three sits under a ring cell or
+/// beside a ring dropper (every ring cell is powered at each step, so a dropper under one fires at every step).
 pub const STOCK: P = [5, -2, -1];
 pub const LIFT: P = [5, -1, -1];
 pub const RELAY: P = [5, 0, -1];
-/// The stock's fire: a dust on the block (4,-2,-1) beside the stock, fed from the north by a repeater; the lift's fire:
-/// a repeater north of the lift; the bench's drives behind each (the lift's 8 gt after the stock's).
-pub const STOCK_DUST: P = [4, -1, -1];
-pub const STOCK_BLOCK: P = [4, -2, -1];
-pub const STOCK_REP: P = [4, -1, -2];
-pub const STOCK_DRIVE: P = [4, -1, -3];
-pub const LIFT_REP: P = [5, -1, -2];
-pub const LIFT_DRIVE: P = [5, -1, -3];
-pub const LIFT_LAG: i64 = 8;
-/// P4's comparator (on P4's south face; the release's "P4 empty" read) and its output cell.
-pub const P4_CMP: P = [4, 0, 1];
-pub const P4_OUT: P = [4, 0, 2];
-/// The up-fire: a repeater (north-facing input) under P3, a dust under the ring's hopper (3,0,0) turning west, a
-/// repeater under P5 into the up-dropper; the bench's drive: a redstone block behind the first repeater.
-pub const UP_REP1: P = [3, -1, -1];
+/// The release pulse: a dust north of the lift (on a stone) that points into the lift (its fire) and powers the stone,
+/// beside the stock (its fire, which reloads the lift); its input from the north (the logic's RELEASE; the bench's
+/// stand-in a redstone block there). The stock's `triggered` clears when the dust falls (the dust's update reaches the
+/// stone's neighbours).
+pub const REL_DUST: P = [5, -1, -2];
+pub const REL_STONE: P = [5, -2, -2];
+pub const STOCK_DRIVE: P = [5, -1, -3];
+/// P3's comparator (on P3's north face) and its output cell: the release's "P4 empty" is P3 EMPTY sampled at each step's
+/// start (the slot at P3 moves to P4 at the step), held by the logic until the next step (P4 has no free face whose
+/// comparator output stays inside the box).
+pub const P3_CMP: P = [3, 0, -2];
+pub const P3_OUT: P = [3, 0, -3];
+/// The up-fire: from the box's south row at x 5 (the logic's UP input; the bench's stand-in a redstone block behind the
+/// repeater UP_IN_REP) north along two dusts (on the filler path's two last hoppers), west through a repeater under P4,
+/// a dust under the ring's hopper (3,0,0), a repeater under P5 into the up-dropper.
+pub const UP_IN_REP: P = [5, -1, 2];
+pub const UP_IN_DUST: [P; 2] = [[5, -1, 1], [5, -1, 0]];
+pub const UP_REP1: P = [4, -1, 0];
 pub const UP_DUST: P = [3, -1, 0];
 pub const UP_REP2: P = [2, -1, 0];
-pub const UP_DRIVE: P = [3, -1, -2];
+pub const UP_DRIVE: P = [5, -1, 3];
 /// T's ride: none (the extractor pushes T straight into the up-dropper).
 pub const T_RIDE: [P; 0] = [];
 
@@ -176,19 +181,18 @@ pub fn design(t_start: usize) -> Design {
     put(STOCK, "minecraft:dropper[facing=up,triggered=false]");
     put(LIFT, "minecraft:dropper[facing=up,triggered=false]");
     put(RELAY, "minecraft:hopper[enabled=true,facing=west]");
-    // (the stock's and the lift's fires; P4's comparator on glass, its output cell's glass support)
-    put(STOCK_DUST, "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
-    put(STOCK_BLOCK, "minecraft:stone");
-    put(STOCK_REP, "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
-    put([STOCK_REP[0], -2, STOCK_REP[2]], "minecraft:glass");
-    put(LIFT_REP, "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
-    put([LIFT_REP[0], -2, LIFT_REP[2]], "minecraft:glass");
-    put(P4_CMP, "minecraft:comparator[facing=north,mode=compare,powered=true]");
-    put([P4_CMP[0], -1, P4_CMP[2]], "minecraft:glass");
-    put([P4_OUT[0], -1, P4_OUT[2]], "minecraft:glass");
+    // (the release dust on its stone; P3's comparator on glass)
+    put(REL_DUST, "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    put(REL_STONE, "minecraft:stone");
+    put(P3_CMP, "minecraft:comparator[facing=south,mode=compare,powered=true]");
+    put([P3_CMP[0], -1, P3_CMP[2]], "minecraft:glass");
     // (the up-fire chain and the stock-fire repeater, on glass)
-    put(UP_REP1, "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
-    put(UP_DUST, "minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]");
+    put(UP_IN_REP, "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
+    put([UP_IN_REP[0], -2, UP_IN_REP[2]], "minecraft:glass");
+    put(UP_IN_DUST[0], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    put(UP_IN_DUST[1], "minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]");
+    put(UP_REP1, "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
+    put(UP_DUST, "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]");
     put(UP_REP2, "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
     for p in [UP_REP1, UP_DUST, UP_REP2] {
         put([p[0], -2, p[2]], "minecraft:glass");
@@ -198,12 +202,13 @@ pub fn design(t_start: usize) -> Design {
         let id = if i == t_start { TARGET } else { FILLER };
         d.block_entities.insert(*p, format!("{{Items:[{{Slot:0b,id:\"{id}\",count:1}}]}}"));
     }
+    d.block_entities.insert(LIFT, format!("{{Items:[{{Slot:0b,id:\"{FILLER}\",count:1}}]}}"));
     d.block_entities.insert(T_LOCK_SRC, constant_container());
     d.block_entities.insert(F_LOCK_SRC, constant_container());
     d.block_entities.insert(T_LOCK_CMP, "{OutputSignal:1}".to_string());
     d.block_entities.insert(F_LOCK_CMP, "{OutputSignal:1}".to_string());
     d.block_entities.insert(TAP_CMP, "{OutputSignal:1}".to_string());
-    d.block_entities.insert(P4_CMP, "{OutputSignal:1}".to_string());
+    d.block_entities.insert(P3_CMP, "{OutputSignal:1}".to_string());
     // (the mob-farm kind's port: the tap comparator's output cell)
     d.ports.insert("output".into(), TAP_OUT);
     d
@@ -253,6 +258,8 @@ pub struct Read {
     /// The end state: the ring's tokens, the stock's count, any item left in a path or the inserter, the dropped items.
     pub end: [Tok; 8],
     pub stock_end: u32,
+    /// The lift's count at the end (one filler loaded at the build, reloaded by every release).
+    pub lift_end: u32,
     pub stray: Vec<String>,
     pub items_total: u32,
     pub extra_items: Vec<String>,
@@ -349,12 +356,6 @@ pub fn run_plan(spec: &FarmSpec, plan: &Plan) -> Result<Read, String> {
             if t == u + 2 {
                 run.world.set_block(crate::mirror::at(STOCK_DRIVE), air.clone(), all);
             }
-            if t == u + LIFT_LAG {
-                run.world.set_block(crate::mirror::at(LIFT_DRIVE), rb.clone(), all);
-            }
-            if t == u + LIFT_LAG + 2 {
-                run.world.set_block(crate::mirror::at(LIFT_DRIVE), air.clone(), all);
-            }
         }
         run.tick();
         if let Some((rt, how)) = plan.restart {
@@ -397,11 +398,12 @@ pub fn run_plan(spec: &FarmSpec, plan: &Plan) -> Result<Read, String> {
     r.consts_end = (redsim::redstone::container::analog_output(&run.world, crate::mirror::at(T_LOCK_SRC)), redsim::redstone::container::analog_output(&run.world, crate::mirror::at(F_LOCK_SRC)));
     r.end = [0, 1, 2, 3, 4, 5, 6, 7].map(|i| tok_of(&run.world, DROPPERS[i], f_id, t_id, &mut r.extra_items));
     r.stock_end = items(&run.world, STOCK).iter().map(|x| x.1 as u32).sum();
+    r.lift_end = items(&run.world, LIFT).iter().map(|x| x.1 as u32).sum();
     let mut all_c: Vec<P> = Vec::new();
     all_c.extend(T_RIDE);
     all_c.extend(F_PATH);
     all_c.extend(RING_HOPPERS);
-    all_c.extend([T_EXTRACT, F_EXTRACT, UP, RELAY, LIFT]);
+    all_c.extend([T_EXTRACT, F_EXTRACT, UP, RELAY]);
     for p in all_c {
         let it = items(&run.world, p);
         if !it.is_empty() {
@@ -492,10 +494,10 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let r = run_plan(&spec, &plan)?;
     let mism: Vec<String> = r.before.iter().zip(&exp_before).enumerate().filter(|(_, (a, e))| a.0 != **e).map(|(i, (a, e))| format!("before step {i}: {:?} vs {:?}", a.0, e)).take(3).collect();
     let levels_ok = r.before.iter().zip(&exp_before).all(|(a, e)| a.1 == match e[TAP] { Tok::T => 2, Tok::F => 1, Tok::Empty => 0 });
-    let w = v.bar_n("ctl-ring8: THE REFERENCE SCRIPT (16 steps, a grant at T's pass, a release when D6 is empty): every dropper's token matches the sensed model's before every step and at the end, the tap reads 2 / 1 / 0 for T / filler / empty, no dropper ever holds two items, no item left in a path", r.before.len(), mism.is_empty() && r.end == exp_end && levels_ok && r.extra_items.is_empty() && r.stray.is_empty());
+    let w = v.bar_n("ctl-ring8: THE REFERENCE SCRIPT (16 steps, a grant at T's pass, a release when P4 is empty): every dropper's token matches the sensed model's before every step and at the end, the tap reads 2 / 1 / 0 for T / filler / empty, no dropper ever holds two items, no item left in a path, the lift reloaded with one filler and the stock empty", r.before.len(), mism.is_empty() && r.end == exp_end && levels_ok && r.extra_items.is_empty() && r.stray.is_empty() && r.lift_end == 1 && r.stock_end == 0);
     let w0 = v.bar("ctl-ring8: THE CONSTANT COMPARATORS' REARS (a single chest holding one stone each) read 1 (>= 1 locks; the unlock's 15 on the side takes the output to 0)", r.consts == (1, 1));
     lines.push(format!("ctl-ring8: the two lock comparators' constant rears (a single chest holding one stone each) read {} / {} (the container-signal formula: 1): {w0}", r.consts.0, r.consts.1));
-    lines.push(format!("ctl-ring8: the reference script ({} step reads; the end {:?} vs {:?}; the stock {}; items {}): {}{}: {w}", r.before.len(), r.end, exp_end, r.stock_end, r.items_total, if mism.is_empty() { "every read matches".to_string() } else { format!("MISMATCHES {}", mism.join("; ")) }, if r.extra_items.is_empty() { String::new() } else { format!("; two items in a dropper: {:?}", r.extra_items.iter().take(3).collect::<Vec<_>>()) }));
+    lines.push(format!("ctl-ring8: the reference script ({} step reads; the end {:?} vs {:?}; the lift {} (reloaded), the stock {}; items {}): {}{}: {w}", r.before.len(), r.end, exp_end, r.lift_end, r.stock_end, r.items_total, if mism.is_empty() { "every read matches".to_string() } else { format!("MISMATCHES {}", mism.join("; ")) }, if r.extra_items.is_empty() { String::new() } else { format!("; two items in a dropper: {:?}", r.extra_items.iter().take(3).collect::<Vec<_>>()) }));
     // (the timings: the grant's step is plan.steps[k] for the unlock at its - 8)
     let g_step = plan.t_unlock[0] + STEP_LAG;
     let t_out = r.t_out.first().copied().unwrap_or(i64::MAX) - plan.t_unlock[0];
@@ -555,7 +557,7 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
         pr.restart = Some((rt, crate::liveness::Restart::load(redsim::reload::Order::Save)));
         let rr = run_plan(&spec, &pr)?;
         n += 1;
-        if rr.end != r.end || rr.stock_end != r.stock_end || !rr.stray.is_empty() || !rr.extra_items.is_empty() || rr.up_triggered_before.iter().any(|t| *t) || rr.consts != (1, 1) || rr.consts_end != (1, 1) {
+        if rr.end != r.end || rr.stock_end != r.stock_end || rr.lift_end != r.lift_end || !rr.stray.is_empty() || !rr.extra_items.is_empty() || rr.up_triggered_before.iter().any(|t| *t) || rr.consts != (1, 1) || rr.consts_end != (1, 1) {
             if bad.len() < 4 {
                 bad.push(format!("a world open at t {rt} (the grant step {:+}): end {:?}, stock {}, stray {:?}", rt - g_step, rr.end, rr.stock_end, rr.stray));
             }
