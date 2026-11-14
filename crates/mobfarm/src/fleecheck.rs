@@ -6028,6 +6028,12 @@ pub fn update_consumer_decls(text: &str) -> Result<Vec<UpdateAllow>, String> {
         if why.is_empty() {
             return Err(format!("`# update-consumers:` line {l:?}: an empty reason"));
         }
+        // (farmopt 08:24, part 62) one source per line: a second `x,y,z=` declaration after a `;` would otherwise be read
+        // as part of the first one's reason, its consumers silently unread
+        let decl_start = |s: &str| s.trim().split_once('=').is_some_and(|(c, _)| c.split(',').count() == 3 && c.split(',').all(|t| t.trim().parse::<i32>().is_ok()));
+        if why.split(';').skip(1).any(decl_start) {
+            return Err(format!("`# update-consumers:` line {l:?}: more than one source on the line (one `CLASS SOURCE=...` declaration per line)"));
+        }
         if class == "by-code" && !why.contains("26.3") {
             return Err(format!("`# update-consumers:` line {l:?}: a by-code declaration cites the 26.3 code (\"26.3 Class.method: ...\")"));
         }
@@ -11606,6 +11612,10 @@ mod gate_tests {
             "# update-consumers: waived 2,1,2=2,1,4 iron_trapdoor (an unknown class)\n",
             "# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor\n",
             "# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (it is fine)\n",
+            // (farmopt 08:24, part 62) dfb89499's E″ shape: three sources on one line, the class inside the reason
+            "# update-consumers: -1,16,-2=-1,16,-1 slime_block+-1,16,0 iron_trapdoor (the hold drive; class (a), intended); 3,16,-2=3,16,-1 slime_block+3,16,0 iron_trapdoor (the same)\n",
+            // the same with its class in front: still two sources on one line
+            "# update-consumers: intended -1,16,-2=-1,16,0 iron_trapdoor (the hold drive); 3,16,-2=3,16,0 iron_trapdoor (the same)\n",
         ] {
             let r = super::update_consumer_decls(bad);
             assert!(r.as_ref().is_err_and(|e| e.contains("`# update-consumers:` line")), "{bad:?} refused: {r:?}");
