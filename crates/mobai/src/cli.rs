@@ -982,6 +982,17 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-13, G1 23:06 (2)) A cart rolling off a rail end over an 8-block drop: its landing cell per speed
+    RailEndDrop {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
+    /// (tickexact 2026-11-14, ironspec 02:48) The rail-end stranding threshold: speeds 0.15..0.60 x five entry phases,
+    /// empty and ridden, stranded on the support's edge or landed
+    RailEndThreshold {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-14, ironspec 02:18 (2)) The re-laid stop's park string over an empty cart on the braked
     /// ascending-east park rail: at rest over x 1.06..1.61, arriving at 0.05..0.60 b/t; presses and re-check releases
     ParkString {
@@ -2331,6 +2342,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::EString { version, record } => crate::estring::e_string(&version, &record),
         MobaiCmd::SlopeString { version } => crate::slopestring::slope_string(&version),
         MobaiCmd::ParkString { version } => crate::parkstring::park_string(&version),
+        MobaiCmd::RailEndDrop { version } => crate::railenddrop::rail_end_drop(&version),
+        MobaiCmd::RailEndThreshold { version } => crate::railenddrop::rail_end_threshold(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {
             let cells_of = |s: &str| -> anyhow::Result<Vec<([i32; 3], String)>> {
