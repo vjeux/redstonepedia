@@ -121,12 +121,18 @@ fn eol(text: &str) -> &'static str {
     if text.contains("\r\n") { "\r\n" } else { "\n" }
 }
 
+/// (G1 Nov 14 11:25, part 73) A design's entities compared in full, not by count: each (kind, position bits, NBT).
+fn ents_of(d: &Design) -> Vec<(String, [u64; 3], Option<String>)> {
+    d.entities.iter().map(|e| (e.kind.clone(), e.pos.map(f64::to_bits), e.nbt.clone())).collect()
+}
+
 /// The design text with each overworld cell `(x,y,z) -> state` changed IN PLACE: its letter in its layer row replaced
 /// (the row padded with `.`, its trailing air trimmed as the writer does; an all-air row stays `  .`); a state the
 /// palette lacks given a letter the palette doesn't use, its entry after the palette's last entry; an entry no cell (the
 /// Nether part's included) uses after the edit, and used before it, pruned; a row past a layer's last added at the
 /// layer's end, a missing layer after the last overworld layer. Every other line is kept byte for byte, its line ending
-/// included. A cell west or north of the origin (it would move the origin and every row) is refused by name.
+/// included. A cell west or north of the origin (it would move the origin and every row) is refused by name: a LIMIT of
+/// the in-place edit (G1 Nov 14 11:25), such a cell needs the design re-laid (its generator or a hand edit of its origin).
 pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Result<Patched> {
     let roles = line_roles(original)?;
     let nl = eol(original);
@@ -227,8 +233,7 @@ pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Re
         ls[li].text = format!("  {}", body.iter().collect::<String>());
         ls[li].changed = ls[li].orig.is_some();
     }
-    // the palette: entries the edit left unused pruned; new ones after the last entry
-    let prune: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| matches!(&l.role, Role::Entry { state, .. } if used_before.contains(state) && !used_after.contains(state))).map(|(i, _)| i).collect();
+    // the palette: new entries after the last entry; then the entries the edit left unused (used before, not after) pruned
     let added: Vec<(char, String)> = added.into_iter().filter(|(_, s)| used_after.contains(s)).collect();
     if !added.is_empty() {
         let last = ls.iter().rposition(|l| matches!(l.role, Role::Entry { .. }) || l.role == Role::PaletteHeader).ok_or_else(|| anyhow::anyhow!("edit: the design has no palette to add {} to", added.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join(", ")))?;
@@ -236,9 +241,7 @@ pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Re
             ls.insert(last + 1 + k, Line { text: format!("  {c} {s}"), role: Role::Entry { ch: c, state: s }, orig: None, changed: false });
         }
     }
-    // (the pruned indices sit before any insertion point only when the palette precedes the layers; recompute by role)
     let removed: Vec<usize> = ls.iter().filter(|l| matches!(&l.role, Role::Entry { state, .. } if l.orig.is_some() && used_before.contains(state) && !used_after.contains(state))).filter_map(|l| l.orig).collect();
-    let _ = prune;
     ls.retain(|l| !(l.orig.is_some_and(|o| removed.contains(&o))));
     let mut out = ls.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(nl);
     if original.ends_with('\n') {
@@ -257,7 +260,7 @@ pub fn readback_patch(original: &str, p: &Patched, want: &BTreeMap<[i32; 3], Str
     let d0 = Design::parse(original)?;
     anyhow::ensure!(&back.blocks == want, "edit read-back: the written text's cells differ from the composed ones ({} vs {} cells)", back.blocks.len(), want.len());
     anyhow::ensure!(back.nether_blocks == d0.nether_blocks, "edit read-back: the written text's Nether cells differ from the original's");
-    anyhow::ensure!(back.meta == d0.meta && back.ports == d0.ports && back.entities.len() == d0.entities.len() && back.block_entities == d0.block_entities, "edit read-back: the written text's header (meta, ports, entities, nbt) differs from the original's");
+    anyhow::ensure!(back.meta == d0.meta && back.ports == d0.ports && ents_of(&back) == ents_of(&d0) && back.block_entities == d0.block_entities, "edit read-back: the written text's header (meta, ports, entities, nbt) differs from the original's");
     let orig: Vec<&str> = original.lines().enumerate().filter(|(i, _)| !p.removed.contains(i)).map(|(_, l)| l).collect();
     let kept: Vec<(usize, &str)> = p.text.lines().enumerate().filter(|(i, _)| !p.inserted.contains(i)).collect();
     anyhow::ensure!(kept.len() == orig.len(), "edit read-back: {} line(s) written for the original's {} (inserted and pruned lines aside)", kept.len(), orig.len());
@@ -327,7 +330,7 @@ pub fn edit_meta_text(text: &str, chest: bool, how: Option<&str>, meta: &[String
         }
     }
     anyhow::ensure!(back.meta == want, "edit (meta) read-back: the written text's meta differs from the edit's ({:?} vs {:?})", back.meta, want);
-    anyhow::ensure!(back.blocks == d0.blocks && back.nether_blocks == d0.nether_blocks && back.ports == d0.ports && back.entities.len() == d0.entities.len() && back.block_entities == d0.block_entities, "edit (meta) read-back: cells, ports, entities or nbt changed");
+    anyhow::ensure!(back.blocks == d0.blocks && back.nether_blocks == d0.nether_blocks && back.ports == d0.ports && ents_of(&back) == ents_of(&d0) && back.block_entities == d0.block_entities, "edit (meta) read-back: cells, ports, entities or nbt changed");
     // every original line kept at its place but the edited and removed ones
     let kept_orig: Vec<(usize, &str)> = lines.iter().filter_map(|(l, o)| o.map(|o| (o, l.as_str()))).collect();
     let orig_lines: Vec<&str> = text.lines().map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();

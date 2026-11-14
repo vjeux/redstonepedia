@@ -907,6 +907,30 @@ pub fn emulated_cells(decl: &Declared) -> Vec<BlockPos> {
 }
 
 
+/// (G1 Nov 14 11:25 (2), part 73) Whether a text carries a design's headers: a `name:`, `origin:` or `palette:` line,
+/// or a `layer Y:` / `nether layer Y:` line, at a line's start.
+pub fn has_design_headers(text: &str) -> bool {
+    text.lines().any(|l| l.starts_with("name:") || l.starts_with("origin:") || l.trim_end() == "palette:" || (l.starts_with("layer ") && l.trim_end().ends_with(':')) || (l.starts_with("nether layer ") && l.trim_end().ends_with(':')))
+}
+
+/// (G1 Nov 14 11:25 (1), part 73) The twin settles' effects split by their STORED state: an effect cell is exempt only
+/// when the file stores it as A or as B settles it (the emulated state's settle, or the built one's); a THIRD state is
+/// returned apart, (cell, stored, A, B), to fail by name.
+pub fn split_effects(eff: &[(BlockPos, String, String)], blocks: &[(BlockPos, Block)]) -> (Vec<BlockPos>, Vec<(BlockPos, String, String, String)>) {
+    let stored: BTreeMap<BlockPos, String> = blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let air = "minecraft:air".to_string();
+    let (mut ok, mut third) = (Vec::new(), Vec::new());
+    for (p, a, b) in eff {
+        let st = stored.get(p).unwrap_or(&air);
+        if st == a || st == b {
+            ok.push(*p);
+        } else {
+            third.push((*p, st.clone(), a.clone(), b.clone()));
+        }
+    }
+    (ok, third)
+}
+
 /// (ironspec Nov 14 10:45a (3)(1), part 72: the TWIN SETTLES) The emulated cells' EFFECTS: A = the settle of the file
 /// as stored (`a`, already run), B = the settle of the file with every `emulated:` cell set to its declared off / built
 /// state; the effects are the cells (emulated ones aside) whose settled states differ between A and B, each returned
@@ -1069,10 +1093,22 @@ pub fn part_in_context(part_text: &str, record_text: &str, offset: [i32; 3], onl
     let dt = day_time.or(rdecl.day_time).unwrap_or(6000);
     let s = settle_check(&blocks, &bes, &ents, &rdecl, dt, cap)?;
     let settled: BTreeMap<BlockPos, String> = s.settled.iter().map(|(q, b)| (*q, b.to_string())).collect();
-    Ok(own.into_iter().filter_map(|(q, at, stored)| {
-        let now = settled.get(&at).cloned().unwrap_or_else(|| "minecraft:air".to_string());
-        (now != stored).then_some((q, stored, now))
-    }).collect())
+    // (G1 11:25 non-blocking, part 73) the same twin rule in context: the record's emulated cells and their effects
+    // (stored as A or as B settles them) are exempt among the part's cells; a third state fails
+    let emu = emulated_cells(&rdecl);
+    let mut exempt: Vec<BlockPos> = emu.clone();
+    if !emu.is_empty() {
+        let eff = twin_effects(&blocks, &bes, &ents, &rdecl, dt, cap, &s)?;
+        exempt.extend(split_effects(&eff, &blocks).0);
+    }
+    Ok(own
+        .into_iter()
+        .filter(|(_, at, _)| !exempt.contains(at))
+        .filter_map(|(q, at, stored)| {
+            let now = settled.get(&at).cloned().unwrap_or_else(|| "minecraft:air".to_string());
+            (now != stored).then_some((q, stored, now))
+        })
+        .collect())
 }
 
 /// (farmopt / ironspec Nov 14 10:21a (2) / 10:29a (5) / 10:37a (3), part 72) The files `settle-check` runs on: `file`
@@ -1138,6 +1174,9 @@ pub fn settle_check_files(file: &std::path::Path, files_from: Option<&std::path:
             match mctas::design::Design::parse(&text) {
                 Ok(d) if !d.blocks.is_empty() || !d.nether_blocks.is_empty() => cands.push(p),
                 Ok(_) => skipped.push((p, "not a design: no block laid".to_string())),
+                // (G1 11:25 (2), part 73) a file WITH design headers that fails to parse is a broken design: kept, so
+                // its run is NOT JUDGED by name; only header-less prose is skipped
+                Err(_) if has_design_headers(&text) => cands.push(p),
                 Err(e) => skipped.push((p, format!("not a design: {e}"))),
             }
         }
@@ -1269,6 +1308,38 @@ mod tests {
         exempt_cells(&mut s, &exempt);
         assert_eq!(all(&s), vec![t, beside], "the defects beside the emulated lever still fail");
         assert!(!s.fails(false).is_empty());
+    }
+
+    /// (G1 Nov 14 11:25 (1)/(2), part 73) PLANTED: an effect cell stored in a THIRD state (a dust the emulated lever powers
+    /// to 15 in A and leaves at 0 in B, stored at power 7) is not exempt: `split_effects` returns it apart to fail by name,
+    /// while stored as A or as B it is exempt; and a file with design headers that fails to parse is kept (its run NOT
+    /// JUDGED) while header-less prose is skipped
+    #[test]
+    fn g1_planted_third_state_effect_and_a_broken_design() {
+        let text = "name: g\norigin: 0 0 0\nemulated: 1,0,0=lever[face=floor,facing=north,powered=false] (stood in)\npalette:\n  s minecraft:stone\n  v minecraft:lever[face=floor,facing=north,powered=true]\n  w minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]\nlayer -1:\n  sss\nlayer 0:\n  .vw\n";
+        let (d, s, b) = settle_text(text);
+        let eff = twin_effects(&b, &[], &[], &d, 6000, CAP, &s).unwrap();
+        let w = BlockPos::new(2, 0, 0);
+        let (wa, wb) = eff.iter().find(|e| e.0 == w).map(|e| (e.1.clone(), e.2.clone())).unwrap_or_else(|| panic!("the dust is the lever's effect: {eff:?}"));
+        assert!(wa.contains("power=15") && wb.contains("power=0"), "A powers the dust, B doesn't: {wa} / {wb}");
+        let with = |st: &str| b.iter().map(|(p, x)| (*p, if *p == w { Block::parse(st).unwrap() } else { x.clone() })).collect::<Vec<_>>();
+        let (ok_a, third_a) = split_effects(&eff, &with(&wa));
+        assert!(ok_a.contains(&w) && third_a.is_empty(), "stored as A: exempt");
+        let (ok_b, _) = split_effects(&eff, &with(&wb));
+        assert!(ok_b.contains(&w), "stored as B: exempt");
+        let third_state = wa.replace("power=15", "power=7");
+        let (ok3, third3) = split_effects(&eff, &with(&third_state));
+        assert!(!ok3.contains(&w) && third3.len() == 1 && third3[0].0 == w && third3[0].1.contains("power=7"), "a third stored state fails by name: {third3:?}");
+        // the broken design and the prose
+        let dir = std::env::temp_dir().join(format!("settle-broken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.txt"), "name: b\norigin: 0 0 0\npalette:\n  s minecraft:stone\nlayer 0:\n  s\n  this row is not a row: (1)\nnot a key line\n").unwrap();
+        std::fs::write(dir.join("prose.txt"), "a note, not a design\n(1) and (2)\n").unwrap();
+        assert!(mctas::design::Design::parse(&std::fs::read_to_string(dir.join("broken.txt")).unwrap()).is_err(), "the planted design is broken");
+        let (files, skipped) = settle_check_files(&dir, None, None).unwrap();
+        assert_eq!(files, vec![dir.join("broken.txt")], "the broken design is kept, its run NOT JUDGED");
+        assert!(skipped.len() == 1 && skipped[0].0 == dir.join("prose.txt") && skipped[0].1.starts_with("not a design"), "{skipped:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// (ironspec 10:45a (2)/(3), vcompose 10:55, part 72) the ONE scope definition: fixtures by path, one per line, with a

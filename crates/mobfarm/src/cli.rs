@@ -15909,12 +15909,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !emu.is_empty() {
                 println!("  emulated cells (`emulated:`, each at its declared off / built state in the twin settle B): {}", decl.emulated.iter().map(|(cs, st, why)| format!("{}={} ({why})", cs.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join("+"), st.trim_start_matches("minecraft:"))).collect::<Vec<_>>().join("; "));
                 let eff = crate::settle::twin_effects(&blocks, &bes, &ents, &decl, dt, cap, &s).map_err(|e| anyhow::anyhow!("{}: the twin settle B: {e}", file.display()))?;
-                for (p, a, b) in &eff {
-                    println!("  an emulated cell's effect ({},{},{}): settled {} with the emulated states, {} without (exempt)", p.x, p.y, p.z, a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
+                // (G1 11:25 (1), part 73) an effect cell is exempt only when it is stored as A or as B settles it: a
+                // third stored state fails by name
+                let (ok, third) = crate::settle::split_effects(&eff, &blocks);
+                for (p, a, b) in eff.iter().filter(|(p, _, _)| ok.contains(p)) {
+                    println!("  an emulated cell's effect ({},{},{}): settled {} with the emulated states, {} without; stored as one of them (exempt)", p.x, p.y, p.z, a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
                 }
-                let exempt: Vec<redsim::pos::BlockPos> = emu.iter().copied().chain(eff.iter().map(|(p, _, _)| *p)).collect();
+                for (p, st, a, b) in &third {
+                    println!("  an emulated cell's effect ({},{},{}) stored in a THIRD state {} (A {}, B {}): FAILS", p.x, p.y, p.z, st.trim_start_matches("minecraft:"), a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
+                }
+                let exempt: Vec<redsim::pos::BlockPos> = emu.iter().copied().chain(ok.iter().copied()).collect();
                 let n = crate::settle::exempt_cells(&mut s, &exempt);
-                println!("  twin settles: {} effect cell(s); {n} stored difference(s) at the emulated cells and their effects exempt", eff.len());
+                println!("  twin settles (A and B at day time {dt}, cap {cap}, each to its fixed point): {} effect cell(s), {} stored in a third state; {n} stored difference(s) at the emulated cells and their effects exempt", eff.len(), third.len());
             }
             let fails = s.fails(allow_unchecked);
             println!(
