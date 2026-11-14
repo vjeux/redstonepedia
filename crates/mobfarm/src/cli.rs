@@ -16155,7 +16155,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 return Ok(ctx_ok);
             }
             let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-            let decl = crate::settle::declared(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            // (part 100: the NETHER SETTLE) the declarations split by section (`nether:` cells: the Nether's)
+            let (ow_text, ne_text) = crate::settle::split_sections(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            let decl = crate::settle::declared(&ow_text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let mut blocks = Vec::new();
             for (p, s) in &d.blocks {
                 let b = crate::settle::block_of(s).map_err(|e| anyhow::anyhow!("{}: {s} at {},{},{}: not modelled by redsim: {e}", file.display(), p[0], p[1], p[2]))?;
@@ -16310,7 +16312,63 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     crate::settle::header_lines(&written).len()
                 );
             }
-            Ok(fails.is_empty() && ctx_ok)
+            // (farmopt Nov 14 14:00 (2) / ironspec 14:32p (1), part 100: the NETHER SETTLE) a design's Nether section is
+            // judged too, laid alone in its own frame in redsim's ultrawarm world, with its `nether:` declarations; the
+            // same rules (the twin settles for its `emulated:` cells), its verdict and cells labelled "Nether"
+            let mut ne_ok = true;
+            if !d.nether_blocks.is_empty() {
+                let ndecl = crate::settle::declared(&ne_text).map_err(|e| anyhow::anyhow!("{}: the Nether section's declarations: {e}", file.display()))?;
+                let mut nb = Vec::new();
+                for (p, st) in &d.nether_blocks {
+                    let b = crate::settle::block_of(st).map_err(|e| anyhow::anyhow!("{}: the Nether section's {st} at {},{},{}: not modelled by redsim: {e}", file.display(), p[0], p[1], p[2]))?;
+                    nb.push((redsim::pos::BlockPos::new(p[0], p[1], p[2]), b));
+                }
+                let nbes: Vec<(redsim::pos::BlockPos, String)> = d.nether_block_entities.iter().map(|(p, s)| (redsim::pos::BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
+                let mut ns = crate::settle::settle_check_in(&nb, &nbes, &[], &ndecl, dt, cap, true).map_err(|e| anyhow::anyhow!("{}: the Nether section: {e}", file.display()))?;
+                let nemu = crate::settle::emulated_cells(&ndecl);
+                if !nemu.is_empty() {
+                    let eff = crate::settle::twin_effects_in(&nb, &nbes, &[], &ndecl, dt, cap, &ns, true).map_err(|e| anyhow::anyhow!("{}: the Nether section's twin settle B: {e}", file.display()))?;
+                    let (ok, third) = crate::settle::split_effects(&eff, &nb);
+                    for (p, st, a, b) in &third {
+                        println!("  Nether: an emulated cell's effect ({},{},{}) stored in a THIRD state {} (A {}, B {}): FAILS", p.x, p.y, p.z, st.trim_start_matches("minecraft:"), a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
+                    }
+                    let exempt: Vec<redsim::pos::BlockPos> = nemu.iter().copied().chain(ok.iter().copied()).collect();
+                    crate::settle::exempt_cells(&mut ns, &exempt);
+                }
+                let nfails = ns.fails(allow_unchecked);
+                println!(
+                    "settle-check {} the NETHER section (its own frame, the ultrawarm world): {} cells, {} ticks to {}; {} cells compared ({} redstone); {} declared clock cell(s), {} undeclared; {}",
+                    file.display(),
+                    nb.len(),
+                    ns.ticks,
+                    if ns.fixed { "the fixed point" } else { "the cap (no fixed point)" },
+                    ns.compared,
+                    ns.redstone_cells,
+                    ns.clock_declared.len(),
+                    ns.clock_undeclared.len(),
+                    if nfails.is_empty() { "PASS".to_string() } else { format!("FAILS ({})", nfails.join("; ")) }
+                );
+                for c in ns.redstone.iter().chain(ns.other.iter()) {
+                    println!("  Nether: unsettled, {} ({},{},{}): stored {} -> {}", c.class, c.pos.x, c.pos.y, c.pos.z, c.stored, c.settled);
+                }
+                for c in &ns.unsupported {
+                    println!("  Nether: can't survive, {} ({},{},{}): stored {} -> {}", c.class, c.pos.x, c.pos.y, c.pos.z, c.stored, c.settled);
+                }
+                for p in &ns.clock_undeclared {
+                    println!("  Nether: undeclared clock cell ({},{},{}): declare it `# clock: nether:{},{},{} … = period=N; REASON`", p.x, p.y, p.z, p.x, p.y, p.z);
+                }
+                for p in &ns.clock_false {
+                    println!("  Nether: false `# clock:` declaration ({},{},{}): never seen recurring", p.x, p.y, p.z);
+                }
+                for (p, want, got) in &ns.clock_period_wrong {
+                    println!("  Nether: `# clock:` cell ({},{},{}) recurs at {} but is declared period={want}", p.x, p.y, p.z, got.map_or("no measurable period".to_string(), |g| format!("{g} gt")));
+                }
+                for c in &ns.water_undeclared {
+                    println!("  Nether: new fluid cell, not named ({},{},{}): {}", c.pos.x, c.pos.y, c.pos.z, c.settled);
+                }
+                ne_ok = nfails.is_empty();
+            }
+            Ok(fails.is_empty() && ctx_ok && ne_ok)
             })();
             match &res {
                 Ok(true) => {}

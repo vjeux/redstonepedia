@@ -69,6 +69,54 @@ pub struct Declared {
     pub shapes: Vec<(BlockPos, String, String)>,
 }
 
+/// (farmopt Nov 14 14:00 (2), ironspec 14:32p (1), part 100: the NETHER SETTLE) The design's settle declarations split by
+/// section: a declaration line settle reads (`# clock:`, `# water:`, `# held:`, `# shape:`, `# stand-in:`,
+/// `# always-on:`, and the `emulated:` header) whose cells carry the `nether:` prefix (the QC static's form) is the Nether
+/// section's, every prefix stripped; one with no prefixed cell is the overworld's; a line naming no cell (`# day-time:`)
+/// is both sections'; a line mixing the two is refused by name (one line per section). Every other line stays in the
+/// overworld text. Returns (the overworld text, the Nether text).
+pub fn split_sections(text: &str) -> Result<(String, String), String> {
+    const KEYS: [&str; 8] = ["# clock:", "# water:", "# held:", "# shape:", "# stand-in:", "# always-on:", "# day-time:", "emulated:"];
+    let is_cell = |t: &str| t.split('+').all(|c| c.split(',').count() == 3 && c.split(',').all(|v| v.trim().replace('\u{2212}', "-").parse::<i32>().is_ok()));
+    let (mut ow, mut ne) = (String::new(), String::new());
+    for line in text.lines() {
+        let l = line.trim_start();
+        let Some(key) = KEYS.iter().find(|k| l.starts_with(**k)) else {
+            ow.push_str(line);
+            ow.push('\n');
+            continue;
+        };
+        let body = &l[key.len()..];
+        let (mut n_ne, mut n_ow) = (0usize, 0usize);
+        for seg in split_outside(body, ';') {
+            let seg = seg.trim_start();
+            let lead: String = seg.chars().take_while(|ch| !matches!(ch, ' ' | '=' | '(' | ')')).collect();
+            match lead.strip_prefix("nether:") {
+                Some(r) if is_cell(r) => n_ne += 1,
+                Some(_) => return Err(format!("{line:?}: `{lead}`: a Nether cell reads `nether:x,y,z`")),
+                None if is_cell(&lead) => n_ow += 1,
+                None => {}
+            }
+        }
+        if n_ne > 0 && n_ow > 0 {
+            return Err(format!("{line:?}: mixes {n_ow} overworld and {n_ne} Nether (`nether:`) cell(s): one declaration line per section"));
+        }
+        if n_ne > 0 {
+            ne.push_str(&line.replace("nether:", ""));
+            ne.push('\n');
+        } else if n_ow > 0 {
+            ow.push_str(line);
+            ow.push('\n');
+        } else {
+            ow.push_str(line);
+            ow.push('\n');
+            ne.push_str(line);
+            ne.push('\n');
+        }
+    }
+    Ok((ow, ne))
+}
+
 /// The declarations read from the file's comment lines.
 pub fn declared(text: &str) -> Result<Declared, String> {
     let mut d = Declared::default();
@@ -528,6 +576,12 @@ pub fn header_lines(text: &str) -> Vec<&str> {
 /// `blocks`: the file's non-air cells; `block_entities`: its `nbt:` lines; `entities`: (kind, position,
 /// NBT). `day_time`: the daylight's time.
 pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)], entities: &[(String, [f64; 3], Option<String>)], decl: &Declared, day_time: i64, cap: u32) -> Result<Settle, String> {
+    settle_check_in(blocks, block_entities, entities, decl, day_time, cap, false)
+}
+
+/// (part 100) [`settle_check`] in a chosen dimension: `nether` lays the section in redsim's ULTRAWARM world (the Nether:
+/// lava's 10-gt tick, its drop-off 1 and slope distance 4, the portal's ticks, y 0..255), as the Nether section is built.
+pub fn settle_check_in(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)], entities: &[(String, [f64; 3], Option<String>)], decl: &Declared, day_time: i64, cap: u32, nether: bool) -> Result<Settle, String> {
     if blocks.is_empty() {
         return Ok(Settle::default());
     }
@@ -543,6 +597,7 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     let lo = BlockPos::new(lo.x - 2, lo.y - 2, lo.z - 2);
     let hi = BlockPos::new(hi.x + 2, hi.y + 2, hi.z + 2);
     let mut w = World::new(lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]);
+    w.ultrawarm = nether;
     w.time = day_time;
     // (the mob layer's clock on at day offset 0, so the daylight detectors and the sky darkening read the
     // file's day time, not the frozen DAY_TIME of the judges' sandboxes; its entities stay held below. The
@@ -973,6 +1028,12 @@ pub fn split_effects(eff: &[(BlockPos, String, String)], blocks: &[(BlockPos, Bl
 /// with its A and B states. settle-check then passes iff every cell that is neither emulated nor an effect has its
 /// stored state equal to A's ([`exempt_cells`] takes the emulated and effect cells out of `a`'s differences).
 pub fn twin_effects(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)], entities: &[(String, [f64; 3], Option<String>)], decl: &Declared, day_time: i64, cap: u32, a: &Settle) -> Result<Vec<(BlockPos, String, String)>, String> {
+    twin_effects_in(blocks, block_entities, entities, decl, day_time, cap, a, false)
+}
+
+/// (part 100) [`twin_effects`] in a chosen dimension (the Nether section's twin settle B in the ultrawarm world).
+#[allow(clippy::too_many_arguments)]
+pub fn twin_effects_in(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)], entities: &[(String, [f64; 3], Option<String>)], decl: &Declared, day_time: i64, cap: u32, a: &Settle, nether: bool) -> Result<Vec<(BlockPos, String, String)>, String> {
     let mut off: BTreeMap<BlockPos, Block> = BTreeMap::new();
     for (cs, st, _) in &decl.emulated {
         let b = block_of(st).map_err(|e| format!("emulated state {st}: not modelled by redsim: {e}"))?;
@@ -986,7 +1047,7 @@ pub fn twin_effects(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     let mut bb: Vec<(BlockPos, Block)> = blocks.iter().map(|(p, b)| (*p, off.remove(p).unwrap_or_else(|| b.clone()))).collect();
     // (an emulated cell the file leaves air gets its declared state too)
     bb.extend(off.into_iter());
-    let b = settle_check(&bb, block_entities, entities, decl, day_time, cap)?;
+    let b = settle_check_in(&bb, block_entities, entities, decl, day_time, cap, nether)?;
     let emu = emulated_cells(decl);
     let bmap: BTreeMap<BlockPos, String> = b.settled.iter().map(|(p, s)| (*p, s.to_string())).collect();
     let amap: BTreeMap<BlockPos, String> = a.settled.iter().map(|(p, s)| (*p, s.to_string())).collect();
@@ -1768,6 +1829,32 @@ mod tests {
     /// Two observers facing each other: a clock the judges' placement never starts (it runs no observer's
     /// shape update), found by the observers' kick: undeclared it fails, declared it passes; a lone observer
     /// watching a lamp is kicked too and settles back (no clock, nothing flagged).
+    /// (farmopt Nov 14 14:00 (2) / ironspec 14:32p (1), part 100: the NETHER SETTLE) the declarations split by section:
+    /// `nether:` cells go to the Nether text (prefixes stripped), a cell-less line (`# day-time:`) to both, a line mixing
+    /// the sections refused by name, a key settle doesn't read (`# quasi-connected:`) left alone; the Nether section settles
+    /// in the ULTRAWARM world: an observer pair there fails undeclared (no fixed point) and passes declared through its
+    /// `nether:` line; a lava source spreads further there than in the overworld (the Nether's slope distance and drop-off)
+    #[test]
+    fn the_nether_section_settles_in_the_ultrawarm_world() {
+        let text = "# clock: nether:0,64,0; nether:1,64,0 = period=6; the Nether observer pair\n# clock: 5,0,0 = period=4; an overworld clock\n# day-time: 6000\n# quasi-connected: 20,12,14=intended (a); nether:3,12,-1=intended (b)\n";
+        let (ow, ne) = split_sections(text).unwrap();
+        assert!(ow.contains("# clock: 5,0,0") && !ow.contains("0,64,0") && ow.contains("# day-time: 6000") && ow.contains("# quasi-connected:"), "{ow}");
+        assert!(ne.contains("# clock: 0,64,0; 1,64,0 = period=6") && !ne.contains("nether:") && ne.contains("# day-time: 6000") && !ne.contains("5,0,0"), "{ne}");
+        let e = split_sections("# clock: nether:0,64,0; 1,64,0 = period=6; mixed\n").unwrap_err();
+        assert!(e.contains("mixes 1 overworld and 1 Nether"), "{e}");
+        assert!(split_sections("# clock: nether:0,64 = period=6; short\n").unwrap_err().contains("nether:x,y,z"));
+        let mut pair: Vec<(BlockPos, Block)> = floor(2).into_iter().map(|(p, b)| (BlockPos::new(p.x, p.y + 64, p.z), b)).collect();
+        pair.extend([at(0, 64, 0, "minecraft:observer[facing=east,powered=false]"), at(1, 64, 0, "minecraft:observer[facing=west,powered=false]")]);
+        let s = settle_check_in(&pair, &[], &[], &Declared::default(), 6000, CAP, true).unwrap();
+        assert!(!s.clock_undeclared.is_empty() && !s.fails(false).is_empty(), "undeclared in the Nether: fails: {:?}", s.fails(false));
+        let s = settle_check_in(&pair, &[], &[], &declared(&ne).unwrap(), 6000, CAP, true).unwrap();
+        assert!(s.clock_undeclared.is_empty() && s.clock_declared.len() == 2 && s.fails(false).is_empty(), "declared by its `nether:` line: passes: {:?}", s.fails(false));
+        let mut pool: Vec<(BlockPos, Block)> = (-8..=8).flat_map(|x| (-8..=8).map(move |z| at(x, 63, z, "minecraft:stone"))).collect();
+        pool.push(at(0, 64, 0, "minecraft:lava[level=0]"));
+        let (o, n) = (settle_check_in(&pool, &[], &[], &Declared::default(), 6000, CAP, false).unwrap(), settle_check_in(&pool, &[], &[], &Declared::default(), 6000, CAP, true).unwrap());
+        assert!(n.water_undeclared.len() > o.water_undeclared.len() && !o.water_undeclared.is_empty(), "lava spreads further in the Nether: overworld {} new fluid cells, Nether {}", o.water_undeclared.len(), n.water_undeclared.len());
+    }
+
     #[test]
     fn observer_clock() {
         let mut pair = floor(2);
