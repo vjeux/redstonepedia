@@ -2099,8 +2099,9 @@ pub enum MobfarmCmd {
         /// gap bar's world-open row (ironspec 01:50b); inside the run, default half of it.
         #[arg(long)]
         world_open_at: Option<i64>,
-        /// A failing control of the redsim bars (G1 Nov 14 06:37 (3)): stall-overworld-clock,
-        /// stop-nether-clock, steal-item or divert-return; its run is not evidence for the layout.
+        /// A failing control of the redsim bars (G1 Nov 14 06:37 (3), ironspec 08:07a (5)):
+        /// stall-overworld-clock, stop-nether-clock, steal-item, divert-return or double-item; its run
+        /// is not evidence for the layout.
         #[arg(long)]
         redsim_control: Option<String>,
         /// The site's ground (the world y of the surface's top block) under the layout's open columns,
@@ -2116,6 +2117,11 @@ pub enum MobfarmCmd {
         /// block entities and entities; no Nether part), for `lightning-check` on all its rods.
         #[arg(long)]
         write_layout: Option<PathBuf>,
+        /// With --write-layout: the lightning-ready variant (portal cells as air, cart and boat
+        /// passengers dropped, the ground plane over the strike area), each layer declared in the
+        /// file's head (9fc3155f / G1 / ironspec Nov 14 05:46-05:52); refused without --write-layout.
+        #[arg(long)]
+        lightning_ready: bool,
     },
     /// (onechunk 2026-11-11/12; farmopt 22:22, tick-exact's code reads, G1's CHANGES 4) L1‴, the
     /// item-loop loader, benched in redsim (`mobfarm::l1items`): a same-axis portal pair; on each
@@ -8459,19 +8465,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
         }
-        MobfarmCmd::LoaderLayout { module, module_offsets, module_nether_ybase, loader, loader_offset, loader_nether_ybase, plant, plant_unframed, golem_margin, redsim, seeds, golem_at, world_open_at, redsim_control, ground_y, positions, write_layout } => {
+        MobfarmCmd::LoaderLayout { module, module_offsets, module_nether_ybase, loader, loader_offset, loader_nether_ybase, plant, plant_unframed, golem_margin, redsim, seeds, golem_at, world_open_at, redsim_control, ground_y, positions, write_layout, lightning_ready } => {
             // (ironspec 01:58 / 02:35, the binary rule: the shared provenance check runs first in mctas's
             // dispatch; default-deny, `loader-layout` is evidence (`provenance::is_evidence`))
-            let i3 = |s: &str| -> Result<[i32; 3]> {
-                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<std::result::Result<_, _>>()?;
-                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
-                Ok([v[0], v[1], v[2]])
-            };
-            // (a refusal before any run: the shared table's 4 REFUSED, by name)
+            // (a refusal before any run: the shared table's 4 REFUSED, by name; G1 08:37 (3): every argument,
+            // input, layout and plant the command refuses ends here, before anything runs)
             fn refused(why: &str) -> ! {
                 println!("REFUSED: {why}");
                 crate::provenance::finish(crate::provenance::Exit::Refused)
             }
+            macro_rules! pre {
+                ($e:expr, $what:expr) => {
+                    match $e {
+                        Ok(v) => v,
+                        Err(err) => refused(&format!("{}: {}", $what, err)),
+                    }
+                };
+            }
+            let i3 = |s: &str| -> std::result::Result<[i32; 3], String> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse::<i32>().map_err(|e| format!("{s:?}: {e}"))).collect::<std::result::Result<_, _>>()?;
+                if v.len() != 3 {
+                    return Err(format!("x,y,z, got {s:?}"));
+                }
+                Ok([v[0], v[1], v[2]])
+            };
             // (G1 06:37 N9: the redsim flags without --redsim are refused, never ignored)
             if redsim.is_none() {
                 let given: Vec<&str> = [("--seeds", seeds.is_some()), ("--golem-at", golem_at.is_some()), ("--world-open-at", world_open_at.is_some()), ("--redsim-control", redsim_control.is_some())].iter().filter(|(_, g)| *g).map(|(f, _)| *f).collect();
@@ -8479,27 +8496,55 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     refused(&format!("{} need --redsim: refused, never ignored", given.join(", ")));
                 }
             }
+            if lightning_ready && write_layout.is_none() {
+                refused("--lightning-ready needs --write-layout: refused, never ignored");
+            }
+            // (the redsim run's options, each read before anything runs: G1 06:37 (2), 08:37 (3))
+            let redsim_opts: Option<(i64, Vec<i64>, i64, i64, Option<crate::loaderrun::Control>)> = match redsim {
+                None => None,
+                Some(ticks) => {
+                    if !plant.is_empty() || !plant_unframed.is_empty() {
+                        refused("--redsim runs the layout as written (no --plant / --plant-unframed)");
+                    }
+                    if ticks <= 0 {
+                        refused(&format!("--redsim {ticks}: a run of at least 1 gt"));
+                    }
+                    let golem_at = golem_at.unwrap_or(400);
+                    let world_open = world_open_at.unwrap_or(ticks / 2);
+                    if !(0..ticks).contains(&golem_at) {
+                        refused(&format!("--golem-at {golem_at}: inside the run's 0..{ticks} (else no golem is placed)"));
+                    }
+                    if !(0..ticks).contains(&world_open) {
+                        refused(&format!("--world-open-at {world_open}: inside the run's 0..{ticks} (else the world open never happens)"));
+                    }
+                    let control = redsim_control.as_deref().map(|c| crate::loaderrun::Control::parse(c).unwrap_or_else(|| refused(&format!("--redsim-control {c}: one of {}", crate::loaderrun::Control::NAMES.join(", ")))));
+                    let text = seeds.clone().unwrap_or_else(|| "1".to_string());
+                    let mut list = Vec::new();
+                    for (k, sd) in text.split(',').enumerate() {
+                        // (an empty entry is refused, never dropped; every seed parsed before the first run)
+                        if sd.trim().is_empty() {
+                            refused(&format!("--seeds \"{text}\": entry {} is empty", k + 1));
+                        }
+                        list.push(pre!(sd.trim().parse::<i64>(), format!("--seeds \"{text}\": entry {}", k + 1)));
+                    }
+                    Some((ticks, list, golem_at, world_open, control))
+                }
+            };
             // (G1 06:37 (6), ironspec 06:43: every design file the run reads is an INPUT: inside the worktree,
             // its blob the cited commit's at that path (`--cite`, HEAD by default), else refused; a run under
             // --not-evidence labels it instead)
             let (cite, not_evidence) = crate::loaderlayout::provenance_args();
             let mut inputs: Vec<String> = Vec::new();
-            let mut check_input = |p: &std::path::Path| -> Result<()> {
+            for p in [&module, &loader].into_iter().chain(positions.iter()) {
                 match crate::loaderlayout::cited_input(p, &cite) {
                     Ok(line) => inputs.push(line),
                     Err(why) if not_evidence => inputs.push(format!("NOT EVIDENCE: {why}")),
                     Err(why) => refused(&format!("an input off the cited commit (G1 06:37 (6)): {why}; read the file at the cited commit's path in the worktree, or pass --not-evidence")),
                 }
-                Ok(())
-            };
-            check_input(&module)?;
-            check_input(&loader)?;
-            for f in &positions {
-                check_input(f)?;
             }
             println!("inputs (each the cited commit {cite}'s blob at its path): {}", inputs.join("; "));
-            let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
-            let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
+            let m = pre!(std::fs::read_to_string(&module).map_err(|e| e.to_string()).and_then(|t| mctas::design::Design::parse(&t).map_err(|e| e.to_string())), format!("--module {}", module.display()));
+            let l = pre!(std::fs::read_to_string(&loader).map_err(|e| e.to_string()).and_then(|t| mctas::design::Design::parse(&t).map_err(|e| e.to_string())), format!("--loader {}", loader.display()));
             let blob = |p: &std::path::Path| -> String {
                 std::process::Command::new("git")
                     .arg("hash-object")
@@ -8512,10 +8557,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut parts = Vec::new();
             for (k, o) in module_offsets.split(';').enumerate() {
                 // (G1 00:46: an empty entry is refused, never dropped)
-                anyhow::ensure!(!o.trim().is_empty(), "--module-offsets \"{module_offsets}\": entry {} is empty", k + 1);
-                parts.push(crate::loaderlayout::lay(&format!("copy{}", k + 1), &module.display().to_string(), &m, i3(o)?, module_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
+                if o.trim().is_empty() {
+                    refused(&format!("--module-offsets \"{module_offsets}\": entry {} is empty", k + 1));
+                }
+                let at = pre!(i3(o), format!("--module-offsets entry {}", k + 1));
+                parts.push(pre!(crate::loaderlayout::lay(&format!("copy{}", k + 1), &module.display().to_string(), &m, at, module_nether_ybase), format!("copy{}", k + 1)));
             }
-            anyhow::ensure!(!parts.is_empty(), "--module-offsets names no copy");
             if let Some(g) = ground_y {
                 for p in parts.iter_mut() {
                     p.ground = g;
@@ -8524,36 +8571,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the villager places of the module, its written frame, moved onto every copy; read back:
             // an empty file refuses)
             for f in &positions {
-                let text = std::fs::read_to_string(f)?;
+                let text = pre!(std::fs::read_to_string(f), format!("--positions {}", f.display()));
                 let mut cells = Vec::new();
                 for (n, line) in text.lines().enumerate() {
                     let line = line.trim();
                     if line.is_empty() || line.starts_with('#') {
                         continue;
                     }
-                    let v: Vec<i32> = line.split_whitespace().map(str::parse).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("{}:{}: {e}", f.display(), n + 1))?;
-                    anyhow::ensure!(v.len() == 3, "{}:{}: x y z, got {line:?}", f.display(), n + 1);
+                    let v: Vec<i32> = pre!(line.split_whitespace().map(str::parse::<i32>).collect::<std::result::Result<Vec<i32>, _>>(), format!("{}:{}", f.display(), n + 1));
+                    if v.len() != 3 {
+                        refused(&format!("{}:{}: x y z, got {line:?}", f.display(), n + 1));
+                    }
                     cells.push([v[0], v[1], v[2]]);
                 }
-                anyhow::ensure!(!cells.is_empty(), "{}: no place (an empty positions file refuses)", f.display());
+                if cells.is_empty() {
+                    refused(&format!("{}: no place (an empty positions file refuses)", f.display()));
+                }
                 println!("positions: {} places from {} onto every copy", cells.len(), f.display());
                 for p in parts.iter_mut() {
                     p.positions.extend(cells.iter().map(|c| [c[0] + p.offset[0], c[1] + p.offset[1], c[2] + p.offset[2]]));
                 }
             }
-            parts.push(crate::loaderlayout::lay("loader", &loader.display().to_string(), &l, i3(&loader_offset)?, loader_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
+            let lo_at = pre!(i3(&loader_offset), "--loader-offset");
+            parts.push(pre!(crate::loaderlayout::lay("loader", &loader.display().to_string(), &l, lo_at, loader_nether_ybase), "the loader"));
             if let Some(w) = &write_layout {
-                let d = crate::loaderlayout::compose(&parts).map_err(|e| anyhow::anyhow!(e))?;
-                std::fs::write(w, d.to_text())?;
+                let (d, notes) = pre!(crate::loaderlayout::compose(&parts, lightning_ready), "--write-layout");
+                let mut text = notes.iter().map(|n| format!("{n}\n")).collect::<String>();
+                text.push_str(&d.to_text());
+                pre!(std::fs::write(w, text), format!("--write-layout {}", w.display()));
                 // (read back, G1 06:37 N7: the written file parses to the same cells, block entities,
                 // entities (kind, position, data), ports and ground)
-                let back = mctas::design::Design::parse(&std::fs::read_to_string(w)?)?;
-                anyhow::ensure!(
-                    back.blocks == d.blocks && back.block_entities == d.block_entities && back.entities == d.entities && back.ports == d.ports && back.meta.get("ground") == d.meta.get("ground"),
-                    "{}: the written layout does not read back",
-                    w.display()
+                let back = pre!(std::fs::read_to_string(w).map_err(|e| e.to_string()).and_then(|t| mctas::design::Design::parse(&t).map_err(|e| e.to_string())), format!("--write-layout {} read back", w.display()));
+                if !(back.blocks == d.blocks && back.block_entities == d.block_entities && back.entities == d.entities && back.ports == d.ports && back.meta.get("ground") == d.meta.get("ground")) {
+                    refused(&format!("{}: the written layout does not read back", w.display()));
+                }
+                println!(
+                    "wrote the overworld layout {} ({} cells, {} block entities, {} entities{}; read back whole; blob {})",
+                    w.display(),
+                    d.blocks.len(),
+                    d.block_entities.len(),
+                    d.entities.len(),
+                    if lightning_ready { ", lightning-ready" } else { "" },
+                    blob(w)
                 );
-                println!("wrote the overworld layout {} ({} cells, {} block entities, {} entities; read back whole; blob {})", w.display(), d.blocks.len(), d.block_entities.len(), d.entities.len(), blob(w));
+                for n in &notes {
+                    println!("  {n}");
+                }
                 // (its villager places beside it, world coordinates: every copy's `--positions` places,
                 // for `lightning-check <layout> --rails --positions=<this>`)
                 let all: Vec<[i32; 3]> = parts.iter().flat_map(|p| p.positions.iter().copied()).collect();
@@ -8563,46 +8626,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for c in &all {
                         text.push_str(&format!("{} {} {}\n", c[0], c[1], c[2]));
                     }
-                    std::fs::write(&pw, text)?;
+                    pre!(std::fs::write(&pw, text), format!("{}", pw.display()));
                     println!("wrote its villager places {} ({} places; blob {})", pw.display(), all.len(), blob(&pw));
                 }
             }
-            let mut planted: Vec<crate::loaderlayout::Plant> = plant.iter().map(|s| crate::loaderlayout::parse_plant(s, true)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
-            for s in &plant_unframed {
-                planted.push(crate::loaderlayout::parse_plant(s, false).map_err(|e| anyhow::anyhow!(e))?);
+            let mut planted: Vec<crate::loaderlayout::Plant> = Vec::new();
+            for s in &plant {
+                planted.push(pre!(crate::loaderlayout::parse_plant(s, true), format!("--plant {s}")));
             }
-            let (rep, mut ok) = crate::loaderlayout::report(&parts, &planted, golem_margin).map_err(|e| anyhow::anyhow!(e))?;
+            for s in &plant_unframed {
+                planted.push(pre!(crate::loaderlayout::parse_plant(s, false), format!("--plant-unframed {s}")));
+            }
+            // (the report's own refusals: a bad margin, two plants of one name, a plant that moves nothing,
+            // a dropper firing up or down)
+            let (rep, mut ok) = pre!(crate::loaderlayout::report(&parts, &planted, golem_margin), "the layout");
             print!("{rep}");
             let mut not_modeled = 0;
-            if let Some(ticks) = redsim {
-                anyhow::ensure!(planted.is_empty(), "--redsim runs the layout as written (no --plant)");
-                if ticks <= 0 {
-                    refused(&format!("--redsim {ticks}: a run of at least 1 gt"));
-                }
-                // (G1 06:37 (2): the golems and the world open inside the run, else refused)
-                let golem_at = golem_at.unwrap_or(400);
-                let world_open = world_open_at.unwrap_or(ticks / 2);
-                if !(0..ticks).contains(&golem_at) {
-                    refused(&format!("--golem-at {golem_at}: inside the run's 0..{ticks} (else no golem is placed)"));
-                }
-                if !(0..ticks).contains(&world_open) {
-                    refused(&format!("--world-open-at {world_open}: inside the run's 0..{ticks} (else the world open never happens)"));
-                }
-                let control = match redsim_control.as_deref() {
-                    None => None,
-                    Some(c) => Some(crate::loaderrun::Control::parse(c).unwrap_or_else(|| refused(&format!("--redsim-control {c}: one of {}", crate::loaderrun::Control::NAMES.join(", "))))),
-                };
-                let seeds = seeds.unwrap_or_else(|| "1".to_string());
-                for (k, sd) in seeds.split(',').enumerate() {
-                    // (an empty entry is refused, never dropped)
-                    anyhow::ensure!(!sd.trim().is_empty(), "--seeds \"{seeds}\": entry {} is empty", k + 1);
-                    let o = crate::loaderrun::Opts { ticks, seed: sd.trim().parse()?, golem_at, world_open, control };
+            if let Some((ticks, seed_list, golem_at, world_open, control)) = redsim_opts {
+                for seed in seed_list {
+                    let o = crate::loaderrun::Opts { ticks, seed, golem_at, world_open, control };
                     let (t, v) = crate::loaderrun::run(&parts, &o).map_err(|e| anyhow::anyhow!(e))?;
                     print!("{t}");
                     match v {
                         crate::loaderrun::Verdict::Pass => {}
                         crate::loaderrun::Verdict::Fail => ok = false,
                         crate::loaderrun::Verdict::NotModeled => not_modeled += 1,
+                        // (G1 08:37 (1), ironspec 08:37a: a control that planted nothing, or whose own bar
+                        // didn't fail, is not a pass: REFUSED by name, its own code)
+                        crate::loaderrun::Verdict::Refused => refused(&format!("redsim seed {seed}: the control planted nothing (named above)")),
                     }
                 }
             }

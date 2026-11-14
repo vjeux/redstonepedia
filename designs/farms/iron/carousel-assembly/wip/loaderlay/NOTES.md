@@ -174,7 +174,8 @@ V's item.
 - the N = 4 layout of record with each control flag above;
 - the redsim runs: each of loader-x8 at N = 1 / 2 / 4 and loader-clock-x8 at N = 4 with
   `--redsim 24000 --seeds 1,2,3` (the world open at t 12,000);
-- the redsim controls: loader-x8 at N = 1, `--redsim 2400` with each `--redsim-control` (exit 1).
+- the redsim controls: loader-x8 at N = 1, `--redsim 2400` with each `--redsim-control` (exit 1 each;
+  `put-out-twin` on the N = 2 layout as well), and a control refused (exit 4).
 
 Every run first passes the shared provenance check in mctas's dispatch (ironspec 01:58 / 02:35;
 ironfarm's f99df6a0e, default-deny: `loader-layout` is evidence): the binary's stamp, the worktree
@@ -182,10 +183,11 @@ and the cited commit must agree. Every design file a run reads (`--module`, `--l
 `--positions`) must lie in the worktree and be the cited commit's blob at its path, else the run
 refuses (G1 06:37 (6), ironspec 06:43); each run prints them with their blob ids. The outputs end on
 the shared exit-code table's line: 0 PASS, 1 FAIL, 2 NOT MODELED (only loader-clock-x8's redsim row,
-for the two named model limits below). The outputs, with their numbers, are the push's report
-artifacts. Results run before the binary rule (the 02:03 / 02:04 lightning and redsim runs) cite
-nothing, and the e495c3d74 runs read rev 3 from a copy outside the tree (G1 06:37 (6)): the runs of
-record are the ones citing the commit after it.
+for the two named model limits below), 4 REFUSED (every refusal before a run, and a control that
+planted nothing). The outputs, with their numbers, are the push's report artifacts. Results run before
+the binary rule (the 02:03 / 02:04 lightning and redsim runs) cite nothing, and the e495c3d74 runs read
+rev 3 from a copy outside the tree (G1 06:37 (6)): the runs of record are the ones citing the latest
+commit.
 
 ## The lightning print (ironspec 01:17 (1b), G1 01:22 / 01:34 / 06:37; `loaderrods`)
 
@@ -202,8 +204,9 @@ the strike area that holds no layout cell at or above it. A rod under the plane 
 THE STRIKE AREA (ironspec 05:25 (iii)) is every chunk holding a layout cell, an entity or a villager
 place, plus 4 columns beyond its edges. THE PLACES are:
 - every rail cell (a rider seated in a cart there);
-- every entity of every part: the carts with their riders, the 20 scarer boats with their pillager
-  or zombie (ironspec 06:43: a bolt destroys a boat as it does a cart), the golems;
+- every entity a part declares: rev 3's minecarts and the 20 oak boats that hold its scarers (a
+  pillager or a zombie; ironspec 06:43: a bolt destroys a boat as it does a cart); loader-x8 declares
+  none, and the redsim runner's pad golems are no part's (G1 08:37 (4));
 - every place of `--positions` files in the module's written frame, moved onto every copy. The
   files are 9fc3155f's non-rail villager places (05:27b / 05:28, byte-identical to its artifacts):
   - `rev3-nonrail.positions.txt` for rev 3, the module these layouts use (a/1190241670091420, md5
@@ -213,15 +216,16 @@ place, plus 4 columns beyond its edges. THE PLACES are:
     replaces rev 3.
 
 The bars (each FAILS by name, each with a single-change twin among the unit tests, G1 06:37 (4)):
-- (a) every strike-area column sends its strike to a credited rod. So no strike lands on a column
-  top, and none is redirected to an entity, anywhere in the area; each part's footprint columns are
-  printed with the rods taking them and the worst column, and a part with uncovered columns needs its
-  own rod;
+- (a) every strike-area column sends its strike to a credited rod (no column: NOT JUDGED, FAIL). So
+  no strike lands on a column top, and none is redirected to an entity, anywhere in the area; each
+  part's footprint columns are printed with the rods taking them and the worst column, and a part with
+  uncovered columns needs its own rod;
 - (b) every place is clear of every credited rod's own bolt box (the hit box around rodPos + 1). A
   villager converts whether it sees the sky or not, so there is no exposure test. The per-place
   table prints, by part, kind and level y, each place's columns within 3 with the rods taking them
-  (inside the strike area, so covered when (a) passes) and its clearance;
-- (c) no credited rod's bolt box meets a loader cell;
+  (inside the strike area, so covered when (a) passes), its clearance, and IN a box by the bar's own
+  intersection test;
+- (c) no credited rod's bolt box meets a loader cell (no loader part or cell: NOT JUDGED, FAIL);
 - (d) every credited rod's chunk is loaded by the loader's PORTAL ticket (NOT JUDGED, so FAIL,
   without the loader's PORTAL chunk).
 
@@ -251,7 +255,9 @@ rod, the 4 strike targets are these rods, and its 972 riders + 68 entities had 0
 fires: https://artifacts.internalmeta.com/a/4260158720941388 (md5 fc591dee3a67). Before the stand-in,
 the file's empty columns sat at the world's bottom, so "every column to a rod" is claimed only with
 the ground materialized (G1 05:51); this tool now materializes it itself (the ground plane above).
-The `--lightning-ready` variant of the written layout comes after train 16b.
+`--write-layout FILE --lightning-ready` writes the same layout with its three model layers declared in
+the file's head: portal cells as air, cart and boat passengers dropped, and the ground plane. It loads
+in mctas without stand-ins and gives every strike column a top.
 
 The two tables join copy by copy: the module check judges one copy alone, and this one adds the
 neighbours, the loader and the ground between. `--write-layout FILE` writes the overworld layout as
@@ -295,9 +301,11 @@ portal cells with their frame obsidian.
 - The loader's clocks start as the build starts them: an observer pair's O2 out and back, read back.
   A hopper clock starts as built.
 - Each world's level random and drop seed are set before the settle.
-- 3 golems go into each pad at t 400.
+- 3 golems go into each pad at the first tick at or after t 400 (the runner's own golems, no part's).
 - A world open (`liveness::restart`, save order, 2 idle ticks) happens mid-run. The reload model
-  keeps the Nether part in memory (unmodelled there).
+  keeps the Nether part in memory (unmodelled there). Its idle ticks advance game time 2 past the tick
+  count, so the runner fires everything timed (golems, controls) at the first tick at or after its
+  time, never on an exact tick that a world open could skip (G1 08:37 (1)).
 
 The bars (each FAILS by name, G1 06:37 (1)-(3)):
 - every item arrival at the loader's own portal;
@@ -310,12 +318,23 @@ The bars (each FAILS by name, G1 06:37 (1)-(3)):
 - no crossing whose copy is in neither world;
 - no world error other than the two named model limits below.
 
-Each bar has a failing control through the runner (unit test; `--redsim-control`), read back, a
-no-op refused: `stall-overworld-clock` (both overworld observers out a quarter in: the gap bars),
-`stop-nether-clock` (both Nether observers out before the run: launches), `steal-item` (one loop item
-in flight killed: the items), `divert-return` (a lit portal planted on the return's exit blocks one
-plane off the loader's portal: arrivals elsewhere), golems at a tick past the run (none placed), the
-world open past the run (never reached).
+Each bar has a failing control through the runner (unit tests; `--redsim-control`; G1 08:37 (2)), read
+back:
+- `stall-overworld-clock`: both overworld observers out a quarter in: the gap bars;
+- `stop-nether-clock`: both Nether observers out before the run: launches;
+- `steal-item`: one loop item in flight killed: the items;
+- `double-item`: one more loop item in the overworld firing dropper a quarter in: the items, on the
+  count (and it prints what a doubled item does to the loading: the crash note below);
+- `divert-return`: a lit portal planted on the return's exit blocks one plane off the loader's portal:
+  arrivals elsewhere;
+- `put-out-twin`: copy1's Nether twin put out before the run: its golems cross to another portal;
+- `drop-copy`: the copy of a loop item's crossing taken out of its world: a missing copy;
+- `unseed-drops`: the overworld's drop seed unset a quarter in: its next spit is a world error NOTES
+  doesn't name;
+- golems due past the run (none placed) and the world open past the run (never reached).
+
+A control that planted nothing, or whose own bar didn't fail, is REFUSED by name ("control planted
+nothing", exit 4: never a pass; ironspec 08:37a's standing rule).
 
 The row says how it differs from the reference timing row (ironfarm's flags: ±2 gt per clocked event
 and a world open at every phase): one world open, no event shift. The game's 01:20 restart rows
@@ -324,13 +343,15 @@ official game row (tick-exact 01:20) is its evidence. Two redsim model limits ca
 are the only world errors the runner names:
 - its self-starting hopper clock fires in the Nether while `Run::start` settles the Nether part,
   before any caller can seed that world's dropper random. The spit is refused and its item lost; the
-  runner counts only the spits recorded right after the start, and the items bar counts that lost
-  item by name;
+  runner counts only the spits recorded right after the start, and the items bar excuses the items
+  read back missing right after the start, by name, only when such a spit is recorded;
 - redsim's light model lacks the extended sticky piston and the piston head.
 
 A failed bar always FAILS (exit 1, by name). A run whose bars all pass with only those named limits
 met judges nothing: NOT MODELED, exit 2 by name (ironspec 02:45 (3)). Any other world error FAILS by
-name.
+name. So loader-clock-x8's redsim row (exit 2) is CITED FOR NO LAYOUT (ironspec 08:11a (6)): the
+clock layout's evidence is its static layout run (exit 0) and tick-exact's 01:20 game row; the
+redsim rows cited are the exit-0 ones (loader-x8 at N = 1 / 2 / 4).
 
 ## loader-long command lines (tick-exact's rows; the module from explore/onechunk 685729e50)
 
@@ -386,6 +407,47 @@ pillager or zombie (no `thunderHit` override) is left standing, unseated, taking
 bolt tick. Unarmed, it can't hurt a villager, but it may move within its box and change the scarer's
 sight rays (the panic classes, G1 06:47 (2)); 9fc3155f confirms each enclosure holds its freed scarer
 away from villagers (ironspec 06:59).
+
+A CRASH (an unclean stop, a priced host fault; ironspec 08:07a (5)): every item-carrying component
+of the loader, and what ONE item lost or doubled does there. The game saves each dimension, and in it
+the chunks' blocks and their entities, as separate records, not one transaction; so a crash can tear
+an item's move only where it changes record: a spit (a dropper's inventory to an item entity), a
+pickup (an item entity to a hopper's inventory) and the crossing (an entity leaving one dimension and
+arriving in the other). Each side's droppers and hoppers sit in one chunk (the overworld's (1,1), the
+Nether's (0,0)), so a hopper-to-hopper or hopper-to-dropper move is never torn.
+
+loader-x8 (4 leather, the loop's only items; design frame):
+- overworld side: the firing dropper (1,14,1) facing north into the portal (1 leather at the start);
+  the lift droppers (1,13,1) (empty) and (1,12,1) (1 leather), facing up, which each clock pulse
+  fires up the column into it; the floor hoppers (2..4,12,1) (west, into (1,12,1)) and (2..4,12,2)
+  (north, into the first row), which pick up the returns; the items in flight from its spit to the
+  Nether's floor hoppers;
+- Nether side: the same, in its own frame: the firing dropper (3,14,-1) facing south (1 leather), the
+  lift droppers (3,13,-1) (empty) and (3,12,-1) (1 leather), the floor hoppers (0..2,12,-1) (east)
+  and (0..2,12,-2) (south), the items in flight to the overworld's floor hoppers;
+- the clocks' observers hold no item.
+
+What one item does, wherever it is torn:
+- LOST: the loop runs on 3. The redsim control `steal-item` shows it: 4 -> 3 at t 600, then every
+  arrival at the loader's own portals, worst gap 48 gt (252 left of 300), launches on both sides; the
+  loading holds. Each further loss leaves fewer; at zero the loading lapses (class X).
+- DOUBLED: the loop runs on 5. The loader's items do nothing but cross: no attempt follows from an
+  item, and nothing leaves the loop; leather stacks to 64 in a dropper and a hopper has 5 slots, so 5
+  fit without a jam. A doubled item gives only an extra crossing (an extra PORTAL ticket renewal), so
+  NO GUARD is required. The redsim control `double-item` shows it: 4 -> 5, the items bar fails on the
+  count, and the arrivals, gaps and launches still pass.
+
+loader-clock-x8 (6 cobblestone in the loop, and 13 stone in each side's hopper clock):
+- the loop's components as above (its droppers (16,4,34) 2 and (16,5,34) 1 overworld, (3,9,-1) 2 and
+  (3,10,-1) 1 Nether, their floor hoppers, the items in flight). Each pulse spits one item from a
+  side's firing dropper and lifts one into it, and each side receives what the other sends, so the
+  laid 3 / 3 stays 3 / 3; one item lost (3 / 2) or doubled (4 / 3) still leaves at least two on each
+  side, its firing dropper refilled at every pulse (a reading of the design, not a run: this
+  loader's redsim row is NOT MODELED);
+- the hopper clocks (overworld (12,4,34), Nether (6,9,-1) with their partner hopper beside it): the
+  period is 16n - 12 gt for n stones, 196 at n = 13, so one stone lost gives 180 and one doubled 212
+  (the worst gap then about 214, 86 left of 300). But the clock's stones move hopper to hopper inside
+  one chunk's records, never through an entity or a dimension: a crash can't tear them.
 
 THE MODULE CHUNK IS ENTITY-TICKING IN EVERY LOADER LAYOUT (ironspec 06:54 (1), G1 06:47 (1)): the
 arrival detector (9,−9,−5) sits inside the module chunk, and each copy's module chunk is

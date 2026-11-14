@@ -144,10 +144,18 @@ pub fn lay(name: &str, file: &str, d: &Design, offset: C, ybase: i32) -> Result<
 /// layout builds them (a later part's cell over an earlier one's), its block entities and entities
 /// (with their NBT), the first copy's `port output`, `ground:` the copies' ground. The Nether parts are
 /// left out (`--write-layout`).
-pub fn compose(parts: &[Laid]) -> Result<Design, String> {
+///
+/// (9fc3155f 05:46 (3) / (4), G1 05:51, ironspec 05:52: the lightning-ready variant, `--lightning-ready`)
+/// Three declared model layers, so the file loads in mctas and every strike column has a top: every
+/// nether-portal cell set to air (a portal without its Nether part; a portal neither blocks motion nor
+/// sits over a rod, so it is lightning-neutral); every cart's and boat's passenger dropped (no `port
+/// home`; the riders come from `--rails`); and the ground plane of the lightning print
+/// (`loaderrods::ground_plane`: `minecraft:stone` at the ground's y in every column of the strike area
+/// that holds no layout cell at or above it). Returned with the comment lines that declare them.
+pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<String>), String> {
     let (ow, _) = built(parts, false, &[])?;
     let first = parts.iter().find(|p| p.name != "loader").ok_or("no copy")?;
-    let mut d = Design { name: format!("loader-layout ({} parts, the overworld)", parts.len()), ..Default::default() };
+    let mut d = Design { name: format!("loader-layout ({} parts, the overworld{})", parts.len(), if lightning_ready { ", lightning-ready" } else { "" }), ..Default::default() };
     d.blocks = ow.iter().map(|(c, (s, _))| (*c, s.clone())).collect();
     for p in parts {
         d.block_entities.extend(p.block_entities.iter().map(|(c, s)| (*c, s.clone())));
@@ -159,7 +167,32 @@ pub fn compose(parts: &[Laid]) -> Result<Design, String> {
         d.ports.insert("output".into(), o);
     }
     d.meta.insert("ground".into(), first.ground.to_string());
-    Ok(d)
+    let mut notes = Vec::new();
+    if lightning_ready {
+        let portals: Vec<C> = d.blocks.iter().filter(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(c, _)| *c).collect();
+        for c in &portals {
+            d.blocks.remove(c);
+        }
+        let mut riders = 0;
+        for e in d.entities.iter_mut() {
+            if e.nbt.as_deref().is_some_and(|n| n.contains("Passengers:[")) {
+                e.nbt = None;
+                riders += 1;
+            }
+        }
+        let g = first.ground;
+        let plane = crate::loaderrods::ground_plane(parts, g, d.blocks.keys());
+        for c in &plane {
+            d.blocks.insert(*c, "minecraft:stone".into());
+        }
+        let (x0, x1, z0, z1) = crate::loaderrods::strike_area(parts);
+        notes.push(format!(
+            "# (lightning-ready, a model for the lightning check only: {} nether-portal cells set to air, a portal without its Nether part; {riders} cart and boat passengers dropped, the riders come from --rails; the ground plane, minecraft:stone at y {g} under {} columns of the strike area x {x0}..{x1} z {z0}..{z1} that hold no layout cell at or above it)",
+            portals.len(),
+            plane.len()
+        ));
+    }
+    Ok((d, notes))
 }
 
 /// The binary rule's global flags as mctas's dispatch parsed them (`--cite <commit>` / `--cite=<commit>`,
@@ -1308,12 +1341,29 @@ mod tests {
     #[test]
     fn the_composed_layout_holds_every_parts_cells_and_reads_back() {
         let parts = layout(-24, [25, 80, 19], &[[38, 92, 24], [70, 92, 24]]);
-        let d = compose(&parts).unwrap();
+        let (d, notes) = compose(&parts, false).unwrap();
         let (ow, _) = built(&parts, false, &[]).unwrap();
         assert_eq!(d.blocks.len(), ow.len());
-        assert!(parts.iter().all(|p| p.blocks.keys().all(|c| d.blocks.contains_key(c))));
+        assert!(notes.is_empty() && parts.iter().all(|p| p.blocks.keys().all(|c| d.blocks.contains_key(c))));
         let back = Design::parse(&d.to_text()).unwrap();
         assert_eq!(back.blocks, d.blocks);
+        // (the lightning-ready variant: no portal cell, no passenger, the ground plane in every strike
+        // column with no cell at or above the ground, declared in its notes; it reads back whole)
+        let mut parts = parts;
+        parts[0].entity_nbt.push(Some("{Passengers:[{id:\"minecraft:villager\"}]}".into()));
+        parts[0].entities.push(("minecraft:minecart".into(), [39.5, 92.0, 25.5]));
+        let (r, notes) = compose(&parts, true).unwrap();
+        assert!(!r.blocks.values().any(|s| s.starts_with("minecraft:nether_portal")));
+        assert!(r.entities.iter().all(|e| e.nbt.as_deref().is_none_or(|n| !n.contains("Passengers"))));
+        let g = parts[0].ground;
+        let (x0, x1, z0, z1) = crate::loaderrods::strike_area(&parts);
+        assert_eq!(r.blocks.get(&[x0, g, z0]).map(String::as_str), Some("minecraft:stone"));
+        assert_eq!(r.blocks.get(&[x1, g, z1]).map(String::as_str), Some("minecraft:stone"));
+        assert!(notes.len() == 1 && notes[0].contains("nether-portal cells set to air") && notes[0].contains("1 cart and boat passengers dropped") && notes[0].contains(&format!("minecraft:stone at y {g}")), "{notes:?}");
+        let mut text = notes.iter().map(|n| format!("{n}\n")).collect::<String>();
+        text.push_str(&r.to_text());
+        let back = Design::parse(&text).unwrap();
+        assert!(back.blocks == r.blocks && back.entities == r.entities && back.block_entities == r.block_entities && back.meta.get("ground") == r.meta.get("ground"));
     }
 
     #[test]

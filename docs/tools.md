@@ -646,7 +646,7 @@ grown `--margin` on x and z (a golem: 0.7; an item: 0.125).
 A loader layout's links, as tick-exact's loader rows lay it (loaderlay, Nov 13): `mctas mobfarm
 loader-layout --module M --module-offsets "x,y,z;..." --loader L --loader-offset x,y,z
 [--module-nether-ybase 64] [--loader-nether-ybase 0] [--plant DIM:NAME=box]... [--plant-unframed
-DIM:NAME=box]... [--ground-y Y] [--positions FILE]... [--write-layout FILE] [--redsim TICKS [--seeds 1,2] [--golem-at 400] [--world-open-at T] [--redsim-control NAME]]` (`mobfarm::loaderlayout`,
+DIM:NAME=box]... [--ground-y Y] [--positions FILE]... [--write-layout FILE [--lightning-ready]] [--redsim TICKS [--seeds 1,2] [--golem-at 400] [--world-open-at T] [--redsim-control NAME]]` (`mobfarm::loaderlayout`,
 `loaderrods`, `loaderrun`).
 It lays the parts as `mobai loader-long` does (each Nether part at its anchor's /8 image). The search
 is tick-exact's 26.3 pins: the exit block `BlockPos.containing(x·s, y, z·s)`; every lit portal cell
@@ -667,36 +667,50 @@ lowest y. It prints:
   wins. The site's surface is a ground plane in that world (stone at the copies' ground, `--ground-y`
   sets it, under every strike-area column holding no layout cell at or above it). THE STRIKE AREA is
   every chunk holding a layout cell, an entity or a villager place, plus 4 columns beyond (ironspec
-  05:25 (iii)); THE PLACES are every rail cell, every entity of every part (carts, the scarer boats,
-  golems) and every place of `--positions` files (in the module's written frame, moved onto every
-  copy). Its bars, each with a single-change twin among the unit tests:
+  05:25 (iii)); THE PLACES are every rail cell, every entity a part declares (rev 3's minecarts and
+  the oak boats that hold its scarers; loader-x8 declares none) and every place of `--positions`
+  files (in the module's written frame, moved onto every copy). Its bars, each with a single-change
+  twin among the unit tests:
   - (a) every strike-area column sends its strike to a credited rod (per part, its footprint
-    columns' rods and worst column; a part with uncovered columns needs its own rod);
+    columns' rods and worst column; a part with uncovered columns needs its own rod); no column is
+    NOT JUDGED (FAIL);
   - (b) every place clear of every credited rod's own bolt box (the per-place table: each place's
-    columns within 3, the rods taking them, its clearance); no place is NOT JUDGED (FAIL);
-  - (c) no credited rod's bolt box on a loader cell;
+    columns within 3, the rods taking them, its clearance, IN a box by the bar's own test); no place
+    is NOT JUDGED (FAIL);
+  - (c) no credited rod's bolt box on a loader cell (no loader part or cell: NOT JUDGED, FAIL);
   - (d) every credited rod's chunk loaded by the loader's PORTAL ticket (NOT JUDGED, so FAIL,
     without the loader's PORTAL chunk);
   - `--write-layout FILE` writes the overworld layout as one design (read back whole: cells, block
     entities, entities, ports, ground) and its places beside it, so `lightning-check` can run on all
-    its rods;
+    its rods; with `--lightning-ready` (refused without `--write-layout`), its three model layers,
+    declared in the file's head, make it load in mctas and give every strike column a top: portal
+    cells as air, cart and boat passengers dropped, and the lightning print's ground plane;
 - the loader's portal cells and frames in the farm frame;
 - loader-long's command line.
 
 `--plant` / `--plant-unframed` are its controls: read back; the unframed one is skipped and its
 framed twin must move picks; one that moves nothing refuses. `--redsim` runs the portal skeleton in
-redsim: every crossing by portal, a golem in each pad, the items kept, the gaps against the 300-gt
-ticket across a world open (`liveness::restart` at `--world-open-at`, default half the run; the row
-says how it differs from the reference timing row). `--seeds`, `--golem-at`, `--world-open-at` and
-`--redsim-control` are refused without `--redsim`, and `--golem-at` / `--world-open-at` outside the
-run (exit 4 REFUSED, by name). Every bar FAILS by name: arrivals at the loader's own portal with the worst gap within 300 gt,
-launches on both sides, the items kept, golems placed (none placed fails) and crossing to their
-twins, the world open inside the run, no crossing's copy missing, and no world error other than the
-two redsim model limits NOTES names for loader-clock-x8 (the light model's extended sticky piston and
-piston head; a spit refused while `Run::start` settles the Nether part, its lost item counted by
-name). A failed bar exits 1; a run whose bars all pass with only those named limits met judges
-nothing and exits 2 NOT MODELED. `--redsim-control stall-overworld-clock | stop-nether-clock |
-steal-item | divert-return` plants one failing control (read back; a no-op refuses).
+redsim: every crossing by portal, a golem in each pad (the runner's, at the first tick at or after
+`--golem-at`), the items kept, the gaps against the 300-gt ticket across a world open
+(`liveness::restart` at `--world-open-at`, default half the run; the row says how it differs from the
+reference timing row). Every bar FAILS by name: arrivals at the loader's own portal with the worst gap
+within 300 gt, launches on both sides, the items kept (less the items read back lost to the settle's
+refused spits), golems placed (none placed fails) and crossing to their twins, the world open inside
+the run, no crossing's copy missing, and no world error other than the two redsim model limits NOTES
+names for loader-clock-x8 (the light model's extended sticky piston and piston head; a spit refused
+while `Run::start` settles the Nether part). A failed bar exits 1; a run whose bars all pass with only
+those named limits met judges nothing and exits 2 NOT MODELED. Every bar has a failing control through
+the runner, `--redsim-control NAME`: `stall-overworld-clock` (the gap), `stop-nether-clock` (the
+launches), `steal-item` and `double-item` (the items), `divert-return` (arrivals elsewhere),
+`put-out-twin` (a golem at another portal), `drop-copy` (a missing copy), `unseed-drops` (another world
+error); each is read back and fires at the first tick at or after its time (a world open's idle ticks
+skip game times), and one that planted nothing or whose own bar didn't fail exits 4 REFUSED by name
+("control planted nothing": never a pass).
+Every refusal before a run exits 4 REFUSED by name: `--seeds` (every seed parsed before the first
+run), `--golem-at`, `--world-open-at`, `--redsim-control` or `--lightning-ready` without what they
+need, `--golem-at` / `--world-open-at` outside the run, `--redsim` with a plant, a bad offset,
+positions file, design, plant or margin, a plant that moves nothing, and an input off the cited
+commit.
 It is an evidence subcommand (`provenance::is_evidence`): the shared provenance check runs first, and
 every design file it reads (`--module`, `--loader`, `--positions`) must lie in the worktree and be the
 cited commit's blob at its path (`--cite`, HEAD by default), else the run refuses (exit 4 REFUSED:

@@ -19,18 +19,21 @@
 //! or a villager place, plus 4 columns beyond (a strike chosen just outside a chunk reaches 3 sideways
 //! with its hit box, `LightningBolt.tick` 147-151, and up to 4 with the entity search's box around a
 //! wide entity, `findLightningTargetAround` 637). THE PLACES are every rail cell (a rider seated there),
-//! every entity of every part (carts with their riders, the scarer boats with their pillager or zombie,
-//! golems: G1 06:37 (5), ironspec 06:43; a bolt destroys a cart or a boat, `Entity.thunderHit`
-//! 2929-2936 -> `VehicleEntity.hurtServer` 35-58: 5 x 10 = 50 > 40, and frees its rider), and every place
-//! of `--positions` files.
+//! every entity any part declares (rev 3's: the minecarts and the oak boats that hold the scarers;
+//! loader-x8 declares none; the redsim runner's pad golems are no part's: G1 06:37 (5), 08:37 (4),
+//! ironspec 06:43; a bolt destroys a cart or a boat, `Entity.thunderHit` 2929-2936 ->
+//! `VehicleEntity.hurtServer` 35-58: 5 x 10 = 50 > 40, and frees its rider), and every place of
+//! `--positions` files.
 //!
 //! The bars (each FAILS by name; each has a single-change twin among the tests):
-//! - (a) every column of the strike area sends its strike to a credited rod. Then no strike lands on a
-//!   column top and none is redirected to an entity anywhere a place could be: a place's columns within
-//!   3 lie in the strike area (checked: an internal error otherwise);
+//! - (a) every column of the strike area sends its strike to a credited rod (no column judged FAILS).
+//!   Then no strike lands on a column top and none is redirected to an entity anywhere a place could
+//!   be: a place's columns within 3 lie in the strike area (checked: an internal error otherwise);
 //! - (b) every place is clear of every credited rod's own bolt box (`lightning::hit_box_at` the cell
 //!   above the rod: x and z +-3, y -3..+9; `Villager.thunderHit` 746-760 converts with no sight test);
-//! - (c) no credited rod's bolt box meets a loader cell (a bolt burns the loop's items);
+//!   the per-place table marks a group IN a box by the same intersection test;
+//! - (c) no credited rod's bolt box meets a loader cell (a bolt burns the loop's items); NOT JUDGED,
+//!   which FAILS, with no part named "loader";
 //! - (d) every credited rod's chunk is loaded by the loader's overworld PORTAL ticket (level <= 33: the
 //!   POI search reads loaded sections only, G1 05:26 (b)); NOT JUDGED without the loader's PORTAL chunk,
 //!   which FAILS;
@@ -38,9 +41,9 @@
 //!
 //! The boxes: a cart or a boat with its rider seated is the vehicle's footprint (minecart 0.98 wide,
 //! boat 1.375: `EntityType` sizes) from its feet up 0.5625 + 1.95 (the seat's height at most, plus a
-//! villager's 1.95: above the seated rider's top, a conservative box); an iron golem 1.4 x 2.7; any
-//! other mob a villager's 0.6 x 1.95; a rail cell's or a positions place's rider the cell's footprint
-//! from its floor up 0.5625 + 1.95.
+//! villager's 1.95: above the seated rider's top, a conservative box); an iron golem (were a part to
+//! declare one) 1.4 x 2.7; any other mob a villager's 0.6 x 1.95; a rail cell's or a positions place's
+//! rider the cell's footprint from its floor up 0.5625 + 1.95.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -148,6 +151,14 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
         return Err(format!("the copies stand on different grounds {grounds:?} (or none): pass --ground-y"));
     };
     let (ow, _) = built(parts, false, &[])?;
+    // (G1 08:37 N: a layout with no cell, entity or place has no strike area: nothing judged, FAIL)
+    let (ax0, ax1, _, _) = strike_area(parts);
+    if ax0 > ax1 {
+        return Ok((
+            "lightning rods: the layout holds no cell, entity or villager place, so no strike area\n  (d) every credited rod's chunk loaded by the loader: NOT JUDGED: FAIL\n  (a) every strike-area column to a credited rod: no column: NOT JUDGED: FAIL\n  (b) every place clear of every credited rod's bolt box (0 places): no place: NOT JUDGED: FAIL\n  (c) the rods' bolt boxes against the loader's cells: NOT JUDGED: FAIL\n  lightning verdict: FAIL\n".to_string(),
+            false,
+        ));
+    }
     let w = world_of(parts, ground)?;
     let owner = |c: &C| ow.get(c).map(|(_, pi)| parts[*pi].name.clone()).unwrap_or_else(|| "no part".into());
     let topping: BTreeSet<C> = lt::rods(&w).into_iter().map(|p| [p.x, p.y, p.z]).collect();
@@ -259,7 +270,7 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
             if none > 0 { format!("; {none} with no rod within 128: {} needs its own rod", p.name) } else { String::new() }
         ));
     }
-    let area_pass = uncovered.is_empty();
+    let area_pass = !col.is_empty() && uncovered.is_empty();
     ok &= area_pass;
     let worst = col.iter().filter_map(|(&(x, z), &(t, r))| r.map(|r| (dist(r, x, t, z), (x, z), t, r))).max_by(|a, b| a.0.total_cmp(&b.0));
     s.push_str(&format!(
@@ -267,7 +278,9 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
         col.len() - uncovered.len(),
         col.len(),
         worst.map_or("-".to_string(), |(d, c, t, r)| format!("({},{}) (its top {t}) at {d:.2} from ({},{},{})", c.0, c.1, r[0], r[1], r[2])),
-        if area_pass {
+        if col.is_empty() {
+            "no column: NOT JUDGED: FAIL".to_string()
+        } else if area_pass {
             "PASS".to_string()
         } else {
             format!(
@@ -289,20 +302,24 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
         (dx * dx + dy * dy + dz * dz).sqrt()
     };
     let rod_boxes: Vec<(C, Aabb)> = topping.iter().map(|r| (*r, bolt_box([r[0], r[1] + 1, r[2]]))).collect();
-    // (part, kind, level y) -> (places, covering rods, the worst rod distance, columns with no rod, the least clearance)
-    let mut table: BTreeMap<(usize, String, i32), (usize, BTreeSet<String>, f64, usize, f64)> = BTreeMap::new();
+    // (part, kind, level y) -> (places, covering rods, the worst rod distance, columns with no rod, the
+    // least clearance, any place IN a rod's box by the bar's own intersection test)
+    let mut table: BTreeMap<(usize, String, i32), (usize, BTreeSet<String>, f64, usize, f64, bool)> = BTreeMap::new();
     let mut in_box: Vec<String> = Vec::new();
     let mut open = 0;
     for (pi, kind, c, bx, name) in &places {
         let clear = rod_boxes.iter().map(|(_, b)| gap(*bx, *b)).fold(f64::INFINITY, f64::min);
+        let mut inside = false;
         for (r, b) in &rod_boxes {
             if bx.intersects(*b) {
+                inside = true;
                 in_box.push(format!("{name} in the box of the rod ({},{},{})", r[0], r[1], r[2]));
             }
         }
-        let e = table.entry((*pi, kind.clone(), c[1])).or_insert((0, BTreeSet::new(), 0.0, 0, f64::INFINITY));
+        let e = table.entry((*pi, kind.clone(), c[1])).or_insert((0, BTreeSet::new(), 0.0, 0, f64::INFINITY, false));
         e.0 += 1;
         e.4 = e.4.min(clear);
+        e.5 |= inside;
         for dx in -3..=3 {
             for dz in -3..=3 {
                 let (x, z) = (c[0] + dx, c[2] + dz);
@@ -327,13 +344,13 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
         let lines: Vec<String> = table
             .iter()
             .filter(|((q, _, _), _)| *q == pi)
-            .map(|((_, kind, y), (k, by, worst, un, clear))| {
+            .map(|((_, kind, y), (k, by, worst, un, clear, inside))| {
                 format!(
                     "{kind} y {y}: {k} (columns within 3 to {}, worst {worst:.2}{}; clear of the rods' bolt boxes by {}{})",
                     if by.is_empty() { "no rod".to_string() } else { by.iter().map(|o| format!("{o}'s rod")).collect::<Vec<_>>().join(" + ") },
                     if *un > 0 { format!(", {un} with no rod") } else { String::new() },
                     if clear.is_finite() { format!("{clear:.2}") } else { "- (no rod)".to_string() },
-                    if *clear <= 0.0 { ": IN a rod's bolt box" } else { "" }
+                    if *inside { ": IN a rod's bolt box" } else { "" }
                 )
             })
             .collect();
@@ -354,22 +371,34 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
             format!("{}: FAIL", in_box.join("; "))
         }
     ));
-    // (c) the rods' own bolt boxes against the loader's cells
+    // (c) the rods' own bolt boxes against the loader's cells (G1 08:37 N: no loader part is NOT JUDGED)
     let cell_box = |c: &C| Aabb::new(c[0] as f64, c[1] as f64, c[2] as f64, (c[0] + 1) as f64, (c[1] + 1) as f64, (c[2] + 1) as f64);
-    if let Some(l) = parts.iter().find(|p| p.name == "loader") {
-        let hits: Vec<String> = rod_boxes
-            .iter()
-            .filter_map(|(r, b)| {
-                let k = l.blocks.keys().filter(|c| cell_box(c).intersects(*b)).count();
-                (k > 0).then(|| format!("({},{},{}) {k} loader cells", r[0], r[1], r[2]))
-            })
-            .collect();
-        ok &= hits.is_empty();
-        s.push_str(&format!(
-            "  (c) the rods' bolt boxes against the loader's {} cells: {}\n",
-            l.blocks.len(),
-            if hits.is_empty() { "none meets them: PASS".to_string() } else { format!("{}: FAIL (a bolt there burns the loop's items)", hits.join(", ")) }
-        ));
+    match parts.iter().find(|p| p.name == "loader") {
+        Some(l) => {
+            let hits: Vec<String> = rod_boxes
+                .iter()
+                .filter_map(|(r, b)| {
+                    let k = l.blocks.keys().filter(|c| cell_box(c).intersects(*b)).count();
+                    (k > 0).then(|| format!("({},{},{}) {k} loader cells", r[0], r[1], r[2]))
+                })
+                .collect();
+            ok &= hits.is_empty() && !l.blocks.is_empty();
+            s.push_str(&format!(
+                "  (c) the rods' bolt boxes against the loader's {} cells: {}\n",
+                l.blocks.len(),
+                if l.blocks.is_empty() {
+                    "no loader cell: NOT JUDGED: FAIL".to_string()
+                } else if hits.is_empty() {
+                    "none meets them: PASS".to_string()
+                } else {
+                    format!("{}: FAIL (a bolt there burns the loop's items)", hits.join(", "))
+                }
+            ));
+        }
+        None => {
+            ok = false;
+            s.push_str("  (c) the rods' bolt boxes against the loader's cells: no part named loader: NOT JUDGED: FAIL\n");
+        }
     }
     s.push_str(&format!(
         "  lightning verdict: {}\n",
@@ -401,6 +430,19 @@ mod tests {
         l
     }
 
+    /// A loader of one cell at (8, 80, 8), out of the box of a rod at (0, 81, 0) (bar (c) judged).
+    fn loader() -> Laid {
+        let mut l = Laid { name: "loader".into(), ground: 70, ..Default::default() };
+        l.blocks.insert([8, 80, 8], "minecraft:glass".into());
+        l
+    }
+
+    /// `parts` and the one-cell loader.
+    fn with_loader(mut parts: Vec<Laid>) -> Vec<Laid> {
+        parts.push(loader());
+        parts
+    }
+
     /// The verdict line of bar `key` ("(a)", "(b)", ...).
     fn bar<'a>(t: &'a str, key: &str) -> &'a str {
         t.lines().find(|l| l.trim_start().starts_with(key)).unwrap_or_else(|| panic!("no {key} line in\n{t}"))
@@ -409,32 +451,32 @@ mod tests {
     #[test]
     fn every_strike_column_goes_to_a_topping_rod_within_128() {
         // (a rod on copy1 covers copy2 at 100 blocks, and the ground between them)
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, true), part("copy2", 100, 0, false)], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, true), part("copy2", 100, 0, false)]), Some([0, 0])).unwrap();
         assert!(ok && t.contains("copy1's (0,81,0) tops its column") && t.contains("copy2: 9 footprint columns; their strikes go to copy1's rod 9") && bar(&t, "(a)").ends_with("PASS"), "{t}");
     }
 
     #[test]
     fn a_copy_beyond_reach_or_a_covered_rod_fails() {
         // (copy2 at 140: beyond 128, it needs its own rod)
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, true), part("copy2", 140, 0, false)], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, true), part("copy2", 140, 0, false)]), Some([0, 0])).unwrap();
         assert!(!ok && t.contains("copy2 needs its own rod") && bar(&t, "(a)").ends_with("FAIL"), "{t}");
         // (a cell above the rod: it tops no column, no strike goes to it)
         let mut c = part("copy1", 0, 0, true);
         c.blocks.insert([0, 83, 0], "minecraft:glass".into());
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && t.contains("does NOT top its column") && t.contains("copy1 needs its own rod"), "{t}");
         // (a rod under the ground plane: N5, it tops no column)
         let mut c = part("copy1", 0, 0, false);
         c.blocks.insert([10, 65, 0], "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]".into());
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && t.contains("copy1's (10,65,0) does NOT top its column"), "{t}");
         // (no rod at all)
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, false)], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, false)]), Some([0, 0])).unwrap();
         assert!(!ok && t.contains("loader's overworld PORTAL ticket): none\n"), "{t}");
         // (copies on different grounds refuse without --ground-y)
         let mut c2 = part("copy2", 40, 0, false);
         c2.ground = 60;
-        assert!(rods_text(&[part("copy1", 0, 0, true), c2], Some([0, 0])).unwrap_err().contains("--ground-y"));
+        assert!(rods_text(&with_loader(vec![part("copy1", 0, 0, true), c2]), Some([0, 0])).unwrap_err().contains("--ground-y"));
     }
 
     #[test]
@@ -444,62 +486,77 @@ mod tests {
         // to x 131, reaches past 128: only (a) fails)
         let mut c = part("copy1", 0, 0, true);
         c.positions.push([124, 71, 0]);
-        let (t, ok) = rods_text(&[c.clone()], Some([0, 0])).unwrap();
-        assert!(!ok && bar(&t, "(a)").ends_with("FAIL") && bar(&t, "(b)").ends_with("PASS") && bar(&t, "(d)").ends_with("PASS"), "{t}");
+        let (t, ok) = rods_text(&with_loader(vec![c.clone()]), Some([0, 0])).unwrap();
+        assert!(!ok && bar(&t, "(a)").ends_with("FAIL") && ["(b)", "(c)", "(d)"].iter().all(|k| bar(&t, k).ends_with("PASS")), "{t}");
         c.positions.pop();
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(ok && bar(&t, "(a)").ends_with("PASS"), "{t}");
     }
 
     #[test]
     fn a_place_or_a_boat_in_a_rods_bolt_box_fails_only_the_clearance_bar() {
-        // (G1 06:37 (4), (b)'s single-change twin: a place beside the rod)
+        // (G1 06:37 (4), (b)'s single-change twin: a place beside the rod; the table marks it IN the box
+        // by the bar's own test)
         let mut c = part("copy1", 0, 0, true);
         c.positions.push([2, 81, 2]);
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
-        assert!(!ok && bar(&t, "(b)").ends_with("FAIL") && bar(&t, "(b)").contains("copy1's villager place (2,81,2) in the box of the rod (0,81,0)") && bar(&t, "(a)").ends_with("PASS"), "{t}");
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
+        assert!(!ok && bar(&t, "(b)").ends_with("FAIL") && bar(&t, "(b)").contains("copy1's villager place (2,81,2) in the box of the rod (0,81,0)") && t.contains("place y 81: 1 (") && t.contains(": IN a rod's bolt box"), "{t}");
+        assert!(["(a)", "(c)", "(d)"].iter().all(|k| bar(&t, k).ends_with("PASS")), "{t}");
         // (ironspec 06:43: a scarer boat 3 east of the rod; 6 east is clear)
         let mut c = part("copy1", 0, 0, true);
         c.entities.push(("minecraft:oak_boat".into(), [3.2, 81.0, 0.5]));
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && bar(&t, "(b)").contains("copy1's oak_boat at (3.20,81.00,0.50) in the box of the rod (0,81,0)") && t.contains("oak_boat y 81: 1"), "{t}");
         let mut c = part("copy1", 0, 0, true);
         c.entities.push(("minecraft:oak_boat".into(), [6.5, 81.0, 0.5]));
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
-        assert!(ok && bar(&t, "(b)").ends_with("PASS"), "{t}");
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
+        assert!(ok && bar(&t, "(b)").ends_with("PASS") && !t.contains("IN a rod's bolt box"), "{t}");
         // (a rail on the slab 1 east and 1 south of the rod: a rider there)
         let mut c = part("copy1", 0, 0, true);
         c.blocks.insert([1, 81, 1], "minecraft:rail[shape=north_south,waterlogged=false]".into());
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && bar(&t, "(b)").contains("a rider on copy1's rail (1,81,1) in the box of the rod (0,81,0)"), "{t}");
         // (no place at all: NOT JUDGED)
         let mut c = part("copy1", 0, 0, true);
         c.positions.clear();
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && bar(&t, "(b)").contains("no place: NOT JUDGED: FAIL"), "{t}");
     }
 
     #[test]
     fn a_rod_box_on_the_loader_fails_only_its_bar() {
         // ((c)'s single-change twin)
-        let mut l = part("loader", 20, 0, false);
-        l.positions.clear();
+        let mut l = loader();
         l.blocks.insert([2, 84, 0], "minecraft:hopper[enabled=true,facing=down]".into());
         let (t, ok) = rods_text(&[part("copy1", 0, 0, true), l], Some([0, 0])).unwrap();
-        assert!(!ok && bar(&t, "(c)").contains("(0,81,0) 1 loader cells: FAIL") && bar(&t, "(a)").ends_with("PASS") && bar(&t, "(b)").ends_with("PASS"), "{t}");
+        assert!(!ok && bar(&t, "(c)").contains("(0,81,0) 1 loader cells: FAIL") && ["(a)", "(b)", "(d)"].iter().all(|k| bar(&t, k).ends_with("PASS")), "{t}");
     }
 
     #[test]
     fn a_rod_outside_the_loaders_chunks_is_not_credited() {
         // ((d)'s single-change twin; G1 05:26 (b): the rod's chunk (0,0) at Chebyshev 1 from the loader's
         // PORTAL chunk (1,1): level 31, loaded; at Chebyshev 4 from (4,0): level 34, not loaded: FAIL)
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, true)], Some([1, 1])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, true)]), Some([1, 1])).unwrap();
         assert!(ok && t.contains("chunk (0,0) level 31 (loaded)"), "{t}");
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, true)], Some([4, 0])).unwrap();
-        assert!(!ok && t.contains("chunk (0,0) level 34 (NOT LOADED by the loader)") && bar(&t, "(d)").ends_with("FAIL") && bar(&t, "(a)").ends_with("PASS"), "{t}");
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, true)]), Some([4, 0])).unwrap();
+        assert!(!ok && t.contains("chunk (0,0) level 34 (NOT LOADED by the loader)") && bar(&t, "(d)").ends_with("FAIL") && ["(a)", "(b)", "(c)"].iter().all(|k| bar(&t, k).ends_with("PASS")), "{t}");
         // (G1 06:37 N3: no PORTAL chunk: the load NOT JUDGED fails)
-        let (t, ok) = rods_text(&[part("copy1", 0, 0, true)], None).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, true)]), None).unwrap();
         assert!(!ok && bar(&t, "(d)").contains("NOT JUDGED"), "{t}");
+    }
+
+    #[test]
+    fn nothing_judged_never_passes() {
+        // (G1 08:37 N: (c) with no part named "loader" or no loader cell, and (a) with no column, are NOT
+        // JUDGED, which FAILS)
+        let (t, ok) = rods_text(&[part("copy1", 0, 0, true)], Some([0, 0])).unwrap();
+        assert!(!ok && bar(&t, "(c)").contains("no part named loader: NOT JUDGED: FAIL") && ["(a)", "(b)", "(d)"].iter().all(|k| bar(&t, k).ends_with("PASS")), "{t}");
+        let empty = Laid { name: "copy1".into(), ground: 70, ..Default::default() };
+        let bare_loader = Laid { name: "loader".into(), ground: 70, ..Default::default() };
+        let (t, ok) = rods_text(&[empty, bare_loader.clone()], Some([0, 0])).unwrap();
+        assert!(!ok && bar(&t, "(a)").contains("no column: NOT JUDGED: FAIL"), "{t}");
+        let (t, ok) = rods_text(&[part("copy1", 0, 0, true), bare_loader], Some([0, 0])).unwrap();
+        assert!(!ok && bar(&t, "(c)").contains("no loader cell: NOT JUDGED: FAIL"), "{t}");
     }
 
     #[test]
@@ -511,7 +568,7 @@ mod tests {
         }
         c.blocks.insert([0, 81, 6], "minecraft:rail[shape=east_west,waterlogged=false]".into());
         c.positions = vec![[1, 81, 5]];
-        let (t, ok) = rods_text(&[c], Some([0, 0])).unwrap();
+        let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(ok && t.contains("place y 81: 1 (columns within 3 to copy1's rod, worst") && t.contains("clear of the rods' bolt boxes by 1.50)") && t.contains("rail y 81: 1 (columns within 3 to copy1's rod, worst") && t.contains("clear of the rods' bolt boxes by 2.50)"), "{t}");
     }
 
@@ -542,7 +599,12 @@ mod tests {
             })
             .collect();
         parts.push(crate::loaderlayout::lay("loader", "l", &l, [25, 80, 19], 0).unwrap());
-        let (t, ok) = rods_text(&parts, Some([1, 1])).unwrap();
+        // (the loader's overworld PORTAL chunk read from the layout, G1 08:37 N)
+        let li = parts.len() - 1;
+        let ps = crate::loaderlayout::portals(&parts, &[]).unwrap();
+        let c0 = ps.iter().find(|p| p.part == li && !p.nether).unwrap().cells[0];
+        let pc = [c0[0].div_euclid(16), c0[2].div_euclid(16)];
+        let (t, ok) = rods_text(&parts, Some(pc)).unwrap();
         assert!(ok && ["(a)", "(b)", "(c)", "(d)"].iter().all(|k| bar(&t, k).ends_with("PASS")) && t.contains("copy4's (32,109,32) tops its column, chunk (2,2) level 31 (loaded)"), "{t}");
         // (the 20 scarer boats among the places)
         assert_eq!(parts.iter().map(|p| p.entities.iter().filter(|(k, _)| k.ends_with("boat")).count()).sum::<usize>(), 20, "{t}");
