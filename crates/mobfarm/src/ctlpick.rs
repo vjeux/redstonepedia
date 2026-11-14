@@ -105,11 +105,15 @@ pub struct Cfg {
     /// ironspec 06:28 (B): RS_READY's EVIDENCE MOVED TO THE BALL EXIT (7,-3,4): each visit's cycle grows by the previous
     /// rider's travel from the R string to the ball exit (gt).
     pub rs_extra: i64,
+    /// G1 06:35 (a): the departure presses (their index over the run, 1-based) the room count MISSES (no down-count).
+    pub missed_dep: Vec<usize>,
+    /// G1 06:35 (b): EXTRA departure presses (gt): the room count goes down once more (clamped at >= 0).
+    pub extra_dep: Vec<i64>,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0 }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, missed_dep: vec![], extra_dep: vec![] }
     }
 }
 
@@ -150,6 +154,14 @@ pub struct Out {
     pub max_open: usize,
     /// Picks deferred by THE WAY-IN ROOM TERM.
     pub wayin_deferred: usize,
+    /// THE ROOM COUNT (the hardware's reading: up per pick, down per departure press, clamped >= 0): its most, its
+    /// resyncs (at the record's quiet point: the stop free, no pick for 3 RELs), and the RELs carrying two or more picks
+    /// (gt, the count before, after).
+    pub max_room: i64,
+    pub room_resyncs: usize,
+    pub multi_pick: Vec<(i64, i64, i64)>,
+    /// The RELs at which the room term deferred a pick (gt).
+    pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
     pub max_queue: usize,
     /// With `bed`: the longest wait on a lane's branch hold and at the front (gt), and the bed's busy fraction over the
@@ -232,6 +244,11 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut pending: Vec<(i64, usize, usize, i64, i64, Option<usize>, i64)> = Vec::new();
     // (every napper's (leg arrival, bed start) once its start is fixed: the way-in's occupancy and the room count)
     let mut assigned: Vec<(i64, i64)> = Vec::new();
+    // (THE ROOM COUNT as the hardware keeps it: up per pick edge, down per departure press (a bed start: the front's
+    // departure over (9,-11,-3)), clamped >= 0, reset at the record's quiet point; `deps`: departures not yet counted)
+    let mut room: i64 = 0;
+    let mut deps: Vec<i64> = Vec::new();
+    let mut dep_no = 0usize;
     // (THE 3-DEEP LANE RECORD, ironspec 01:05 (2): lanes written at each pick; with the skip fix a gate-G-skipped lane-7
     // entry is held and written behind the next REL's entries: (lane, the REL t it was picked at))
     let mut record: VecDeque<usize> = VecDeque::new();
@@ -288,6 +305,24 @@ pub fn run(cfg: &Cfg) -> Out {
         for k in 0..day_len {
             gt += 100;
             t += 1;
+            // (THE ROOM COUNT: the departure presses since the last REL count down (a planted miss does not), a planted
+            // extra press counts down once more; clamped at >= 0)
+            deps.sort();
+            while deps.first().is_some_and(|&d| d <= gt) {
+                deps.remove(0);
+                dep_no += 1;
+                if !cfg.missed_dep.contains(&dep_no) {
+                    room -= 1;
+                }
+            }
+            room -= cfg.extra_dep.iter().filter(|&&x| x > gt - 100 && x <= gt).count() as i64;
+            room = room.max(0);
+            // (its RESYNC on evidence at the record's quiet point: the stop free (the bed's last visit over, no napper
+            // waiting) and no pick for 3 RELs: nothing is dispatched and not departed, so the count reads 0)
+            if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && room != 0 {
+                o.room_resyncs += 1;
+                room = 0;
+            }
             // (THE RECORD's RESYNC, ironspec 01:05 (2)(b): no napper in flight (none pending, the stop free: the last
             // napper's visit over) and >= 3 RELs since the last pick: the record must be empty; any entry left is cleared)
             if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && (!record.is_empty() || !rec_hold.is_empty()) {
@@ -332,6 +367,7 @@ pub fn run(cfg: &Cfg) -> Out {
                     }
                 }
                 assigned.push((leg, start));
+                deps.push(start);
                 o.max_hold_wait = o.max_hold_wait.max(release - (leg + 15));
                 o.max_front_wait = o.max_front_wait.max(start - at_front);
                 prev_start = start;
@@ -435,6 +471,7 @@ pub fn run(cfg: &Cfg) -> Out {
                 continue;
             }
             let picks_before = picks_today;
+            let room_before = room;
             // (THE WAY-IN's OCCUPANCY at this REL: arrived at the leg and not yet in the bed; the room count: dispatched
             // and not yet departed from the front)
             assigned.retain(|a| a.1 + 1_000 > gt);
@@ -469,9 +506,10 @@ pub fn run(cfg: &Cfg) -> Out {
                 in_flight.retain(|&e| e > t);
                 let open = pending.len() + assigned.iter().filter(|a| a.1 > gt).count();
                 o.max_open = o.max_open.max(open);
-                if due && cfg.wayin_cap > 0 && open >= cfg.wayin_cap {
+                if due && cfg.wayin_cap > 0 && room >= cfg.wayin_cap as i64 {
                     // (THE WAY-IN ROOM TERM: the way-in's dry places are all spoken for: the pick is DEFERRED like HELD's)
                     o.wayin_deferred += 1;
+                    o.deferred_at.push(gt);
                     if !by_target && !due_repick {
                         next_pick[l] += cfg.period;
                     }
@@ -522,6 +560,8 @@ pub fn run(cfg: &Cfg) -> Out {
                         in_flight.push(t + cfg.held_lane.map_or(cfg.held, |h| h[l]));
                     }
                     picks_today += 1;
+                    room += 1;
+                    o.max_room = o.max_room.max(room);
                     let v = cfg.visit + LANE_EXTRA[l] + if late { 1 } else { 0 };
                     let nap_at = gt + v * 50;
                     if cfg.bed {
@@ -586,6 +626,9 @@ pub fn run(cfg: &Cfg) -> Out {
                 } else {
                     transit.push((t + CIRCUIT, l, c, None));
                 }
+            }
+            if picks_today - picks_before >= 2 {
+                o.multi_pick.push((gt, room_before, room));
             }
             match picks_today - picks_before {
                 2 => o.rels_two += 1,
@@ -914,6 +957,36 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         lines.push(format!("  THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {w}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
         let c = v.control("ctl-pick CONTROL (ironspec 06:31 (1)): the way-in room term off, the stop stalled: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name (b8949c96's spill)", 1, worst_off > 3).to_string();
         lines.push(format!("  CONTROL (no room term): at most {worst_off} nappers in the way-in ({off_at}): {c}"));
+        // (G1 06:35's three rows on the room count (an ORDER MACHINE, ironspec 06:43 (1): its resync on evidence at the
+        // record's quiet point): (a) A MISSED DEPARTURE PRESS: the count reads one high, picks defer early (safe), the
+        // resync puts it back: the way-in still <= 3, the nights still meet the bars, the count's resyncs printed;
+        // (b) AN EXTRA DEPARTURE PRESS while the count is full (a rollback over (9,-11,-3), which b8949c96's no-return
+        // rows show can't happen; or THE EMPTY-AT-FRONT CHAIN: a player's empty departing on R1): the count reads one low
+        // (clamped >= 0), so ONE napper too many can be dispatched: the overflow printed (the R_1 guard (7,19,1) turns it
+        // into a stall held dry); (c) TWO PICKS IN ONE REL count two (the count before / after printed))
+        let base = run(&design("room count, normal", 3, None));
+        let mut ra = design("room count, the 30th departure press missed", 3, None);
+        ra.missed_dep = vec![30];
+        let oa = run(&ra);
+        let wa = v.bar("ctl-pick: THE ROOM COUNT with a MISSED departure press (the 30th): the way-in still <= 3, the nights still meet the bars (24 distinct, every interval < 24,000 - margin), the count resynced at a quiet point", oa.max_wayin <= 3 && ok(&oa) && oa.room_resyncs >= 1);
+        lines.push(format!("  THE ROOM COUNT, a MISSED departure press (the 30th): picks deferred {} (normal {}), the count's resyncs {} (normal {}), the most in the way-in {}, the worst interval {}: {wa}", oa.wayin_deferred, base.wayin_deferred, oa.room_resyncs, base.room_resyncs, oa.max_wayin, oa.max_gap.0));
+        // (b): the extra press planted at each REL of night 3's window while the stop is stalled (the count full)
+        let night3 = 3 * DAY * 100;
+        let (mut over, mut over_at) = (0usize, String::new());
+        for ph in (0..6_000).step_by(500) {
+            let mut rb = design("room count, an extra departure press", 3, Some((night3 + ph, 2_000)));
+            rb.extra_dep = vec![night3 + ph + 1_000];
+            let ob = run(&rb);
+            if ob.max_wayin > over {
+                over = ob.max_wayin;
+                over_at = format!("the stop stalled 2,000 gt at night 3 + {ph}, the extra press 1,000 gt in");
+            }
+        }
+        lines.push(format!("  THE ROOM COUNT, an EXTRA departure press while full (a rollback over (9,-11,-3): b8949c96's no-return rows; or a player's empty departing on R1: the empty-at-front chain): the count clamped at >= 0, the most in the way-in {over} ({over_at}){}", if over > 3 { ": ONE TOO MANY: the R_1 guard (7,19,1) (dfb89499, priced) turns the overflow into a stall held dry" } else { "" }));
+        // (c)
+        let two: Vec<String> = base.multi_pick.iter().take(4).map(|(g, b, a)| format!("gt {g}: {b} -> {a}")).collect();
+        let w2 = v.bar("ctl-pick: TWO PICKS IN ONE REL count TWO on the room count (every such REL: after = before + the picks)", base.multi_pick.iter().all(|(_, b, a)| a - b >= 2) && !base.multi_pick.is_empty());
+        lines.push(format!("  THE ROOM COUNT, two or more picks in one REL: {} such RELs, each counting every pick ({}): {w2}", base.multi_pick.len(), two.join(", ")));
         // (ironspec 06:28 (B), G1 06:29: RS_READY AT THE BALL EXIT (7,-3,4): its cost per visit (the previous rider's
         // travel from the R string (4,0,5) to the ball exit, 58f770cc measuring) against the nap margin: the design's
         // worst nap-to-nap interval with each visit's cycle grown by 0..120 gt, printed (the bar's margin 1,000))
