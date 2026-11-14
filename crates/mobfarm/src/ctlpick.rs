@@ -129,8 +129,9 @@ pub struct Cfg {
     /// (day, lane, pick number): that napper is LOST between its pick and P1 (its cart broken by a player): its record
     /// entry is never popped by its own release (ironspec 01:05 (b): a desync the + 10 can't see).
     pub lost_napper: Vec<(i64, usize, usize)>,
-    /// ironspec 01:05 (2)(b): THE RECORD's RESYNC: cleared on evidence that no napper is in flight (P1, the front and the
-    /// stop empty, and >= 3 RELs since the last pick: a napper reaches P1 within 2 RELs of its pick).
+    /// ironspec 01:05 (2)(b): THE RECORD's RESYNC: cleared on SENSED evidence that no napper is in flight (P1 OCCUPIED's
+    /// latch 0, the front's arrival detector unpowered, the stop free (RS_ready set), and >= 3 RELs since the last pick: a
+    /// napper reaches P1 within 2 RELs of its pick).
     pub resync: bool,
     /// THE STOP STALLED (ironspec 06:23 / 06:31, G1 06:26: b8949c96's way-in overflow row): (gt start, length): no bed
     /// start inside the window (a token stall: the queue holds its nappers).
@@ -222,6 +223,10 @@ pub struct Out {
     pub event_lag: Vec<(i64, i64)>,
     /// Each napper's departure from the front (its bed start; the departure press's tick).
     pub departures: Vec<i64>,
+    /// (B): the least lag from a napper's RESET (its exit press) to the next napper's SET, and the nappers that reached the
+    /// hold while the previous one was still at it (waiting behind the hold, on the flat top).
+    pub reset_set_lag: Option<i64>,
+    pub behind_hold: usize,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
@@ -321,6 +326,10 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut prev_front: Option<(i64, i64, i64, i64)> = None;
     let mut prev_clear: i64 = i64::MIN / 4;
     let mut prev2_clear: i64 = i64::MIN / 4;
+    let mut prev_pass: i64 = i64::MIN / 4;
+    // (each processed napper's SENSED windows: (its SET, its latch's RESET + 1), (its front arrival press, the front's
+    // arrival detector falling), (its bed start, RS_ready's set after its visit): the record's resync reads the levels)
+    let mut sensed: Vec<(i64, i64, i64, i64, i64, i64)> = Vec::new();
     // (THE 3-DEEP LANE RECORD, ironspec 01:05 (2): lanes written at each pick; with the skip fix a gate-G-skipped lane-7
     // entry is held and written behind the next REL's entries: (lane, the REL t it was picked at))
     let mut record: VecDeque<usize> = VecDeque::new();
@@ -392,9 +401,17 @@ pub fn run(cfg: &Cfg) -> Out {
                 o.event_lag.push((gt, d));
             }
             room = room.max(0);
-            // (THE RECORD's RESYNC, ironspec 01:05 (2)(b): no napper in flight (none pending, the stop free: the last
-            // napper's visit over) and >= 3 RELs since the last pick: the record must be empty; any entry left is cleared)
-            if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && (!record.is_empty() || !rec_hold.is_empty()) {
+            // (THE RECORD's RESYNC, ironspec 01:05 (2)(b), FROM SENSED LEVELS (G1 on 16e8535f7, the older oracle
+            // `pending.is_empty() && gt >= bed_free` removed): no napper in flight = P1 OCCUPIED's latch 0 (no napper on P1
+            // or let down to it), the front's arrival detector unpowered, the stop free (RS_ready set by the ball-exit edge
+            // after the last visit), and >= 3 RELs since the last pick (a napper reaches P1 within 2 RELs of its pick, so a
+            // napper still on the leg is ruled out by time, not seen); the levels at this tick are read from each napper's
+            // sensed edges up to now: the record must be empty; any entry left is cleared)
+            sensed.retain(|s| s.5 + 2_000 > gt);
+            let latch_on = sensed.iter().any(|s| s.0 <= gt && gt < s.1);
+            let front_on = sensed.iter().any(|s| s.2 <= gt && gt < s.3);
+            let stop_busy = sensed.iter().any(|s| s.4 <= gt && gt < s.5);
+            if cfg.resync && !latch_on && !front_on && !stop_busy && t - last_pick_t >= 3 && (!record.is_empty() || !rec_hold.is_empty()) {
                 o.resyncs += 1;
                 record.clear();
                 rec_hold.clear();
@@ -446,6 +463,17 @@ pub fn run(cfg: &Cfg) -> Out {
                     }
                 };
                 let pass = (leg + LEG_TO_HOLD).max(hold_open);
+                // (ironspec 10:18a (2) / G1: the lag from the previous napper's RESET to this napper's SET (> 0 at every
+                // phase: the SET never lands while the RESET level holds); and a napper reaching the hold while the
+                // previous one is still at it (it would wait BEHIND the hold, on the flat top (9,25,8)): counted)
+                if let Some(pr) = prev_rel {
+                    let lag = (pass + HOLD_TO_SET) - (pr + P1_TO_EXIT);
+                    o.reset_set_lag = Some(o.reset_set_lag.map_or(lag, |m: i64| m.min(lag)));
+                }
+                if leg + LEG_TO_HOLD < prev_pass {
+                    o.behind_hold += 1;
+                }
+                prev_pass = pass;
                 let set = pass + HOLD_TO_SET;
                 let occupied = set + d_occ_gt;
                 // (prev_front: the previous napper's front arrival, its token set (the press, the recovery, or an extra press
@@ -507,6 +535,7 @@ pub fn run(cfg: &Cfg) -> Out {
                 // fall), so an extra press moves nothing; the control `press_count`: today's press-based count (the token
                 // set counts the room down))
                 token_sets.push((if cfg.press_count { tok } else { u_front }, false));
+                sensed.push((set, release + P1_TO_EXIT, at_front, u_front, start, start + cfg.bed_cycle + cfg.rs_extra));
                 prev2_clear = prev_clear;
                 prev_clear = u_front;
                 prev_rel = Some(release);
@@ -1090,11 +1119,16 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let night = 3 * DAY * 100;
         let (mut worst, mut worst_at, mut n, mut miss) = (0usize, String::new(), 0usize, Vec::new());
         let (mut worst_off, mut off_at) = (0usize, String::new());
+        let (mut least_lag, mut behind) = (on.reset_set_lag, on.behind_hold);
         for len in [2_000i64, 6_000] {
             for ph in (0..12_000).step_by(250) {
                 let st = (night + ph, len);
                 let o = run(&design(&format!("stop stalled {len} gt at night 3 + {ph}"), 3, Some(st)));
                 n += 1;
+                if let Some(l) = o.reset_set_lag {
+                    least_lag = Some(least_lag.map_or(l, |m| m.min(l)));
+                }
+                behind += o.behind_hold;
                 if o.max_wayin > worst {
                     worst = o.max_wayin;
                     worst_at = format!("{len} gt at + {ph}");
@@ -1111,6 +1145,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         }
         let w = v.bar_n("ctl-pick: THE STOP STALLED 2,000 / 6,000 gt at every phase of a night (every 250 gt): THE WAY-IN NEVER HOLDS A 4th NAPPER (the room term: dispatched-minus-departed < 3, the pick edges up, the front emptying down)", n, miss.is_empty() && worst <= 3);
         lines.push(format!("  THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {w}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
+        // ((B)'s two prints, judged (ironspec 10:18a (2) / (3), G1 10:11): THE RESET -> SET LAG (the next napper's SET after
+        // the previous one's RESET press, over the normal nights and every stall row, the queued napper let down at the
+        // hold's earliest opening): > 0 everywhere; A NAPPER WAITING BEHIND THE HOLD (reaching it while the previous one
+        // is still there, so resting on the flat top (9,25,8)): none, the room cap (the front + P1 + the hold) keeping a
+        // newly dispatched napper's arrival after P1's release has freed the hold)
+        let w = v.bar_n("ctl-pick: (B)'s RESET -> SET LAG over the normal nights and every stall row is > 0 (the SET pulse never lands while the RESET level holds) and NO NAPPER WAITS BEHIND THE HOLD", n + 1, least_lag.is_some_and(|l| l > 0) && behind == 0);
+        lines.push(format!("  (B): the least RESET -> SET lag {least_lag:?} gt; nappers waiting behind the hold {behind}: {w}"));
         let c = v.control("ctl-pick CONTROL (ironspec 06:31 (1)): the way-in room term off, the stop stalled: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name (b8949c96's spill)", 1, worst_off > 3).to_string();
         lines.push(format!("  CONTROL (no room term): at most {worst_off} nappers in the way-in ({off_at}): {c}"));
         // (G1 06:35's three rows on the room count (an ORDER MACHINE) under the token rule as ruled (the count goes down
