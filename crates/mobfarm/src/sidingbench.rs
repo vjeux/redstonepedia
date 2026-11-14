@@ -237,9 +237,6 @@ impl UpSlope {
     }
 }
 
-/// G1 17:00 (B4): a lip path's departure from its solo reference: the largest centre distance over
-/// the k both carry; a k carried by ONE path only (a path ending early, or a tail cut) is an infinite
-/// departure, never a dropped tail; None if they share no k.
 /// THE HARM's constants (G1 / ironspec Nov 14 00:55-00:57, read in the same ride per G1 04:32):
 /// the CONTACT SPACING, the follower's rider box touching its leader's cart box: the villager rider's
 /// half-width 0.30 + the minecart's half-width 0.49 = 0.79 b along z (and y on the 1:1 slopes) (ironspec
@@ -258,12 +255,42 @@ pub const HARM_CONTACT: f64 = 0.30 + 0.49;
 /// 2 = 0.012); a game push at a rest tick (~0.1 b) would read as HARM: a false FAIL, the safe direction.
 pub const HARM_EPS: f64 = 0.010;
 
-/// THE SLOTS (the lanes file's slopes, the bench's geometry): a cart rests IN THE SLOTS when it sits in
-/// the lane's column (x within 0.05 of lx + 0.5), on the slope's line (y = z + 16.0625, within 0.02: the
-/// 1:1 ascending-south rails from R_1 (x,17,1) to the top slope (x,22,6)), between slot 1 on R_1 and the
-/// top slope's high side (z 1.5..6.1): never above it (the merge C (x,24,7), the drop, D, J or V).
+/// THE HARM's contact reading (G1 Nov 14 06:01): t_c, the first tick the napper's box touches its
+/// leader's; the window t_N - t_c + 1; the leader; its displacement from t_c - 1 to t_N along the rail
+/// and in x; every rider push onto either cart, or by either cart's rider, inside the window ("none").
+#[derive(Debug, Clone, PartialEq)]
+pub struct LipContact {
+    pub tc: i64,
+    pub window: i64,
+    pub leader: usize,
+    pub along: f64,
+    pub dx: f64,
+    /// The leader's positions at t_c - 1 and at t_N (the solo difference's paired figures).
+    pub lp0: (f64, f64, f64),
+    pub lp1: (f64, f64, f64),
+    pub pushes: String,
+}
+
+/// G1 06:01 (c): the game's worst queue drift per tick (tick-exact Nov 14 04:37: 0.00586 b per
+/// seated-rider push cycle, kicks 15 gt apart at t17 / t32: 0.00039 b/gt) and the comparison's precision
+/// (the bench reads positions to 1e-6 b; the rest criterion's 1e-3 b/t over its 5 ticks is the bound a
+/// still cart can still move): ε passes only if it exceeds the worst drift over the window + that.
+pub const GAME_DRIFT_PER_GT: f64 = 0.00586 / 15.0;
+pub const HARM_PRECISION: f64 = 1e-6;
+/// The drift bound ε must exceed over a `window`-tick contact window.
+pub fn drift_bound(window: i64) -> f64 {
+    window.max(0) as f64 * GAME_DRIFT_PER_GT + HARM_PRECISION
+}
+
+/// THE SLOTS (the lanes file's slopes, the bench's geometry; G1 CHANGES 9 (9)): a cart rests IN THE
+/// SLOTS when it sits in the lane's column (x within 0.05 of lx + 0.5: every one of the 480 judged rests
+/// sits at x 3.5000 exactly, so 0.05 is a wobble bound well inside a cart's 0.49 half-width), on the slope's
+/// line (y = z + 16.0625: a cart's centre on a 1:1 ascending-south rail, 0.0625 above the rail's surface;
+/// within 0.02, twice the 0.01-b position the rest criterion allows over its 5 ticks), with z inside the
+/// slot rails, from R_1's cell (x,17,1) (z 1.0) to the top slope (x,22,6)'s high side (z 7.0): never above
+/// them (the merge C (x,24,7), the drop, D, J, V) nor below R_1.
 pub fn harm_in_slots(lx: i32, p: (f64, f64, f64)) -> bool {
-    (p.0 - (lx as f64 + 0.5)).abs() <= 0.05 && (p.1 - p.2 - 16.0625).abs() <= 0.02 && p.2 >= 1.5 && p.2 <= 6.1
+    (p.0 - (lx as f64 + 0.5)).abs() <= 0.05 && (p.1 - p.2 - 16.0625).abs() <= 0.02 && p.2 >= 1.0 && p.2 <= 7.0
 }
 
 /// THE HARM's judgement of one pair, in the same ride: the napper's rest (tick, position), the lane
@@ -271,26 +298,60 @@ pub fn harm_in_slots(lx: i32, p: (f64, f64, f64)) -> bool {
 /// offset from one contact spacing, the description); Err("NOT JUDGED: ...") when a reading is missing,
 /// Err("HARM: ...") when the cart ahead isn't the leader, the napper doesn't touch it (one contact
 /// spacing in y and z, |Δx| within ε), or either cart is out of the slots.
-pub fn harm_judge(lx: i32, napper_rest: Option<(i64, (f64, f64, f64))>, ahead: Option<(usize, (f64, f64, f64))>, leader: usize) -> Result<(f64, String), String> {
+pub fn harm_judge(lx: i32, napper_rest: Option<(i64, (f64, f64, f64))>, ahead: Option<(usize, (f64, f64, f64))>, leader: usize, contact: Option<&LipContact>, solo: Result<((f64, f64, f64), (f64, f64, f64)), String>) -> Result<(f64, String), String> {
     let (tn, p) = napper_rest.ok_or("NOT JUDGED: no rest within 400 gt in the paired ride")?;
     let (k, q) = ahead.ok_or("NOT JUDGED: no lane cart ahead of the napper at its rest")?;
+    let ct = contact.ok_or("NOT JUDGED: no contact reading (no touch before t_N, or the leader unread at t_c - 1)")?;
+    let bound = drift_bound(ct.window);
+    if HARM_EPS <= bound {
+        return Err(format!("NOT JUDGED: ε {HARM_EPS} doesn't exceed the game's worst drift over this {}-gt window ({bound:.5}: {GAME_DRIFT_PER_GT:.5} b/gt + precision {HARM_PRECISION})", ct.window));
+    }
+    // (G1 Nov 14 06:54, the solo difference: the leader's displacement across the contact in the paired ride
+    // MINUS its displacement over the same ticks in the napper-removed ride (the queue's own advance cancels);
+    // (a) the alignment proof: the leader's solo position equals the paired one at t_c - 1 within 1e-9, else
+    // NOT JUDGED; (b) the 22:23 guard is the caller's (`solo` an Err when the killed cart's next use falls
+    // at or before t_N))
+    let (s0, s1) = solo.map_err(|e| format!("NOT JUDGED: {e}"))?;
+    let misalign = ((s0.0 - ct.lp0.0).powi(2) + (s0.1 - ct.lp0.1).powi(2) + (s0.2 - ct.lp0.2).powi(2)).sqrt();
+    if misalign > 1e-9 {
+        return Err(format!("NOT JUDGED: the napper-removed ride's leader isn't the paired ride's at t_c - 1 (|Δ| {misalign:.3e} > 1e-9): the alignment proof fails"));
+    }
+    let dpv = (ct.lp1.0 - ct.lp0.0, ct.lp1.1 - ct.lp0.1, ct.lp1.2 - ct.lp0.2);
+    let dsv = (s1.0 - s0.0, s1.1 - s0.1, s1.2 - s0.2);
+    let diff = (dpv.0 - dsv.0, dpv.1 - dsv.1, dpv.2 - dsv.2);
+    let (along_d, dx_d) = ((diff.1.powi(2) + diff.2.powi(2)).sqrt(), diff.0.abs());
+    let solo_along = (dsv.1.powi(2) + dsv.2.powi(2)).sqrt();
+    let advancing = solo_along > HARM_EPS;
     let (dx, dy, dz) = (p.0 - q.0, p.1 - q.1, p.2 - q.2);
     let off = dx.abs().max((dy - HARM_CONTACT).abs()).max((dz - HARM_CONTACT).abs());
     let touches = off <= HARM_EPS;
-    let behind = k == leader;
+    let behind = k == leader && ct.leader == leader;
+    let displaced = along_d > HARM_EPS || dx_d > HARM_EPS;
     let (ns, ls) = (harm_in_slots(lx, p), harm_in_slots(lx, q));
     let desc = format!(
-        "the napper's rest t {tn} at {:.4},{:.4},{:.4}; the cart ahead, cart {k}{}, at {:.4},{:.4},{:.4}: Δx {dx:+.4} Δy {dy:+.4} Δz {dz:+.4}, |Δ - one contact spacing {HARM_CONTACT}| {off:.4} (ε {HARM_EPS}: {}); the napper {}, the leader {} (the contact spacing is the game's; the slots by the lanes' geometry)",
+        "t_c {} t_N {tn} (window {} gt; ε {HARM_EPS} > the game's drift bound {bound:.5}); the leader across the contact: paired along the rail {:.6} |Δx| {:.6}, napper-removed along {solo_along:.6} |Δx| {:.6} ({}), the difference along {along_d:.6} |Δx| {dx_d:.6} ({}); the napper's rest at {:.4},{:.4},{:.4}; the cart ahead, cart {k}{}, at {:.4},{:.4},{:.4}: Δx {dx:+.4} Δy {dy:+.4} Δz {dz:+.4}, |Δ - one contact spacing {HARM_CONTACT}| {off:.4} ({}); the napper {}, the leader {}; rider pushes in the window: {} (named, never absorbed into ε)",
+        ct.tc,
+        ct.window,
+        ct.along,
+        ct.dx,
+        dsv.0.abs(),
+        if advancing { "THE QUEUE ADVANCING across the contact" } else { "a static queue: the difference is the old absolute measure" },
+        if displaced { "DISPLACED" } else { "within ε" },
         p.0, p.1, p.2,
         if behind { " (its leader)".to_string() } else { format!(" (NOT ITS LEADER, cart {leader})") },
         q.0, q.1, q.2,
         if touches { "touching" } else { "OFF ONE CONTACT SPACING" },
         if ns { "in the slots" } else { "NOT IN THE SLOTS" },
-        if ls { "in the slots" } else { "NOT IN THE SLOTS" }
+        if ls { "in the slots" } else { "NOT IN THE SLOTS" },
+        ct.pushes
     );
-    if touches && behind && ns && ls { Ok((off, desc)) } else { Err(format!("HARM: {desc}")) }
+    let worst = off.max(along_d).max(dx_d);
+    if touches && behind && ns && ls && !displaced { Ok((worst, desc)) } else { Err(format!("HARM: {desc}")) }
 }
 
+/// G1 17:00 (B4): a lip path's departure from its solo reference: the largest centre distance over
+/// the k both carry; a k carried by ONE path only (a path ending early, or a tail cut) is an infinite
+/// departure, never a dropped tail; None if they share no k.
 pub fn path_departure(a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]) -> Option<f64> {
     let mut d = 0.0f64;
     let mut n = 0;
@@ -869,6 +930,9 @@ pub struct SidingOpts {
     pub plant_shift: Option<(usize, i64, f64)>,
     /// The plant's axis: 0 up-slope along the rail (y and z), 1 x.
     pub plant_axis: u8,
+    /// G1 Nov 14 06:54 (the solo difference): lane cart K's positions over ticks [T0, T1], printed as
+    /// "track cart K t T: x,y,z" (the napper-removed ride's leader across the paired ride's contact).
+    pub track: Option<(usize, i64, i64)>,
     /// ironspec Nov 13 23:04: the solo ride's DISPLACED form: `remove_cart`'s cart (and its rider, which
     /// follows its vehicle) held 40 blocks over the cell it was in, motionless, every tick to the run's
     /// end, instead of killed (the entity list intact); read back at the end.
@@ -1311,6 +1375,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let ro = if so.ai { RunOpts { ai: true, day0: so.day0, ..RunOpts::steady(so.seed, 0, WalkMode::Random) } } else { RunOpts { ai: false, day0: so.day0, ..RunOpts::steady(so.seed, 0, WalkMode::Random) } };
     let mut run = Run::start(&spec, &ro)?;
     while run.settle_tick() {}
+    // (G1 Nov 14 06:01 (d): redsim's rider-push log on, drained every tick into `push_hist`)
+    run.world.mob.cart_pushes = Some(Vec::new());
     // (--out: the bench's world as laid and settled, every non-air cell of its box in the design
     // format, the lanes file's loop frame (lane x 3, the merge at m 24, mz 7) for `mobfarm
     // record-match` (ironspec 21:43: a bench row counts only when its cells match the design of
@@ -1616,6 +1682,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (G1 Nov 13 23:47: every lane cart's position every tick, in the lip's region or not, so a path is
     // compared over a FIXED tick window (the lip arrival - 10 ..= + 30) in both rides)
     let mut pos_hist: std::collections::BTreeMap<i64, Vec<(usize, (f64, f64, f64))>> = std::collections::BTreeMap::new();
+    let mut box_hist: std::collections::BTreeMap<i64, Vec<(usize, [f64; 6], Option<[f64; 6]>)>> = std::collections::BTreeMap::new();
+    let mut push_hist: Vec<(i64, usize, Option<usize>, [f64; 2], f64)> = Vec::new();
     let mut last_arrival_of: Vec<Option<usize>> = vec![None; n];
     let mut off_rest_class: Vec<(i64, usize, String)> = Vec::new();
     let mut in_j: Vec<bool> = vec![false; n];
@@ -1661,6 +1729,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // tick before, to find its first still tick)
     let mut plant_pin: Option<(u32, [f64; 3])> = None;
     let mut plant_prev: Option<(f64, f64, f64)> = None;
+    let mut plant_still: u32 = 0;
     let mut held_drift = 0.0f64;
     let mut dummy: Option<(u32, [f64; 3])> = None;
     let mut dummy_killed_at: Option<i64> = None;
@@ -2805,35 +2874,86 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
             pending.retain(|p| p.1 != rc);
         }
-        // (G1's D2 control: --plant-shift C,T,DX moves lane cart C by DX in x at tick T, in this row
-        // alone (the interaction row's departure-only negative: a displacement with no contact))
-        // (G1 CHANGES 7 (2): THE HARM's plant controls INSIDE THE SLOTS: lane cart C, from tick T on, is
-        // watched until its first still tick after the lip (moved < 1e-4 b since the tick before: it has come
-        // to rest in the queue, touching its leader), then moved D (`plant_axis` 0: up-slope along the rail,
-        // + D in y and in z; 1: + D in x) and PINNED there to the run's end, so its rest reads D off one
-        // contact spacing: D > ε must read HARM CAUGHT, D < ε must pass)
+        // (THE HARM's in-slot plant control (G1 CHANGES 7 (2), 9 (2)-(3)): lane cart C, from tick T on, is
+        // watched for a still tick (moved < 1e-3 b since the tick before, the bar's rest criterion) in the
+        // slots by the bar's geometry (`harm_in_slots`) touching the lane cart directly ahead (one contact
+        // spacing within ε); there it is moved D (`plant_axis` 0: up-slope along the rail, + D in y and in z;
+        // 1: + D in x) and PINNED to the run's end, before the bar's 5-tick rest can start, so the bar's t_N
+        // reads the planted position: D > ε must read HARM CAUGHT by spacing, D < ε must pass; a cart that
+        // never meets the target leaves the plant unapplied, an error)
         if let Some((pc, pt, dx)) = so.plant_shift
             && t >= pt
             && planted_at.is_none()
             && let Some(id) = carts.get(pc).copied().flatten()
             && let Some((x, y, z, _)) = st(&run.world, id)
         {
-            let still = plant_prev.is_some_and(|(a, b, c): (f64, f64, f64)| ((a - x).powi(2) + (b - y).powi(2) + (c - z).powi(2)).sqrt() < 1e-4);
+            // (G1 Nov 14 06:54 (e), the SHOVE plant (`plant_axis` 2): at the first tick the napper's box touches
+            // the lane cart ahead (the boxes of the tick before), its motion gains D b/t down-slope (-z), so it
+            // shoves the cart ahead, moving or at rest: THE HARM must read DISPLACED by name; no pin)
+            if so.plant_axis == 2 {
+                let touch = |a: &[f64; 6], b: &[f64; 6]| (0..3).all(|i| a[2 * i] <= b[2 * i + 1] + 1e-6 && b[2 * i] <= a[2 * i + 1] + 1e-6);
+                let prev = box_hist.get(&(t - 1));
+                let mine = prev.and_then(|v| v.iter().find(|e| e.0 == pc)).map(|e| (e.1, e.2));
+                let me_pos = pos_hist.get(&(t - 1)).and_then(|v| v.iter().find(|e| e.0 == pc)).map(|e| e.1);
+                let ahead = me_pos.and_then(|mp| {
+                    pos_hist.get(&(t - 1)).and_then(|v| v.iter().filter(|e| e.0 != pc && e.1.0 >= lx as f64 && e.1.0 < (lx + 1) as f64 && e.1.1 < mp.1 - 1e-6).max_by(|a, b| a.1.1.total_cmp(&b.1.1)).map(|e| e.0))
+                });
+                let touching = match (mine, ahead.and_then(|k| prev.and_then(|v| v.iter().find(|e| e.0 == k)).map(|e| (e.1, e.2)))) {
+                    (Some((nc, nr)), Some((lc, lr))) => std::iter::once(nc).chain(nr).any(|a| std::iter::once(lc).chain(lr).any(|b| touch(&a, &b))),
+                    _ => false,
+                };
+                if touching && let Some(i) = redsim::entity::index_of(&run.world, id) {
+                    let v = run.world.entities.list[i].delta_movement;
+                    let sign = if MIRROR_Z.with(|m| m.get()) { 1.0 } else { -1.0 };
+                    let p = run.world.entities.list[i].pos;
+                    if !teleport_cart(&mut run.world, id, [p.x, p.y, p.z], [v.x, v.y, v.z + sign * dx]) {
+                        return Err(format!("--plant-shift (shove): lane cart {pc}'s motion refused at t {t}"));
+                    }
+                    plant_log.push(format!(
+                        "t {t}: planted lane cart {pc} (entity {id}) touching the cart ahead, lane cart {}, at its first contact: its motion + {dx} b/t down-slope (ROLE: the pair's napper SHOVING its leader; THE HARM's shove control, G1 Nov 14 06:54 (e))",
+                        ahead.map_or(usize::MAX, |a| a)
+                    ));
+                    planted_at = Some(t);
+                }
+            } else {
+            let moved_little = plant_prev.is_some_and(|(a, b, c): (f64, f64, f64)| ((a - x).powi(2) + (b - y).powi(2) + (c - z).powi(2)).sqrt() < 1e-3);
+            plant_still = if moved_little { plant_still + 1 } else { 0 };
             plant_prev = Some((x, y, z));
-            if still && y < 22.2 {
+            // (the bar's frame: the design's, the position offset removed)
+            let dp = |cid: u32| redsim::entity::index_of(&run.world, cid).map(|i| dpos(run.world.entities.list[i].pos));
+            let me = dp(id).unwrap_or((x, y, z));
+            if plant_still >= 1 && harm_in_slots(lx, me) {
+                // (the cart ahead: the nearest lane cart down-slope in the column, at one contact spacing;
+                // the plant waits for a still tick where the napper touches it, then moves it BEFORE the
+                // bar's 5-tick rest can start, so the bar's t_N reads the planted position)
+                let ahead = carts
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| *k != pc)
+                    .filter_map(|(k, cid)| cid.and_then(dp).map(|s| (k, s)))
+                    .filter(|(_, s)| s.0 >= lx as f64 && s.0 < (lx + 1) as f64 && s.1 < me.1 - 1e-6)
+                    .max_by(|a, b| a.1.1.total_cmp(&b.1.1));
+                let touching = ahead.is_some_and(|(_, s)| (me.0 - s.0).abs() <= HARM_EPS && (me.1 - s.1 - HARM_CONTACT).abs() <= HARM_EPS && (me.2 - s.2 - HARM_CONTACT).abs() <= HARM_EPS);
+                if touching {
                 let to = if so.plant_axis == 1 { [x + dx, y, z] } else { [x, y + dx, z + dx] };
                 if !teleport_cart(&mut run.world, id, to, [0.0, 0.0, 0.0]) {
                     return Err(format!("--plant-shift: lane cart {pc}'s move refused at t {t}"));
                 }
                 plant_pin = Some((id, to));
                 plant_log.push(format!(
-                    "t {t}: planted lane cart {pc} (entity {id}), at rest in the slots at {x:.4},{y:.4},{z:.4}, moved {dx} b {} to {:.4},{:.4},{:.4} and PINNED (ROLE: the pair's napper, touching its leader; THE HARM's in-slot control, G1 CHANGES 7 (2))",
+                    "t {t}: planted lane cart {pc} (entity {id}), still in the slots at {:.4},{:.4},{:.4} (the bar's geometry) touching the cart ahead, lane cart {} (asserted: one contact spacing within ε), moved {dx} b {} to {:.4},{:.4},{:.4} and PINNED (ROLE: the pair's napper, touching its leader; THE HARM's in-slot control, G1 CHANGES 9 (3))",
+                    me.0,
+                    me.1,
+                    me.2,
+                    ahead.map_or(usize::MAX, |a| a.0),
                     if so.plant_axis == 1 { "in x" } else { "up-slope along the rail (y and z)" },
                     to[0],
                     to[1],
                     to[2]
                 ));
                 planted_at = Some(t);
+                }
+            }
             }
         }
         if let Some((pid, pp)) = plant_pin
@@ -3293,6 +3413,18 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 })
                 .collect();
             pos_hist.insert(t, obs.iter().map(|c| (c.id as usize, c.pos)).collect());
+            // (G1 Nov 14 06:01, THE HARM's pinned ticks: every lane cart's box and its rider's box per
+            // tick, for t_c (the first tick the napper's box touches its leader's))
+            box_hist.insert(t, obs.iter().map(|c| (c.id as usize, c.cart_box, c.rider_box)).collect());
+            // (G1 06:01 (d): every rider push onto a lane cart this tick, redsim's `AbstractMinecart.push(mob)`
+            // log, as (pushed lane cart, the pushing rider's lane cart if it rides one, the motion added, the
+            // centres' distance))
+            for p in redsim::entity::minecart::take_cart_pushes(&mut run.world) {
+                let idx = |id: u32| carts.iter().position(|c| *c == Some(id));
+                if let Some(k) = idx(p.cart) {
+                    push_hist.push((t, k, p.vehicle.and_then(idx), p.push, p.dist));
+                }
+            }
             // (the interaction row (ironspec Nov 13 14:47 (a), day-1 14:45): every cart in the lip's
             // region this tick (x lx-2.5..lx+2.5, y over m-2.5, z mz-2..mz+3: R, the S-bend, C, the drop
             // and V), with its box, its rider's box and its stored speed, and which cart is the napper)
@@ -5076,18 +5208,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     "lip region t {ta} cart {c}: {}",
                     if inr.is_empty() { "none".to_string() } else { inr.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(" ") }
                 ));
-                // (ironspec / G1 Nov 13 23:47 / 23:58, THE HARM: where the cart comes to rest after the lip: the
-                // first of 5 consecutive ticks each moving under 1e-4 b (ironspec 10:42's stall window), within
-                // 400 gt of the arrival, and its position)
+                // (ironspec / G1 Nov 13 23:47 / 23:58, THE HARM: where the cart comes to rest after the lip; G1
+                // Nov 14 06:01 pins it: t_N = the first of 5 consecutive ticks each moving under 1e-3 b (its
+                // speed along the rail < 1e-3 b/t), within 400 gt of the arrival, and its position)
                 let at = |t: i64| pos_hist.get(&t).and_then(|v| v.iter().find(|e| e.0 == *c)).map(|e| e.1);
                 let mut rest: Option<(i64, (f64, f64, f64))> = None;
                 let mut still = 0;
                 for t in *ta..*ta + 400 {
                     match (at(t), at(t + 1)) {
-                        (Some(p), Some(q)) if ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2) + (p.2 - q.2).powi(2)).sqrt() < 1e-4 => {
+                        (Some(p), Some(q)) if ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2) + (p.2 - q.2).powi(2)).sqrt() < 1e-3 => {
                             still += 1;
                             if still == 5 {
-                                rest = Some((t - 4, q));
+                                // (G1 CHANGES 9 (1): the napper read AT t_N, the first still tick, as the cart
+                                // ahead is)
+                                rest = Some((t - 4, at(t - 4).unwrap_or(p)));
                                 break;
                             }
                         }
@@ -5113,6 +5247,56 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     Some((k, q)) => format!("lip rest ahead t {ta} cart {c}: cart {k} at {},{},{}", q.0, q.1, q.2),
                     None => format!("lip rest ahead t {ta} cart {c}: none"),
                 });
+                // (G1 Nov 14 06:01 (a)-(d): t_c, the first tick from the arrival the napper's box (its cart's
+                // or its rider's) touches its leader's (the cart ahead at t_N); the leader at t_c - 1 and at
+                // t_N: its displacement across the contact along the rail and in x (THE HARM itself); the
+                // window t_N - t_c + 1; every rider push onto either cart, or by either cart's rider, inside
+                // the window, named with its magnitude)
+                if let (Some((tn, _)), Some((k, _))) = (rest, ahead) {
+                    let touch = |a: &[f64; 6], b: &[f64; 6]| (0..3).all(|i| a[2 * i] <= b[2 * i + 1] + 1e-6 && b[2 * i] <= a[2 * i + 1] + 1e-6);
+                    let boxes = |t: i64, who: usize| box_hist.get(&t).and_then(|v| v.iter().find(|e| e.0 == who)).map(|e| (e.1, e.2));
+                    let tc = (*ta..=tn).find(|t| match (boxes(*t, *c), boxes(*t, k)) {
+                        (Some((nc, nr)), Some((lc, lr))) => {
+                            let ns: Vec<[f64; 6]> = std::iter::once(nc).chain(nr).collect();
+                            let ls: Vec<[f64; 6]> = std::iter::once(lc).chain(lr).collect();
+                            ns.iter().any(|a| ls.iter().any(|b| touch(a, b)))
+                        }
+                        _ => false,
+                    });
+                    let lat = |t: i64| pos_hist.get(&t).and_then(|v| v.iter().find(|e| e.0 == k)).map(|e| e.1);
+                    lines.push(match tc.and_then(|tc| Some((tc, lat(tc - 1)?, lat(tn)?))) {
+                        Some((tc, a, b)) => {
+                            let along = ((b.1 - a.1).powi(2) + (b.2 - a.2).powi(2)).sqrt();
+                            let dx = (b.0 - a.0).abs();
+                            let pushes: Vec<String> = push_hist
+                                .iter()
+                                .filter(|p| p.0 >= tc && p.0 <= tn && (p.1 == *c || p.1 == k || p.2 == Some(*c) || p.2 == Some(k)))
+                                .map(|p| format!("t {} cart {} pushed by the rider of {} ({:+.5},{:+.5}) at {:.4}", p.0, p.1, p.2.map_or("no cart".to_string(), |v| format!("cart {v}")), p.3[0], p.3[1], p.4))
+                                .collect();
+                            format!(
+                                "lip contact t {ta} cart {c}: t_c {tc} window {} leader {k} along {along:.6} dx {dx:.6} lp0 {:.9},{:.9},{:.9} lp1 {:.9},{:.9},{:.9} pushes {}",
+                                tn - tc + 1,
+                                a.0,
+                                a.1,
+                                a.2,
+                                b.0,
+                                b.1,
+                                b.2,
+                                if pushes.is_empty() { "none".to_string() } else { pushes.join(" | ") }
+                            )
+                        }
+                        None => format!("lip contact t {ta} cart {c}: none (no touch before t_N, or the leader unread at t_c - 1)"),
+                    });
+                }
+            }
+            // (G1 Nov 14 06:54, the solo difference: the tracked cart's positions over the asked ticks)
+            if let Some((k, t0, t1)) = so.track {
+                for t in t0..=t1 {
+                    match pos_hist.get(&t).and_then(|v| v.iter().find(|e| e.0 == k)).map(|e| e.1) {
+                        Some(p) => lines.push(format!("track cart {k} t {t}: {:.9},{:.9},{:.9}", p.0, p.1, p.2)),
+                        None => lines.push(format!("track cart {k} t {t}: none")),
+                    }
+                }
             }
             // (G1's B8: a napper "from R" was on R's siding (x < lx - 0.9: west of the lane's column by
             // more than a cart's half-width) within the 60 gt before its lip arrival (the siding's
@@ -6090,6 +6274,10 @@ pub struct SidingRow {
     /// THE HARM, same ride: per lip arrival (tick, cart), the lane cart directly ahead of it at its rest
     /// tick and that cart's position.
     pub lip_rest_ahead: Vec<(i64, usize, Option<(usize, (f64, f64, f64))>)>,
+    /// THE HARM's pinned ticks (G1 Nov 14 06:01): per lip arrival (tick, cart), the contact reading.
+    pub lip_contact: Vec<(i64, usize, Option<LipContact>)>,
+    /// The tracked cart's positions (`SidingOpts::track`): (cart, tick, position).
+    pub track: Vec<(usize, i64, (f64, f64, f64))>,
     /// L-d: (passes with a napper resting on R, box-contact ticks, push-contact ticks, its largest
     /// displacement).
     pub ld: (usize, usize, usize, f64),
@@ -6464,6 +6652,37 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
                 Some((k, (v[0], v[1], v[2])))
             };
             r.lip_rest_ahead.push((ta, c, a0));
+        } else if let Some(rest) = l.strip_prefix("lip contact t ") {
+            let (head, what) = rest.split_once(": ").ok_or(format!("siding_row: a lip contact line without its reading: {l}"))?;
+            let ta = req(l, "lip contact t ")? as i64;
+            let c = req(head, "cart ")? as usize;
+            let c0 = if what.starts_with("none") {
+                None
+            } else {
+                let tc = req(what, "t_c ")? as i64;
+                let win = req(what, "window ")? as i64;
+                let k = req(what, "leader ")? as usize;
+                let num = |key: &str| -> Result<f64, String> { what.split(key).nth(1).and_then(|s| s.split_whitespace().next()).and_then(|s| s.parse::<f64>().ok()).ok_or(format!("siding_row: a lip contact without {key}: {l}")) };
+                let pushes = what.split(" pushes ").nth(1).unwrap_or("none").to_string();
+                let xyz = |key: &str| -> Result<(f64, f64, f64), String> {
+                    let s = what.split(key).nth(1).and_then(|s| s.split_whitespace().next()).ok_or(format!("siding_row: a lip contact without {key}: {l}"))?;
+                    let v: Vec<f64> = s.split(',').map(|x| x.parse::<f64>()).collect::<Result<_, _>>().map_err(|e| format!("siding_row: {key} in {l:?}: {e}"))?;
+                    if v.len() == 3 { Ok((v[0], v[1], v[2])) } else { Err(format!("siding_row: {key} in {l:?}")) }
+                };
+                Some(LipContact { tc, window: win, leader: k, along: num(" along ")?, dx: num(" dx ")?, lp0: xyz(" lp0 ")?, lp1: xyz(" lp1 ")?, pushes })
+            };
+            r.lip_contact.push((ta, c, c0));
+        } else if let Some(rest) = l.strip_prefix("track cart ") {
+            let k = req(l, "track cart ")? as usize;
+            let t = req(rest, "t ")? as i64;
+            let what = rest.split_once(": ").map(|x| x.1).unwrap_or("none");
+            if what.trim() != "none" {
+                let v: Vec<f64> = what.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| format!("siding_row: a track position in {l:?}: {e}"))?;
+                if v.len() != 3 {
+                    return Err(format!("siding_row: a track position in {l:?}"));
+                }
+                r.track.push((k, t, (v[0], v[1], v[2])));
+            }
         } else if l.starts_with("the interaction row (ironspec Nov 13 14:47 (a))") {
             let n = req(l, "napper pairs ")? as usize;
             if n != r.pairs.len() {
@@ -6937,12 +7156,80 @@ mod harm_fixtures {
     fn napper_behind(z: f64, d: f64, dx: f64) -> (f64, f64, f64) {
         (3.5 + dx, z + d + 16.0625, z + d)
     }
+    fn clean() -> LipContact {
+        LipContact { tc: 90, window: 11, leader: 7, along: 0.0, dx: 0.0, lp0: L0, lp1: L0, pushes: "none".to_string() }
+    }
+    const L0: (f64, f64, f64) = (3.5, 19.0625, 3.0);
+    /// The napper-removed ride's leader, at rest over the window (a static queue).
+    fn still() -> Result<((f64, f64, f64), (f64, f64, f64)), String> {
+        Ok((L0, L0))
+    }
+    /// A paired contact whose leader moves `d` = (dx, dy, dz) from t_c - 1 to t_N.
+    fn moved_by(d: (f64, f64, f64)) -> LipContact {
+        LipContact { lp1: (L0.0 + d.0, L0.1 + d.1, L0.2 + d.2), along: (d.1 * d.1 + d.2 * d.2).sqrt(), dx: d.0.abs(), ..clean() }
+    }
+
+    /// G1 CHANGES 9 (9): single-change fixtures, each asserting its SPECIFIC error: the napper alone out of
+    /// the slots at C, at the drop / D, on the split row (J) and at V; the leader alone out (below R_1).
+    #[test]
+    fn each_element_out_of_the_slots_reads_its_own_error() {
+        let l = leader_at(3.0);
+        for (what, n) in [("C (x,24,7)", (3.5, 24.0, 7.5)), ("the drop / D", (3.5, 23.4, 7.2)), ("J, the split row", (3.5, 25.0625, 9.5)), ("V", (3.5, 26.0, 9.0))] {
+            let r = harm_judge(LX, Some((100, n)), Some((7, l)), 7, Some(&clean()), still());
+            assert!(r.as_ref().is_err_and(|e| e.contains("the napper NOT IN THE SLOTS, the leader in the slots")), "{what}: {r:?}");
+        }
+        // (the leader alone out: below R_1 (z < 1.0), the napper one contact spacing above it, inside)
+        let lo = leader_at(0.6);
+        let no = napper_behind(0.6, HARM_CONTACT, 0.0);
+        let r = harm_judge(LX, Some((100, no)), Some((7, lo)), 7, Some(&clean()), still());
+        assert!(r.as_ref().is_err_and(|e| e.contains("the napper in the slots, the leader NOT IN THE SLOTS") && e.contains("touching")), "{r:?}");
+        // (the top slope's high side is inside: z 6.9)
+        let lt = leader_at(6.1);
+        assert!(harm_judge(LX, Some((100, napper_behind(6.1, HARM_CONTACT, 0.0))), Some((7, lt)), 7, Some(&clean()), still()).is_ok());
+    }
+
+    /// G1 Nov 14 06:01: THE HARM itself is the leader's displacement across the contact (t_c - 1 to t_N)
+    /// along the rail or in x beyond ε; a window whose game drift bound reaches ε can't be judged; a
+    /// missing contact reading is NOT JUDGED; the pushes are named in the verdict.
+    #[test]
+    fn the_leader_displaced_across_the_contact_is_the_harm() {
+        let l = leader_at(3.0);
+        let n = Some((100, napper_behind(3.0, HARM_CONTACT, 0.0)));
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&clean()), still()).is_ok());
+        // (a static queue: the leader moved beyond ε along the rail or in x is DISPLACED; inside ε passes)
+        let d = HARM_EPS + 1e-3;
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&moved_by((0.0, -d * s, -d * s))), still()).is_err_and(|e| e.contains("DISPLACED") && e.contains("a static queue")));
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&moved_by((d, 0.0, 0.0))), still()).is_err_and(|e| e.contains("DISPLACED")));
+        let d2 = HARM_EPS - 1e-3;
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&moved_by((0.0, -d2 * s, -d2 * s))), still()).is_ok());
+        // (G1 06:54: THE QUEUE ADVANCING: the napper-removed ride's leader moves the same 1.03 b, the
+        // difference is 0: no harm; a SHOVE inside the advance (0.05 b further than the queue moved it) is
+        // DISPLACED, by name)
+        let adv = 1.027;
+        let solo_adv: Result<_, String> = Ok((L0, (L0.0, L0.1 - adv * s, L0.2 - adv * s)));
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&moved_by((0.0, -adv * s, -adv * s))), solo_adv.clone()).is_ok_and(|(_, d)| d.contains("THE QUEUE ADVANCING")));
+        let shove = adv + 0.05;
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&moved_by((0.0, -shove * s, -shove * s))), solo_adv).is_err_and(|e| e.contains("DISPLACED") && e.contains("THE QUEUE ADVANCING")));
+        // (the alignment proof: the napper-removed ride's leader elsewhere at t_c - 1 is NOT JUDGED; the
+        // 22:23 guard's Err is NOT JUDGED)
+        let off: Result<_, String> = Ok(((L0.0, L0.1 + 1e-6, L0.2), (L0.0, L0.1 + 1e-6, L0.2)));
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&clean()), off).is_err_and(|e| e.starts_with("NOT JUDGED") && e.contains("alignment proof")));
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&clean()), Err("the killed cart's next use t 2230 is before t_N 2234 (G1's 22:23 guard)".into())).is_err_and(|e| e.starts_with("NOT JUDGED") && e.contains("22:23")));
+        // (the drift bound: 0.00039 b/gt; a window of 26 gt reaches 0.0101 > ε)
+        let long = LipContact { window: 26, ..clean() };
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&long), still()).is_err_and(|e| e.starts_with("NOT JUDGED: ε")));
+        assert!(drift_bound(25) < HARM_EPS && drift_bound(26) > HARM_EPS);
+        assert!(harm_judge(LX, n, Some((7, l)), 7, None, still()).is_err_and(|e| e.starts_with("NOT JUDGED: no contact")));
+        let pushed = LipContact { pushes: "t 95 cart 7 pushed by the rider of cart 2 (+0.00000,+0.05000) at 0.7900".to_string(), ..clean() };
+        assert!(harm_judge(LX, n, Some((7, l)), 7, Some(&pushed), still()).is_ok_and(|(_, d)| d.contains("pushed by the rider of cart 2")));
+    }
 
     #[test]
     fn touching_its_leader_passes_within_eps_and_fails_beyond() {
         let l = leader_at(3.0);
         for (d, ok) in [(HARM_CONTACT, true), (HARM_CONTACT + HARM_EPS - 1e-4, true), (HARM_CONTACT - HARM_EPS + 1e-4, true), (HARM_CONTACT + HARM_EPS + 1e-3, false), (HARM_CONTACT - HARM_EPS - 1e-3, false)] {
-            let r = harm_judge(LX, Some((100, napper_behind(3.0, d, 0.0))), Some((7, l)), 7);
+            let r = harm_judge(LX, Some((100, napper_behind(3.0, d, 0.0))), Some((7, l)), 7, Some(&clean()), still());
             assert_eq!(r.is_ok(), ok, "d {d}: {r:?}");
         }
     }
@@ -6951,12 +7238,12 @@ mod harm_fixtures {
     fn a_one_slot_error_and_a_lateral_shift_fail() {
         let l = leader_at(2.5);
         // (one more contact spacing: the napper a slot further up, not touching)
-        assert!(harm_judge(LX, Some((100, napper_behind(2.5, 2.0 * HARM_CONTACT, 0.0))), Some((7, l)), 7).is_err_and(|e| e.contains("OFF ONE CONTACT SPACING")));
+        assert!(harm_judge(LX, Some((100, napper_behind(2.5, 2.0 * HARM_CONTACT, 0.0))), Some((7, l)), 7, Some(&clean()), still()).is_err_and(|e| e.contains("OFF ONE CONTACT SPACING")));
         // (the adjacent pitches the solo comparison showed: 0.758 / 0.814)
         for d in [0.758, 0.814] {
-            assert!(harm_judge(LX, Some((100, napper_behind(2.5, d, 0.0))), Some((7, l)), 7).is_err(), "d {d} isn't one contact spacing");
+            assert!(harm_judge(LX, Some((100, napper_behind(2.5, d, 0.0))), Some((7, l)), 7, Some(&clean()), still()).is_err(), "d {d} isn't one contact spacing");
         }
-        assert!(harm_judge(LX, Some((100, napper_behind(2.5, HARM_CONTACT, 0.02))), Some((7, l)), 7).is_err_and(|e| e.contains("OFF ONE CONTACT SPACING")));
+        assert!(harm_judge(LX, Some((100, napper_behind(2.5, HARM_CONTACT, 0.02))), Some((7, l)), 7, Some(&clean()), still()).is_err_and(|e| e.contains("OFF ONE CONTACT SPACING")));
     }
 
     #[test]
@@ -6964,19 +7251,19 @@ mod harm_fixtures {
         // (above the top slope: the merge C (3,24,7) / the drop / V)
         let l = (3.5, 24.0, 7.0);
         let n = (3.5, 24.79, 7.79);
-        assert!(harm_judge(LX, Some((100, n)), Some((7, l)), 7).is_err_and(|e| e.contains("NOT IN THE SLOTS")));
+        assert!(harm_judge(LX, Some((100, n)), Some((7, l)), 7, Some(&clean()), still()).is_err_and(|e| e.contains("NOT IN THE SLOTS")));
         // (off the slope's line, e.g. lifted)
         let l2 = leader_at(3.0);
         let n2 = (3.5, 3.79 + 16.0625 + 0.5, 3.79);
-        assert!(harm_judge(LX, Some((100, n2)), Some((7, l2)), 7).is_err());
-        assert!(harm_judge(LX, None, Some((7, l2)), 7).is_err_and(|e| e.starts_with("NOT JUDGED")));
-        assert!(harm_judge(LX, Some((100, napper_behind(3.0, HARM_CONTACT, 0.0))), None, 7).is_err_and(|e| e.starts_with("NOT JUDGED")));
+        assert!(harm_judge(LX, Some((100, n2)), Some((7, l2)), 7, Some(&clean()), still()).is_err());
+        assert!(harm_judge(LX, None, Some((7, l2)), 7, Some(&clean()), still()).is_err_and(|e| e.starts_with("NOT JUDGED")));
+        assert!(harm_judge(LX, Some((100, napper_behind(3.0, HARM_CONTACT, 0.0))), None, 7, Some(&clean()), still()).is_err_and(|e| e.starts_with("NOT JUDGED")));
     }
 
     #[test]
     fn the_cart_ahead_must_be_its_leader() {
         let l = leader_at(3.0);
-        assert!(harm_judge(LX, Some((100, napper_behind(3.0, HARM_CONTACT, 0.0))), Some((5, l)), 7).is_err_and(|e| e.contains("NOT ITS LEADER")));
+        assert!(harm_judge(LX, Some((100, napper_behind(3.0, HARM_CONTACT, 0.0))), Some((5, l)), 7, Some(&clean()), still()).is_err_and(|e| e.contains("NOT ITS LEADER")));
     }
 }
 
@@ -7084,6 +7371,7 @@ mod official_row_tests {
             remove_role: None,
             plant_shift: None,
             plant_axis: 0,
+            track: None,
             solo_displace: false,
             dummy_kill: None,
             state_at: None,

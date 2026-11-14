@@ -4,6 +4,18 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 use std::path::PathBuf;
 
+/// `--interaction-plant-axis` (G1 CHANGES 9 (7): a closed set, nothing else accepted).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum PlantAxis {
+    /// + D in y and in z: up-slope along the rail.
+    Rail,
+    /// + D in x.
+    X,
+    /// G1 Nov 14 06:54 (e): + D b/t down-slope at the napper's first contact with the cart ahead (a shove;
+    /// must read HARM DISPLACED).
+    Shove,
+}
+
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
     /// The pausable timers' shared lockable chain (`chainbench.rs`): writes its design (`--stages`
@@ -5390,9 +5402,10 @@ pub enum MobfarmCmd {
         /// by name otherwise).
         #[arg(long)]
         interaction_plant: Option<f64>,
-        /// With --interaction-plant: "rail" (default: + D in y and in z, up-slope) or "x".
-        #[arg(long, default_value = "rail")]
-        interaction_plant_axis: String,
+        /// With --interaction-plant: `rail` (default: + D in y and in z, up-slope) or `x`; refused without
+        /// --interaction-plant (G1 CHANGES 9 (7)).
+        #[arg(long, value_enum)]
+        interaction_plant_axis: Option<PlantAxis>,
         /// With --interaction-row (ironspec Nov 13 23:04): for the first N judged rows, the napper's paired
         /// arrival beside its solo rides with the leader KILLED and DISPLACED (held far, read back) and a
         /// FAR-DUMMY control (a far minecart killed at the kill window's start, no lane cart removed).
@@ -12314,7 +12327,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(0 <= a && a <= b, "--r-second {s}: 0 <= A <= B");
                         Some((a, b))
                     }
-                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, remove_role: None, plant_shift: None, plant_axis: 0, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, remove_role: None, plant_shift: None, plant_axis: 0, track: None, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
                 // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
                 // an explicit --seed other than the default)
@@ -12332,6 +12345,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(interaction_row.is_some() || interaction_side_by_side == 0, "--interaction-side-by-side needs --interaction-row");
                 anyhow::ensure!(interaction_row.is_some() || interaction_kill_at == -60, "--interaction-kill-at needs --interaction-row");
                 anyhow::ensure!(interaction_row.is_some() || interaction_plant.is_none(), "--interaction-plant needs --interaction-row");
+                anyhow::ensure!(interaction_plant.is_some() || interaction_plant_axis.is_none(), "--interaction-plant-axis needs --interaction-plant (G1 CHANGES 9 (7))");
+                let interaction_plant_axis = interaction_plant_axis.unwrap_or(PlantAxis::Rail);
                 anyhow::ensure!(boost_window >= 0, "--boost-window {boost_window}: >= 0");
                 // (G1 17:57 N5: --start-i only means something with --nap-ai)
                 anyhow::ensure!(!start_i || so.ai, "--start-i sets the design start (i) of the AI riders: it needs --nap-ai");
@@ -12882,6 +12897,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (THE HARM bar's measured spread over every judged pair: |Δ - the nearest of 0 or one
                     // pitch|, the source the tolerance is cited from (G1 Nov 14 00:55 (a)))
                     let mut harm_offs: Vec<f64> = Vec::new();
+                    let mut harm_win: i64 = 0;
+                    let mut harm_advancing: usize = 0;
                     let (mut ld_passes, mut ld_b, mut ld_p, mut ld_d) = (0usize, 0usize, 0usize, 0.0f64);
                     // (ironspec 14:47 (a): each pair's carts against their SOLO rides. The largest-C-gap
                     // row is no solo ride (its napper leaves at another tick, with other dynamics: G1
@@ -12908,10 +12925,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         } else {
                             // (the leader's solo ride: the napper itself killed the same way before its
                             // own lip arrival (a held release did not keep it away: G1's D2, the run of
-                            // Nov 13 21:48))
+                            // Nov 13 21:48)); G1 06:54: it tracks the leader across the paired ride's contact,
+                            // t_c - 1 to t_N, for THE HARM's solo difference
                             sso.inject_release = Some(*t);
                             sso.remove_cart = Some((p.1, p.0 + interaction_kill_at, p.0));
                             sso.remove_role = Some(format!("the NAPPER of leader cart {} (its lip arrival t {})", p.3, p.2));
+                            // (the track spans every window THE HARM can read for this pair: t_c - 1 is at or after the
+                            // napper's lip arrival, t_N within the rest search's 400 gt after it; a planted re-run of the
+                            // paired row moves t_c / t_N, so the window can't come from the unplanted row)
+                            sso.track = Some((p.3, p.0 - 1, p.0 + 400));
                         }
                         crate::sidingbench::siding_row(&o, &sso)
                     });
@@ -13092,9 +13114,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                         }
                     }
-                    // (G1's D2 control: --interaction-plant DX re-runs each judged row with the napper moved
-                    // DX in x 2 gt after its lip arrival, in the row alone (not in its solo rides): a
-                    // departure with no contact, which the verdict must fail)
+                    // (THE HARM's in-slot plant control, G1 CHANGES 7 (2) / 9 (2)-(3): --interaction-plant D re-runs
+                    // each judged row with its napper, at a still tick in the slots touching the cart ahead, moved D
+                    // (up-slope along the rail, or in x) and pinned, in the row alone (not its solo rides); D > ε must
+                    // read HARM CAUGHT by spacing, D < ε must pass)
                     if let Some(dx) = interaction_plant {
                         let plant_jobs: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| injected(r.1, &r.2).is_some()).map(|(i, _)| i).collect();
                         let planted = crate::sidingbench::par_map(plant_jobs.len(), jobs, |j| {
@@ -13105,7 +13128,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             sso.pos_offset = key.1;
                             sso.inject_release = Some(*t);
                             sso.plant_shift = Some((p.1, p.0 + 2, dx));
-                            sso.plant_axis = u8::from(interaction_plant_axis == "x");
+                            sso.plant_axis = match interaction_plant_axis {
+                                PlantAxis::Rail => 0,
+                                PlantAxis::X => 1,
+                                PlantAxis::Shove => 2,
+                            };
                             crate::sidingbench::siding_row(&o, &sso)
                         });
                         for (j, pr) in planted.into_iter().enumerate() {
@@ -13155,7 +13182,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // 14:47 (a)'s "no departure from the solo rides" in code (ironspec 02:45 (3)), read IN THE
                         // SAME RIDE (G1 04:32's condition (a): the napper TOUCHES its leader): at the napper's rest
                         // after the lip, the lane cart directly ahead of it is its leader at one contact spacing
-                        // (the rider's half-width 0.30 + the cart's 0.49, ± ε 0.005: `sidingbench::harm_judge`, with
+                        // (the rider's half-width 0.30 + the cart's 0.49, ± ε (`HARM_EPS`): `sidingbench::harm_judge`, with
                         // its fixtures), both carts in the slots by the lanes' geometry (`harm_in_slots`); the
                         // leader's displacement against the napper-removed ride and the napper's against the
                         // solo ride are printed as information, each with the killed cart's next use (the 22:23
@@ -13165,7 +13192,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let harm_of = |i: usize, c: usize, ta: i64, lc: usize, lta: i64, r: &crate::sidingbench::SidingRow| -> Result<(f64, String), String> {
                             let pr = r.lip_rests.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2);
                             let ahead = r.lip_rest_ahead.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2);
-                            let v = crate::sidingbench::harm_judge(HARM_LANE_X, pr, ahead, lc);
+                            let ct = r.lip_contact.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2.as_ref());
+                            // (G1 06:54: the napper-removed ride's leader at t_c - 1 and t_N; (b) the 22:23 guard:
+                            // the killed napper's next use must fall AFTER t_N, else the solo lane runs one cart
+                            // short across the window)
+                            let solo_lead: Result<((f64, f64, f64), (f64, f64, f64)), String> = match (solo.get(&(i, false)), ct, pr) {
+                                (Some(Ok(s)), Some(ct), Some((tn, _))) => {
+                                    let u = s.solo_kill.and_then(|k| k.1);
+                                    if u.is_some_and(|u| u <= tn) {
+                                        Err(format!("the killed napper's next use t {} is at or before t_N {tn} (G1's 22:23 guard)", u.unwrap_or(0)))
+                                    } else {
+                                        let at = |t: i64| s.track.iter().find(|e| e.0 == lc && e.1 == t).map(|e| e.2);
+                                        match (at(ct.tc - 1), at(tn)) {
+                                            (Some(a), Some(b)) => Ok((a, b)),
+                                            _ => Err(format!("the napper-removed ride has no track of leader cart {lc} at t {} / {tn}", ct.tc - 1)),
+                                        }
+                                    }
+                                }
+                                (Some(Err(e)), _, _) => Err(format!("the napper-removed ride errored: {e}")),
+                                (None, _, _) => Err("no napper-removed ride".to_string()),
+                                _ => Err("no contact or rest to compare against the napper-removed ride".to_string()),
+                            };
+                            let v = crate::sidingbench::harm_judge(HARM_LANE_X, pr, ahead, lc, ct, solo_lead);
                             // (information: each solo ride's rest against the paired one, with the killed cart's
                             // next use u (G1's 22:23 guard: a solo rest after u reads a lane one cart short))
                             let info = |nap: bool, cc: usize, tt: i64| -> String {
@@ -13234,7 +13282,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // (the adopted HARM bar decides; the departure above is a diagnostic)
                             let hn = harm_of(i, p.1, p.0, p.3, p.2, r);
                             // (G1 CHANGES 7 (1): the spread is taken over every JUDGED pair (C-gap >= --pair-least)
-                            // whose readings exist, failures included: |Δx|, |Δy - spacing|, |Δz - spacing|)
+                            // whose readings exist, failures included: |Δx|, |Δy - spacing|, |Δz - spacing| at t_N, and
+                            // the leader's displacement across the contact (G1 Nov 14 06:01); the longest window too)
                             if p.4 >= pair_least
                                 && let (Some(pr), Some((_, q))) = (
                                     r.lip_rests.iter().find(|e| e.0 == p.0 && e.1 == p.1).and_then(|e| e.2),
@@ -13242,7 +13291,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 )
                             {
                                 let s = crate::sidingbench::HARM_CONTACT;
-                                harm_offs.push((pr.1.0 - q.0).abs().max((pr.1.1 - q.1 - s).abs()).max((pr.1.2 - q.2 - s).abs()));
+                                let ct = r.lip_contact.iter().find(|e| e.0 == p.0 && e.1 == p.1).and_then(|e| e.2.as_ref());
+                                // (G1 06:58: the spread is of the SOLO DIFFERENCE (the leader's displacement across the
+                                // contact minus the napper-removed ride's over the same ticks); a pair with no
+                                // napper-removed track keeps its absolute displacement)
+                                let disp = ct.map_or(0.0, |c| {
+                                    let at = |t: i64| match solo.get(&(i, false)) {
+                                        Some(Ok(sr)) => sr.track.iter().find(|e| e.0 == p.3 && e.1 == t).map(|e| e.2),
+                                        _ => None,
+                                    };
+                                    match (at(c.tc - 1), at(pr.0)) {
+                                        (Some(s0), Some(s1)) => {
+                                            let d = (c.lp1.0 - c.lp0.0 - (s1.0 - s0.0), c.lp1.1 - c.lp0.1 - (s1.1 - s0.1), c.lp1.2 - c.lp0.2 - (s1.2 - s0.2));
+                                            (d.1 * d.1 + d.2 * d.2).sqrt().max(d.0.abs())
+                                        }
+                                        _ => c.along.max(c.dx),
+                                    }
+                                });
+                                if ct.is_some_and(|c| c.window > 1) {
+                                    harm_advancing += 1;
+                                }
+                                harm_win = harm_win.max(ct.map_or(0, |c| c.window));
+                                harm_offs.push((pr.1.0 - q.0).abs().max((pr.1.1 - q.1 - s).abs()).max((pr.1.2 - q.2 - s).abs()).max(disp));
                             }
                             match &hn {
                                 Ok((_, d)) => println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): none: {d}"),
@@ -13261,7 +13331,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // not a verdict failure), D < ε must pass)
                             let planted_ok = interaction_plant.map(|d| {
                                 let expect = d.abs() > crate::sidingbench::HARM_EPS;
+                                // (G1 CHANGES 9 (2): a catch is ONLY "OFF ONE CONTACT SPACING" with the leader
+                                // ahead and both carts in the slots; NOT JUDGED, NOT ITS LEADER, NOT IN THE SLOTS
+                                // or a leader DISPLACED fail the plant row by name)
+                                let caught_by_spacing = if interaction_plant_axis == PlantAxis::Shove {
+                                    // (the shove plant: a catch is ONLY the leader DISPLACED (with the leader ahead and both carts in the slots))
+                                    hn.as_ref().err().is_some_and(|e| e.starts_with("HARM: ") && e.contains("DISPLACED") && !e.contains("NOT ITS LEADER") && !e.contains("NOT IN THE SLOTS"))
+                                } else {
+                                    hn.as_ref().err().is_some_and(|e| e.starts_with("HARM: ") && e.contains("OFF ONE CONTACT SPACING") && !e.contains("NOT ITS LEADER") && !e.contains("NOT IN THE SLOTS") && !e.contains("DISPLACED"))
+                                };
                                 match (expect, harmed) {
+                                    (true, true) if !caught_by_spacing => {
+                                        verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the plant control ({d} b > ε): an error other than a spacing catch: {}", hn.as_ref().err().cloned().unwrap_or_default()));
+                                        false
+                                    }
                                     (true, true) => {
                                         println!("interaction seed {sd} position {pos:?} t {t}: the plant control ({d} b > ε): HARM CAUGHT, as expected");
                                         true
@@ -13309,8 +13392,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     println!(
-                        "the interaction row's verdict (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13 14:47 (a)'s no-departure bar in code (ironspec Nov 14 02:45 (3)): 0 box and push contacts, and THE HARM met at every C-gap >= {pair_least}: at its rest after the lip the napper TOUCHES its leader, the lane cart directly ahead of it at that tick (|Δx| and |Δy|, |Δz| minus one contact spacing, the rider's half-width 0.30 + the cart's 0.49 = 0.79 b, the game's own spacing (tick-exact Nov 14 04:36, a/1819963955990789), each within ε 0.010 (ε 0.010 covers one creep cycle (0.00586); no push at any napper rest tick in 480 rows with rider AI (redsim))), both carts in the slots by the lanes' geometry; the measured spread of that offset over every judged pair, failures included, {} (ε's source); the departures and the solo rides' Δ printed as information; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), the solo rides with the pair's other cart killed in the window [its lip arrival + D, its lip arrival] (D = --interaction-kill-at, default -60; the first tick it has an entity: G1's D2), its role printed and asserted at the planting tick (G1 CHANGES 4 (3)); the side-by-side's expectations named bars (paired again = the row, KILLED = DISPLACED, the far dummy killed = held = paired, every kill fired: G1 CHANGES 4 (2)); the rest window the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip arrival (none: NOT JUDGED, failing), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        "the interaction row's verdict (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13 14:47 (a)'s no-departure bar in code (ironspec Nov 14 02:45 (3)): 0 box and push contacts, and THE HARM met at every C-gap >= {pair_least} (G1 Nov 14 06:01's pinned ticks): t_c, the first tick the napper's box touches its leader's (the lane cart directly ahead of it at t_N), and t_N, the first of 5 consecutive ticks each moving < 1e-3 b; THE HARM itself is the leader's displacement from t_c - 1 to t_N, along the rail or in x, beyond ε; at t_N the napper touches its leader (|Δx| and |Δy|, |Δz| minus one contact spacing, the rider's half-width 0.30 + the cart's 0.49 = 0.79 b, the game's own spacing (tick-exact Nov 14 04:36, a/1819963955990789), each within ε), both carts in the slots by the lanes' geometry; ε 0.010 (ε 0.010 covers one creep cycle (0.00586); no push at any napper rest tick in 480 rows with rider AI (redsim)) and it must exceed the game's worst drift over the pair's window (0.00586 b per 15-gt push cycle = 0.00039 b/gt, + the comparison's precision 1e-6: a window of 26 gt or more is NOT JUDGED); every rider push inside a window named (never absorbed into ε); the measured spread of the offset and the displacement over every judged pair, failures included, {} (ε's source), the longest window {harm_win} gt (its drift bound {:.5}); the contacts made while the queue advanced (window over 1 gt: the leader moving across the contact, the queue's own advance cancelled by the napper-removed ride's) {harm_advancing} pairs; the departures and the solo rides' Δ printed as information; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), the solo rides with the pair's other cart killed in the window [its lip arrival + D, its lip arrival] (D = --interaction-kill-at, default -60; the first tick it has an entity: G1's D2), its role printed and asserted at the planting tick (G1 CHANGES 4 (3)); the side-by-side's expectations named bars (paired again = the row, KILLED = DISPLACED, the far dummy killed = held = paired, every kill fired: G1 CHANGES 4 (2)); the rest window G1's t_N (the first of 5 consecutive ticks moving < 1e-3 b within 400 gt of the lip arrival; none: NOT JUDGED, failing), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
                         if harm_offs.is_empty() { "- (none judged)".to_string() } else { format!("max {:.4} b over {} pairs", harm_offs.iter().cloned().fold(0.0, f64::max), harm_offs.len()) },
+                        crate::sidingbench::drift_bound(harm_win),
                         seeds,
                         positions,
                         if verdict_fail.is_empty() {
