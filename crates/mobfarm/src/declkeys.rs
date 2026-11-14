@@ -33,8 +33,9 @@ pub const COMMENT_KEYS: &[&str] = &[
     "allow-powered",
     // (58f770cc's bed stop: a contact decided by the entry speed, judged per speed (G1's B3))
     "contact-speeds",
-    // (58f770cc's bed stop: the exact stand-up feet, checked by bedtier-bench and read by vcompose's
-    // flee static (vcompose 03:19))
+    // (the bed stop's exact stand-up feet: bedtier-bench checks them (58f770cc), the flee static
+    // starts its walkers there (vcompose 03:19); entries `x,y,z=WHY`, split only at a `; ` before
+    // the next `x,y,z=`)
     "stand-up",
 ];
 
@@ -44,6 +45,8 @@ pub const COMMENT_KEYS: &[&str] = &[
 /// different forms: flee-check reads `# travel: A>B>…=REASON` comment lines (`pushscan::header_entries`,
 /// 9fc3155f's chain), while the piston-extender circuits' own `travel: x y z` header line belongs to the
 /// door tools (designs/circuits/pext): both forms stand, a mis-form of either still errors.
+// ("integrity": 58f770cc's bed stop: the declared rail shapes, judged every tick by bedtier-bench
+// (G1's Q13); listed once, here, since its readers take it from comment and meta lines both)
 pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn", "integrity", "scope-excludes", "site", "travel"];
 
 /// Keys read only from a header line, `key: …` (`column::header_cells`, `header_cell_states`;

@@ -18616,7 +18616,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1's B3: the contacts decided by the entry speed)
             let contact_speeds = crate::bedtier::parse_contact_speeds(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (vcompose 03:19: the header's declared stand-up feet, checked against the measured ones)
-            let stand_up_decl = crate::bedtier::parse_stand_up(&std::fs::read_to_string(&design)?);
+            let stand_up_decl = crate::bedtier::parse_stand_up(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1 05:15: the declared positions are in the file's own frame: no module offset)
+            anyhow::ensure!(stand_up_decl.is_none() || module_offset.is_none(), "stand-up: the file's own frame; --module-offset with a `stand-up:` file is refused (G1 05:15)");
             // (G1's Q15: the stranded bound read from the design's key)
             let stranded_bound = crate::bedtier::parse_stranded_bound(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's Q14: no negative delays)
@@ -18735,6 +18737,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let a: i64 = a.trim().parse().map_err(|e| anyhow::anyhow!("--restart-at-rls {s}: {e}"))?;
                         let b: i64 = b.trim().parse().map_err(|e| anyhow::anyhow!("--restart-at-rls {s}: {e}"))?;
                         anyhow::ensure!(a <= b, "--restart-at-rls {s}: A..B with A <= B");
+                        // (RLS + 0 is RLS's own tick: the earliest world open after it is RLS + 1)
+                        anyhow::ensure!(a >= 1, "--restart-at-rls {s}: A >= 1 (RLS + 0 is RLS's own tick; the first world open after it is RLS + 1)");
+                        // (G1 05:15: the phase window capped: the RLS window's 40 gt)
+                        anyhow::ensure!(b - a <= 40, "--restart-at-rls {s}: B - A at most 40 (the RLS window)");
                         restart_at_rls_phases = (a..=b).collect();
                         Some(crate::liveness::parse_restart(&format!("{a},{how}")).map_err(|e| anyhow::anyhow!("--restart-at-rls: {e}"))?)
                     } else {
@@ -19387,4 +19393,38 @@ fn parse_freezes(freeze: &[String]) -> Result<Vec<(i64, i64, u8)>> {
             Ok((p[0].parse()?, p[1].parse()?, w))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod smoke {
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct T {
+        #[command(subcommand)]
+        c: super::MobfarmCmd,
+    }
+
+    /// (a one-visit runtime smoke of the re-laid stop's bench on both generated variants: catches a
+    /// guard or a refusal that every re-laid run would hit before a 30-minute build finds it;
+    /// ignored by default: `cargo test --release -p mobfarm --lib -- --ignored relaid_bench_smoke`)
+    #[test]
+    #[ignore]
+    fn relaid_bench_smoke() {
+        for latch in [false, true] {
+            let text = crate::bedtier::design_a2(true, false, true, true, true, true, false, true, false, true, Some(1), false, false, latch, true).unwrap();
+            let path = std::env::temp_dir().join(format!("relaid-smoke-{latch}-{}.txt", std::process::id()));
+            std::fs::write(&path, text).unwrap();
+            let p = path.to_str().unwrap().to_string();
+            let mut args = vec!["x", "bedtier-bench", p.as_str(), "--speeds", "0.20", "--from", "1", "--to", "1", "--adopted-terms", "52,0,12,54,6,6,2,6,2,10,1"];
+            if latch {
+                args.extend(["--park-width", "none", "--pickup-band", "0.12,1"]);
+            } else {
+                args.extend(["--park-width", "24"]);
+            }
+            let t = T::try_parse_from(args).unwrap();
+            let r = super::run("smoke", t.c);
+            assert!(r.is_ok(), "latch {latch}: {:?}", r.err());
+        }
+    }
 }
