@@ -10078,6 +10078,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             match r {
+                crate::fleecheck::Reach::Reached { .. } if lines.iter().any(|l| l.starts_with("  BLOCKED-typed nodes after the start: ") && !l.ends_with(": none")) => {
+                    anyhow::bail!("path-probe: NOT JUDGED: REACHED only through BLOCKED-typed nodes (no walkable path), expected {}", if want { "reached" } else { "unreached" })
+                }
                 crate::fleecheck::Reach::Reached { .. } => anyhow::ensure!(want, "path-probe: expected unreached, found REACHED"),
                 crate::fleecheck::Reach::Unreachable => anyhow::ensure!(!want, "path-probe: expected reached, found PROVED UNREACHABLE"),
                 crate::fleecheck::Reach::Undetermined { .. } => anyhow::bail!("path-probe: NOT JUDGED: the search was cut (UNDETERMINED), expected {}", if want { "reached" } else { "unreached" }),
