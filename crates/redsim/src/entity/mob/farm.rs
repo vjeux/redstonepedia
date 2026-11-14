@@ -401,6 +401,9 @@ pub struct Run {
     /// by id: in a terrain run the natural mobs, the village's villagers and its golem are not the
     /// farm's, and the checks judge only these (and the golems these villagers summon).
     pub own: Vec<u32>,
+    /// (ironspec Nov 14 08:36a (3)(d), part 64) Whether [`Run::start`] held the design's cells to the game's
+    /// survival rules ("applied"), or why it skipped them (a terrain site, a land design): the exemption labelled.
+    pub survival_check: &'static str,
 }
 
 impl Run {
@@ -485,6 +488,10 @@ impl Run {
                     // (G1 on 5ff842746: an ascending rail without its high-side block, as
                     // `rails::would_pop` reads `BaseRailBlock.shouldBeRemoved`)
                     bad.push(format!("{p} {now} (no support: it pops at its first update)"));
+                } else if let Some(rule) = crate::behavior::survival_not_modeled(&now) {
+                    // (ironspec / farmopt Nov 14 08:36a / 08:40) a kind the game pops without its support whose
+                    // rule redsim doesn't model: refused by name until modelled, never kept silently
+                    bad.push(format!("{p} {now} (NOT MODELED: the game's {rule}; redsim has no survival rule for this kind yet)"));
                 }
             }
             if !bad.is_empty() {
@@ -530,7 +537,14 @@ impl Run {
             n.time = w.time;
             w.nether = Some(Box::new(n));
         }
-        Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b), own: Vec::new() })
+        let survival_check = if o.site.is_some() {
+            "skipped: a terrain site (its terrain's own cells stand in; the design's cells aren't held to survival here)"
+        } else if spec.land {
+            "skipped: a land design (built on the land the run loads)"
+        } else {
+            "applied: every design cell the game can't hold refuses the run by name"
+        };
+        Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b), own: Vec::new(), survival_check })
     }
 
     /// The settle's ticks left.
@@ -1548,6 +1562,37 @@ mod start_refusal_tests {
             assert!(e.contains("no support") || e.contains("popped at placement"), "raw {raw}: {e}");
             assert!(Run::start(&spec(true), &o).is_ok(), "raw {raw}: the slope with its high side refused");
         }
+    }
+
+    /// (ironspec / farmopt Nov 14 08:36a / 08:40, part 64) The loader holds every design cell to the game's survival
+    /// rule: a wall sign with nothing solid behind it refuses the run (26.3 WallSignBlock.canSurvive), the same sign
+    /// on a stone wall builds and the run says the check was applied; a kind whose rule redsim doesn't model (a
+    /// ladder) refuses the run as NOT MODELED, by name, even where the game would keep it.
+    #[test]
+    fn a_wall_sign_without_its_wall_and_an_unmodelled_kind_fail_the_run() {
+        let parse = |s: &str| Block::parse(s).unwrap_or_else(|_| Block::Terrain(crate::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let stone = parse("minecraft:stone");
+        let sign = parse("minecraft:oak_wall_sign[facing=south,waterlogged=false]");
+        let spec = |extra: Vec<(BlockPos, Block)>| {
+            let mut blocks = vec![(BlockPos::new(0, 0, 0), stone.clone())];
+            blocks.extend(extra);
+            FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(-2, 1, 0), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let o = RunOpts::steady(1, 0, WalkMode::Random);
+        // the sign faces south: its wall is the block north of it, (0,1,-1)
+        let e = Run::start(&spec(vec![(BlockPos::new(0, 1, 0), sign.clone())]), &o).err().unwrap_or_else(|| panic!("a wall sign on nothing built"));
+        assert!(e.contains("design cells the game can't hold") && e.contains("oak_wall_sign") && (e.contains("no support") || e.contains("popped at placement")), "{e}");
+        let ok = Run::start(&spec(vec![(BlockPos::new(0, 1, 0), sign.clone()), (BlockPos::new(0, 1, -1), stone.clone())]), &o).unwrap_or_else(|e| panic!("a wall sign on its wall refused: {e}"));
+        assert!(ok.survival_check.starts_with("applied"), "{}", ok.survival_check);
+        let ladder = parse("minecraft:ladder[facing=south,waterlogged=false]");
+        let e2 = Run::start(&spec(vec![(BlockPos::new(0, 1, 0), ladder), (BlockPos::new(0, 1, -1), stone.clone())]), &o).err().unwrap_or_else(|| panic!("an unmodelled ladder built"));
+        assert!(e2.contains("ladder") && e2.contains("NOT MODELED: the game's LadderBlock.canSurvive"), "{e2}");
+        // carpets are modelled (26.3 CarpetBlock.canSurvive: the block below not air): on stone it builds, over air it
+        // refuses the run
+        let carpet = parse("minecraft:moss_carpet");
+        assert!(Run::start(&spec(vec![(BlockPos::new(0, 1, 0), carpet.clone())]), &o).is_ok(), "a carpet on stone refused");
+        let e3 = Run::start(&spec(vec![(BlockPos::new(1, 2, 0), carpet)]), &o).err().unwrap_or_else(|| panic!("a carpet over air built"));
+        assert!(e3.contains("moss_carpet") && (e3.contains("no support") || e3.contains("popped at placement")), "{e3}");
     }
 
     /// (cc767b78, G1 14:55 H1) A light read that failed after the run's last tick (a read in the final
