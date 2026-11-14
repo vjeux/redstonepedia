@@ -5634,7 +5634,11 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     let d2 = |p: &Vec3| (p.x - c.x).powi(2) + (p.y - c.y).powi(2) + (p.z - c.z).powi(2);
     let inside = |p: &Vec3| d2(p) < radius * radius;
     let mut by: std::collections::BTreeMap<(i32, i32, i32), (String, usize, f64, f64)> = std::collections::BTreeMap::new();
+    // (ironspec 07:26r / G1: the entity's FEET as it reports them: a seated rider at its cart's y + 0.0625; the rail
+    // and column samples are cart positions)
+    let feet = |p: Vec3| Vec3::new(p.x, p.y + 0.0625, p.z);
     for (cell, _, p) in rider_positions(spec) {
+        let p = feet(p);
         let dd = d2(&p).sqrt();
         if inside(&p) {
             let e = by.entry((cell.x, cell.y, cell.z)).or_insert(("rail".into(), 0, f64::INFINITY, 0.0));
@@ -5647,10 +5651,11 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
         let n = ((col[3] - col[1]).abs() / 0.25).round() as usize;
         for i in 0..=n {
             let y = col[1] + if col[3] >= col[1] { 1.0 } else { -1.0 } * i as f64 * 0.25;
-            let p = Vec3::new(col[0], y, col[2]);
+            let cart = Vec3::new(col[0], y, col[2]);
+            let p = feet(cart);
             let dd = d2(&p).sqrt();
             if inside(&p) {
-                let e = by.entry((p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).or_insert(("column".into(), 0, f64::INFINITY, 0.0));
+                let e = by.entry((cart.x.floor() as i32, cart.y.floor() as i32, cart.z.floor() as i32)).or_insert(("column".into(), 0, f64::INFINITY, 0.0));
                 e.1 += 1;
                 e.2 = e.2.min(dd);
                 e.3 = e.3.max(dd);
@@ -5659,7 +5664,7 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     }
     let total: usize = by.values().map(|v| v.1).sum();
     let mut lines = vec![format!(
-        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the bed head block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, the rider's exact FEET; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
+        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the bed head block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, the rider's exact FEET, a seated rider's at its cart's y + 0.0625; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
         radius * radius,
         center.x,
         center.y,
@@ -6201,13 +6206,18 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
         let chain = rail_chain(&w, *c);
         into.extend(chain.iter().copied());
         let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        let mut locks: Vec<String> = Vec::new();
         let cstate = w.get(*c).to_string();
         for s in &into {
             for q in n6(*s) {
                 let b = w.get(q);
                 // (part 53) a diode consumer reads only its input side (part 34's `diode_reads`, as power-out
-                // has it): a source or conductor beside it elsewhere (a hook above a repeater) feeds nothing
+                // has it): a source or conductor beside it elsewhere (a hook above a repeater) feeds nothing;
+                // (G1 Nov 14 07:14, part 57) a side diode pointing into a repeater LOCKS it: named, not power
                 if s == c && !diode_reads(*c, &cstate, q, &b.to_string()) {
+                    if diode_locks(*c, &cstate, q, &b.to_string()) {
+                        locks.push(format!("{} at {},{},{} (a side diode pointing in)", name(q), q.x, q.y, q.z));
+                    }
                     continue;
                 }
                 // (G1 Nov 14 05:38, part 50) a source counts only by its real faces (`source_faces`): its weak
@@ -6250,7 +6260,8 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
             outside.len(),
             if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
             if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
-        ));
+        ) + &if locks.is_empty() { String::new() } else { format!("; LOCKED (not power) by {}", locks.join("; ")) }
+            + &if cid == "comparator" { comparator_analog_back(&w, *c, &cstate).map(|a| format!("; its ANALOG back input: {a}")).unwrap_or_else(|| "; its analog back input: none".to_string()) } else { String::new() });
     }
     // (G1 Nov 13 23:06: --no-qc is read back: with no piston, dropper or dispenser among the cells it is a
     // stale flag and fails)
@@ -6294,20 +6305,13 @@ fn torch_support(q: BlockPos, s: &str) -> Option<BlockPos> {
     }
 }
 
-/// (ironspec Nov 13 19:46 (iii), ironfarm 19:50, G1 21:38) Where a source's power can go: each power
-/// consumer among its six neighbours (its weak power, whatever its facing), each consumer beside a
-/// redstone conductor among them (strong power through the block; a hook's or a lever's support, a
-/// plate's or a detector rail's floor), and every redstone torch whose support is the source or such a
-/// conductor (a torch on a powered block turns off; H7). A cell that is a CONDUCTOR (a block a source
-/// powers: a latch's stone) takes its six neighbours' consumers and the torches it supports, dust
-/// marked (dust takes power only from a STRONGLY powered block). A cell that is neither a source nor a
-/// conductor is NOT JUDGED (H2). The design's meant consumers named by `allow`; an allow no cell
-/// reaches FAILS as stale (H3). Returns the lines and the count outside `allow` plus stale allows.
-/// (G1 Nov 14 00:17 non-blocking, ironspec 01:21 (1): facing-aware) Whether the diode at `q` (state `qs`)
-/// reads power from the cell `from` (state `from_s`): a repeater from its input side (26.3's `facing` names
-/// the input, tick-exact Nov 13 22:00), and from a side only when `from` is itself a diode whose output
-/// points into it (a lock); a comparator from its back (the same side) and its two horizontal sides; never
-/// from above or below, nor its front. Any other consumer: true.
+/// (G1 Nov 14 00:17 non-blocking, ironspec 01:21 (1): facing-aware; G1 07:14, part 57) Whether the diode at `q`
+/// (state `qs`) reads POWER from the cell `from` (state `from_s`): a repeater only from its input side (26.3's
+/// `facing` names the input, tick-exact Nov 13 22:00; a side diode is a LOCK, not power: [`diode_locks`]); a
+/// comparator from its back (the same side, a conductor's power included) and at either horizontal side only
+/// from a redstone block, dust, or a source whose DIRECT (strong) output faces it (26.3's
+/// `getControlInputSignal` with diodesOnly = false: a conductor at a side gives 0); never from above or below,
+/// nor its front. Any other consumer: true.
 fn diode_reads(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
     let repeater = qs.starts_with("minecraft:repeater");
     let comparator = qs.starts_with("minecraft:comparator");
@@ -6329,12 +6333,66 @@ fn diode_reads(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
         return true;
     }
     let side = from == BlockPos::new(q.x + dz, q.y, q.z + dx) || from == BlockPos::new(q.x - dz, q.y, q.z - dx);
-    if comparator {
-        return side;
+    if comparator && side {
+        let fid = from_s.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+        return fid == "redstone_block" || fid == "redstone_wire" || (source_faces_known(from_s) && source_faces(from, from_s)(q).1) || ((fid == "repeater" || fid == "comparator") && dir(from_s).is_some_and(|(fx, fz)| BlockPos::new(from.x - fx, from.y, from.z - fz) == q));
     }
-    // (a repeater's side reads only a diode pointing its output into it: a lock)
+    false
+}
+
+/// (G1 Nov 14 07:14, part 57) Whether the cell `from` LOCKS the repeater at `q`: a diode (repeater or comparator)
+/// at its side whose output points into it. A lock holds the repeater's state; it is not power.
+fn diode_locks(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
+    if !qs.starts_with("minecraft:repeater") {
+        return false;
+    }
+    let dir = |s: &str| -> Option<(i32, i32)> {
+        match s.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("")).unwrap_or("") {
+            "north" => Some((0, -1)),
+            "south" => Some((0, 1)),
+            "east" => Some((1, 0)),
+            "west" => Some((-1, 0)),
+            _ => None,
+        }
+    };
+    let Some((dx, dz)) = dir(qs) else { return false };
+    let side = from == BlockPos::new(q.x + dz, q.y, q.z + dx) || from == BlockPos::new(q.x - dz, q.y, q.z - dx);
     let from_diode = from_s.starts_with("minecraft:repeater") || from_s.starts_with("minecraft:comparator");
     side && from_diode && dir(from_s).is_some_and(|(fx, fz)| BlockPos::new(from.x - fx, from.y, from.z - fz) == q)
+}
+
+/// (G1 Nov 14 07:14, part 57) A comparator's ANALOG back input: the block behind it when it has an analog output
+/// (a container, a cauldron, a composter, a jukebox, a lectern, a cake, a bee nest, a chiseled bookshelf, a crafter,
+/// a decorated pot, an end portal frame, a respawn anchor; a detector rail reads a cart's contents), or such a block
+/// behind a conductor behind it (26.3's `getInputSignal`: the analog read passes one solid block).
+pub fn comparator_analog_back(w: &redsim::World, q: BlockPos, qs: &str) -> Option<String> {
+    let f = qs.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string())?;
+    let (dx, dz) = match f.as_str() {
+        "north" => (0, -1),
+        "south" => (0, 1),
+        "east" => (1, 0),
+        "west" => (-1, 0),
+        _ => return None,
+    };
+    let analog = |s: &str| {
+        let id = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+        matches!(id, "hopper" | "chest" | "trapped_chest" | "barrel" | "dropper" | "dispenser" | "furnace" | "blast_furnace" | "smoker" | "brewing_stand" | "composter" | "cauldron" | "water_cauldron" | "lava_cauldron" | "powder_snow_cauldron" | "jukebox" | "lectern" | "cake" | "beehive" | "bee_nest" | "chiseled_bookshelf" | "crafter" | "decorated_pot" | "end_portal_frame" | "respawn_anchor" | "detector_rail")
+            || id.ends_with("shulker_box")
+            || id.ends_with("candle_cake")
+    };
+    let b1 = BlockPos::new(q.x + dx, q.y, q.z + dz);
+    let s1 = w.get(b1);
+    if analog(&s1.to_string()) {
+        return Some(format!("{} at {},{},{}", s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z));
+    }
+    if redsim::behavior::is_conductor(w, &s1, b1) {
+        let b2 = BlockPos::new(b1.x + dx, b1.y, b1.z + dz);
+        let s2 = w.get(b2);
+        if analog(&s2.to_string()) {
+            return Some(format!("{} at {},{},{} through the conductor {} at {},{},{}", s2.to_string().trim_start_matches("minecraft:"), b2.x, b2.y, b2.z, s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z));
+        }
+    }
+    None
 }
 
 /// (G1 Nov 14 05:38, part 49) A signal source's two outputs toward its neighbour `q`: (weak, strong) — the
@@ -6423,6 +6481,16 @@ pub fn source_faces_known(s: &str) -> bool {
     ["repeater", "comparator", "observer", "detector_rail", "redstone_torch", "redstone_wall_torch", "lever", "tripwire_hook", "redstone_block", "redstone_wire"].contains(&id) || id.ends_with("pressure_plate") || id.ends_with("_button")
 }
 
+/// (ironspec Nov 13 19:46 (iii), ironfarm 19:50, G1 21:38) Where a source's power can go: each power
+/// consumer among its six neighbours its WEAK output faces (part 49's `source_faces`), each consumer beside a
+/// redstone conductor its STRONG output faces (a hook's or a lever's support, a plate's or a detector rail's
+/// floor, the blocks dust points into), and every redstone torch whose support is the source or such a
+/// conductor (a torch on a powered block turns off; H7); a diode consumer only at its input side, a repeater's
+/// side diode named as a LOCK, not power (part 57). A cell that is a CONDUCTOR (a block a source powers: a
+/// latch's stone) takes its six neighbours' consumers and the torches it supports, dust marked (dust takes
+/// power only from a STRONGLY powered block). A cell that is neither a source nor a conductor is NOT JUDGED
+/// (H2). The design's meant consumers named by `allow`; an allow no cell reaches FAILS as stale (H3). Returns
+/// the lines and the count outside `allow` plus stale allows.
 pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
@@ -6439,6 +6507,7 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
             return Err(format!("power out: NOT JUDGED: {},{},{} holds {} (no signal source, no conductor)", c.x, c.y, c.z, name(*c)));
         }
         let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        let mut locks_out: Vec<String> = Vec::new();
         let mut through = Vec::new();
         // (a torch never powers its own support)
         let own_support = torch_support(*c, &here.to_string());
@@ -6462,6 +6531,9 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
             if weak && power_consumer(&id(q)) && diode_reads(q, &qs, *c, &here.to_string()) {
                 let dust = conductor && id(q) == "redstone_wire";
                 hits.push((q, format!("{} at {},{},{} beside it{}", name(q), q.x, q.y, q.z, if dust { " (dust: only if the block is STRONGLY powered)" } else { "" })));
+            } else if source && diode_locks(q, &qs, *c, &here.to_string()) {
+                // (G1 Nov 14 07:14, part 57) a diode pointing into a repeater's side LOCKS it: named, not power
+                locks_out.push(format!("{} at {},{},{}", name(q), q.x, q.y, q.z));
             }
             // (G1 Nov 13 23:06: a consumer that also conducts (a lamp, a note block, a dropper) passes the
             // source's strong power on to its own neighbours: walked like any conductor)
@@ -6519,7 +6591,7 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
             outside.len(),
             if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
             if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
-        ));
+        ) + &if locks_out.is_empty() { String::new() } else { format!("; LOCKS (not power) {}", locks_out.join("; ")) });
     }
     // (G1 21:38 H3: an allow is read back: one that no cell reaches is stale and fails)
     for a in allow.iter().filter(|a| !matched.contains(a)) {
@@ -7410,13 +7482,13 @@ pub fn dark_stand_in(b: &redsim::block::Block, emission: &dyn Fn(&redsim::block:
 }
 
 pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(Vec<String>, usize, usize), String> {
-    spawn_static_q(spec, biome, lit, &[])
+    spawn_static_q(spec, biome, lit, &[]).map(|(l, i, o, _)| (l, i, o))
 }
 
 /// (dfb89499 / ironspec Nov 14 06:14 / 06:16, part 53) [`spawn_static`] with each `query` cell's membership
 /// printed: INTERIOR or TOP SURFACE (judged, with its verdict), a design block (no spawn space of its own:
 /// the static judges the cell above it), or neither (not judged).
-pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
+pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[BlockPos]) -> Result<(Vec<String>, usize, usize, usize), String> {
     if redsim::terrain::biome::biome(biome).is_none() {
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
     }
@@ -7619,8 +7691,21 @@ pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[
             if lit_by.is_empty() { String::new() } else { format!(": {}", lit_by.iter().map(|p| cell(p)).collect::<Vec<_>>().join(" ")) }
         ));
     }
-    // (part 53) each queried cell's membership
+    // (part 53) each queried cell's membership; (G1 Nov 14 07:14, part 57) a cell outside the design's box or one the
+    // static doesn't judge FAILS by name (counted in the returned query failures); a repeated cell is printed once
+    let mut q_bad = 0usize;
+    let mut seen_q: Vec<BlockPos> = Vec::new();
     for q in query {
+        if seen_q.contains(q) {
+            continue;
+        }
+        seen_q.push(*q);
+        let in_box = (spec.lo.x..=spec.hi.x).contains(&q.x) && (spec.lo.y..=spec.hi.y).contains(&q.y) && (spec.lo.z..=spec.hi.z).contains(&q.z);
+        if !in_box && !inner.contains(q) && !tops.contains(q) {
+            q_bad += 1;
+            lines.push(format!("  CELL {},{},{}: outside the design's box {},{},{}..{},{},{}: NOT JUDGED (FAIL)", q.x, q.y, q.z, spec.lo.x, spec.lo.y, spec.lo.z, spec.hi.x, spec.hi.y, spec.hi.z));
+            continue;
+        }
         let hit_in = in_hits.iter().find(|(p, _, _)| p == q);
         let hit_out = out_hits.iter().find(|(p, _, _)| p == q);
         let lit_note = dependent.iter().find(|(p, _, _)| p == q).map(|(_, l, s)| format!(" (LIGHT-DEPENDENT: block light {l} from {s})")).unwrap_or_default();
@@ -7641,19 +7726,22 @@ pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[
                 above.y,
                 above.z,
                 if inner.contains(&above) {
-                    "interior"
+                    "an interior cell"
                 } else if tops.contains(&above) {
                     "a top-surface cell"
+                } else if design.contains(&above) {
+                    "a design block too"
                 } else {
-                    "itself a design block or interior"
+                    "not judged"
                 }
             )
         } else {
-            "neither interior nor over a design block: NOT JUDGED".to_string()
+            q_bad += 1;
+            "neither an interior cell nor over a design block: NOT JUDGED (FAIL)".to_string()
         };
         lines.push(format!("  CELL {},{},{}: {what}", q.x, q.y, q.z));
     }
-    Ok((lines, in_hits.len(), out_hits.len()))
+    Ok((lines, in_hits.len(), out_hits.len(), q_bad))
 }
 
 /// (ironspec Nov 13 09:44 / 09:55, G1 09:51 / 09:58) A signal source's class, DERIVED: its update
@@ -11308,9 +11396,10 @@ mod gate_tests {
         let obs_src = p("minecraft:observer[facing=north,powered=false]");
         let (o1, no1) = super::update_reach_components(&mk(vec![(b(2, 1, 2), obs_src), (b(2, 1, 3), p("minecraft:hopper[enabled=true,facing=down]"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
         assert!(no1 == 1 && o1[0].contains("a diode: the cell its output faces 2,1,3") && o1[0].contains("hopper[") && o1[0].ends_with("(FAIL)"), "a hopper behind an observer: {o1:?}");
-        // (ironspec 07:25r, part 56) the ball metric: distToCenterSqr(feet) < radius², strict, from the bed head
-        // block's centre: a column point exactly 16 off is outside, one 15.75 off inside
-        let np = super::near_positions(&mk(Vec::new()), &[[0.5, 16.25, 0.5, 16.5]], b(0, 0, 0), 16.0);
+        // (ironspec 07:25r, part 56; feet = the cart's y + 0.0625, part 57) the ball metric: distToCenterSqr(feet) <
+        // radius², strict, from the bed head block's centre: a cart at 16.1875 (feet 16.25, exactly 16 off once the
+        // centre's 0.5 is taken) is outside, one at 15.9375 (feet 15.75 off) inside
+        let np = super::near_positions(&mk(Vec::new()), &[[0.5, 16.1875, 0.5, 16.4375]], b(0, 0, 0), 16.0);
         assert!(np[0].contains("distToCenterSqr(feet) < 256 (strict") && np[0].ends_with("1 positions in 1 cells") && np.iter().any(|l| l.contains("column 0,16,0: 1 positions, 15.75..15.75")), "the strict ball: {np:?}");
     }
 
@@ -12254,13 +12343,51 @@ mod gate_tests {
         let cmp = p("minecraft:comparator[facing=east,mode=compare,powered=false]");
         let (lc, nc) = super::power_out(&mk(vec![(b(2, 1, 2), cmp), (b(2, 1, 3), p("minecraft:redstone_block"))]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(nc == 1, "a source at a comparator's side: {lc:?}");
-        // (ironspec 01:21 (1)) a repeater's side: a redstone block there doesn't feed it; a repeater pointing
-        // its output into that side locks it (a hit)
+        // (ironspec 01:21 (1)) a repeater's side: a redstone block there doesn't feed it; (G1 Nov 14 07:14, part 57) a
+        // repeater pointing its output into that side LOCKS it: named "LOCKS (not power)", not counted as power
         let (ls, ns) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), p("minecraft:redstone_block"))]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(ns == 0, "a block at a repeater's side: {ls:?}");
+        assert!(ns == 0 && !ls[0].contains("LOCKS"), "a block at a repeater's side: {ls:?}");
         let lock = p("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
         let (ll, nl) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(nl == 1 && ll[0].contains("repeater[delay=1,facing=east") && ll[0].contains("at 2,1,2 beside it"), "a diode locking its side: {ll:?}");
+        assert!(nl == 0 && ll[0].contains("(PASS); LOCKS (not power) repeater[delay=1,facing=east,locked=false,powered=false] at 2,1,2"), "a diode locking its side: {ll:?}");
+        // the same from the locked repeater's side: power-into names the lock, counts no source
+        let (lli, nli) = super::power_into(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nli == 0 && lli[0].contains("LOCKED (not power) by repeater[delay=1,facing=south") && lli[0].contains("(a side diode pointing in)"), "power-into names the lock: {lli:?}");
+        // a powered stone (a lever on it) at a repeater's side feeds nothing
+        let (lps, nps) = super::power_into(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), p("minecraft:stone")), (b(2, 1, 4), p("minecraft:lever[face=wall,facing=south,powered=false]"))]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nps == 0, "a powered stone at a repeater's side: {lps:?}");
+        // (part 57) a comparator facing east (its back east (3,1,2), front west (1,1,2), sides north / south):
+        // at its SIDES dust, a redstone block and a diode pointing in are read; a powered stone (a lever on it) and a
+        // torch are not (26.3's getControlInputSignal: a conductor at a side gives 0, a torch's strong output is up);
+        // at its back a powered stone is read (through the conductor); its front and below never
+        let ce = p("minecraft:comparator[facing=east,mode=compare,powered=false]");
+        let side_n = b(2, 1, 1);
+        let reads = |blocks: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| -> (Vec<String>, usize) {
+            let mut v = vec![(b(2, 1, 2), ce)];
+            v.extend(blocks);
+            super::power_into(&mk(v), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"))
+        };
+        let (cs1, ncs1) = reads(vec![(side_n, p("minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]"))]);
+        assert!(ncs1 == 1 && cs1[0].contains("redstone_wire[") && cs1[0].contains("beside 2,1,2"), "dust at a comparator's side: {cs1:?}");
+        let (cs2, ncs2) = reads(vec![(side_n, p("minecraft:redstone_block"))]);
+        assert!(ncs2 == 1 && cs2[0].contains("redstone_block at 2,1,1"), "a redstone block at its side: {cs2:?}");
+        let (cs3, ncs3) = reads(vec![(side_n, p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]"))]);
+        assert!(ncs3 == 1 && cs3[0].contains("repeater[delay=1,facing=north") , "a diode pointing into its side: {cs3:?}");
+        let (cs4, ncs4) = reads(vec![(side_n, p("minecraft:stone")), (b(2, 1, 0), p("minecraft:lever[face=wall,facing=north,powered=false]"))]);
+        assert!(ncs4 == 0, "a powered stone at its side: {cs4:?}");
+        let (cs5, ncs5) = reads(vec![(side_n, p("minecraft:redstone_torch[lit=true]"))]);
+        assert!(ncs5 == 0, "a torch at its side: {cs5:?}");
+        let (cb, ncb) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:lever[face=wall,facing=east,powered=false]"))]);
+        assert!(ncb == 1 && cb[0].contains("lever[") && cb[0].contains("through the conductor stone at 3,1,2"), "a powered stone at its back: {cb:?}");
+        let (cf, ncf) = reads(vec![(b(1, 1, 2), p("minecraft:redstone_block")), (b(2, 2, 2), p("minecraft:redstone_block"))]);
+        assert!(ncf == 0, "its front and above: {cf:?}");
+        // its ANALOG back input: a hopper behind it, or a hopper behind a stone behind it, is listed; none says so
+        let (ca1, _) = reads(vec![(b(3, 1, 2), p("minecraft:hopper[enabled=true,facing=down]"))]);
+        assert!(ca1[0].contains("its ANALOG back input: hopper[") && ca1[0].contains("at 3,1,2"), "a hopper behind: {ca1:?}");
+        let (ca2, _) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:chest[facing=north,type=single,waterlogged=false]"))]);
+        assert!(ca2[0].contains("its ANALOG back input: chest[") && ca2[0].contains("through the conductor stone at 3,1,2"), "a chest behind a stone: {ca2:?}");
+        let (ca3, _) = reads(Vec::new());
+        assert!(ca3[0].contains("its analog back input: none"), "no analog input: {ca3:?}");
         // (G1 Nov 14 05:38, part 49) a source's power goes out only by its real faces: a repeater facing west
         // (input west, front east) powers the lamp at its front (3,1,2), not the lamp at its side (2,1,1), and
         // not through the stone under it (no strong output down: the lamp at (1,0,2) beside that stone stays
@@ -12936,6 +13063,19 @@ mod gate_tests {
         // --lit too (INSIDE, failing); a torch on its floor clears it)
         let (ld, inside_d, _) = super::spawn_static(&room("minecraft:stone"), "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
         assert!(inside_d > 0 && ld.iter().any(|x| x.contains("SPAWNABLE INSIDE")), "{ld:?}");
+        // (G1 Nov 14 07:14 (5), part 57) `--cell`'s membership lines, each kind pinned: a SPAWNABLE interior floor
+        // cell matches its SPAWNABLE INSIDE line; the room's top (2,5,2) over its stone roof is a top-surface cell; a
+        // wall block is a design block naming the cell above it; a cell off the design's box FAILS (NOT JUDGED); a
+        // repeated cell prints once
+        let spawn_cell = ld.iter().find_map(|x| x.strip_prefix("  SPAWNABLE INSIDE ")).and_then(|r| r.split(' ').next()).map(|c| c.to_string()).expect("a spawnable cell");
+        let sc: Vec<i32> = spawn_cell.split(',').map(|t| t.parse().unwrap()).collect();
+        let qs = [b(sc[0], sc[1], sc[2]), b(2, 5, 2), b(0, 2, 2), b(9, 9, 9), b(2, 5, 2)];
+        let (lq, _, _, qbad) = super::spawn_static_q(&room("minecraft:stone"), "minecraft:plains", true, &qs).unwrap_or_else(|e| panic!("{e}"));
+        let cell_line = |c: &str| lq.iter().filter(|x| x.starts_with(&format!("  CELL {c}:"))).cloned().collect::<Vec<_>>();
+        assert!(cell_line(&spawn_cell).first().is_some_and(|x| x.contains("INTERIOR (judged): SPAWNABLE (")), "the spawnable cell: {lq:?}");
+        assert!(cell_line("2,5,2").len() == 1 && cell_line("2,5,2")[0].contains("TOP SURFACE (judged): SPAWNABLE ("), "the roof's top (just over the box, judged), once: {lq:?}");
+        assert!(cell_line("0,2,2").first().is_some_and(|x| x.contains("a design block (stone): no spawn space of its own (the static judges the cell above it, 0,3,2: a design block too)")), "a wall block: {lq:?}");
+        assert!(qbad == 1 && cell_line("9,9,9").first().is_some_and(|x| x.contains("outside the design's box 0,0,0..4,4,4: NOT JUDGED (FAIL)")), "off the box: {lq:?}");
         let mut lit_room = room("minecraft:stone");
         lit_room.blocks.retain(|(q, _)| *q != b(1, 1, 1));
         lit_room.blocks.push((b(1, 1, 1), redsim::block::Block::parse("minecraft:torch").unwrap()));
