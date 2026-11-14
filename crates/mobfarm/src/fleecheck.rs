@@ -363,16 +363,20 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
                 p.nodes.len(),
                 p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
             ));
-            // (ironspec Nov 14 00:48: each step's height between the nodes' floors (a node's floor: the top of
-            // its own cell's shape under 1, else the top of the shape below it), the largest rise and drop,
-            // and the last step: a final drop over 1.125 no walker climbs back)
+            // (ironspec Nov 14 00:48: each step's height between the nodes' floors, the largest rise and drop,
+            // and the last step: a final drop over 1.125 no walker climbs back. A node's floor: 26.3's
+            // getFloorLevel (the top of the shape in the cell below, its y when that cell is empty), except
+            // a node whose own cell holds a shape up to its top (a top-half trapdoor cap), walked on that top)
             let floor_of = |n: &redsim::entity::mob::ai::path::path::PathNode| -> f64 {
                 let c = BlockPos::new(n.x, n.y, n.z);
                 let own = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
-                if own > 0 && own < 16 {
+                if own >= 16 {
+                    return n.y as f64 + 1.0;
+                }
+                if own > 0 {
                     return n.y as f64 + own as f64 / 16.0;
                 }
-                let below = redsim::behavior::collision_boxes(&w.get(c.below())).iter().map(|b| b[3]).max().unwrap_or(16);
+                let below = redsim::behavior::collision_boxes(&w.get(c.below())).iter().map(|b| b[3]).max().unwrap_or(0);
                 (n.y - 1) as f64 + below as f64 / 16.0
             };
             let floors: Vec<f64> = p.nodes.iter().map(floor_of).collect();
@@ -10353,6 +10357,23 @@ mod gate_tests {
         let (lb, rb) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(matches!(rb, super::Reach::Reached { .. }) && lb[1].contains("REACHED"), "the bed-top step-up: {lb:?}");
         assert!(lb.iter().any(|l| l.starts_with("  steps (floor to floor):") && l.contains("the largest rise +0.5625")), "the step's height: {lb:?}");
+        // (part 32) a top-half trapdoor cap the path crosses is walked on its top: a corridor (walls 3 high)
+        // with a closed top-half trapdoor in it: up 1.0 onto its top, down 1.0 off it
+        let mut cb = Vec::new();
+        for x in 0..=6 {
+            for z in 0..=4 {
+                cb.push((b(x, 0, z), p("minecraft:stone")));
+                if z != 2 {
+                    for y in 1..=3 {
+                        cb.push((b(x, y, z), p("minecraft:stone")));
+                    }
+                }
+            }
+        }
+        cb.push((b(3, 1, 2), p("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+        let cap = redsim::entity::mob::farm::FarmSpec { blocks: cb, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (lc, rc) = super::standing_path_probe(&cap, v(1.5, 1.0, 2.5), b(5, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(rc, super::Reach::Reached { .. }) && lc.iter().any(|l| l.starts_with("  steps (floor to floor):") && l.contains("the largest rise +1.0000, the largest drop -1.0000")), "over the cap: {lc:?}");
         let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(rg == super::Reach::Unreachable && lg[1].contains("PROVED UNREACHABLE"), "a full block two above the head: {lg:?}");
         // (tick-exact Nov 14 00:21: the bounds overridden) the step-up under follow range 16 / 256 too, the
