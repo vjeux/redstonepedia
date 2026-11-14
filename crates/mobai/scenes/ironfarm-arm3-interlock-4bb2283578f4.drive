@@ -1,0 +1,97 @@
+# The iron farm's ARM3 interlock, BLOCK presses (the ideal press: a redstone block in the detector's cell;
+# exact timings for that press type: ironspec Nov 14 05:59 (a)); the real-cart form, with the detector's
+# 20-gt re-check schedule, is ironfarm-arm3-interlock-cart.drive (game-only: `mobai game-drive`). G1 Nov 14
+# 04:19 / 04:53's rows: one release per batch under a rollback re-press; a doubled REL (also a REL with no
+# release since: the missed-release case) changes nothing; a missed REL tap stalls the next ARM3 and the
+# batch after recovers; ARM3 held through a REL gives no second release until it is pressed again.
+# Probes: the stone's dropper (a = A, armed; b = B, released) and q, the comparator on B (1 from the
+# release to the next REL: a LEVEL; the release line's pulse limiter makes it one pulse per rise).
+design designs/gadgets/ironfarm-arm3-interlock.txt
+probe_items a 3 1 1
+probe_items b 2 1 1
+probe q 2 1 2
+quiet 6
+expect a 1
+expect b 0
+expect q 0
+# ARM3 pressed: THE RELEASE (the stone into B; q rises 5 gt after a block's press: the dropper's 4-gt
+# fire, then the comparator)
+set 3 1 0 minecraft:redstone_block
+expect_trace q 000001111111
+expect a 0
+expect b 1
+# the press ends and a new press follows (the cart rolled back over it): A is empty, nothing moves (one
+# release)
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 6
+set 3 1 0 minecraft:redstone_block
+quiet 20
+expect a 0
+expect b 1
+expect q 1
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 6
+# the next batch's REL: re-armed (the stone back in A, q falls)
+set 0 2 1 minecraft:redstone_block
+quiet 4
+clear 0 2 1
+quiet 10
+expect a 1
+expect b 0
+expect q 0
+# a doubled REL (also a REL with no release since: the missed-release case): B is empty, nothing moves
+set 0 2 1 minecraft:redstone_block
+quiet 4
+clear 0 2 1
+quiet 10
+expect a 1
+expect b 0
+expect q 0
+# ARM3: released once
+set 3 1 0 minecraft:redstone_block
+quiet 20
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 6
+expect a 0
+expect b 1
+expect q 1
+# a missed REL tap: the next ARM3 finds A empty: no release (the stall)
+set 3 1 0 minecraft:redstone_block
+quiet 20
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 6
+expect a 0
+expect b 1
+# the batch after: REL re-arms, ARM3 releases once: recovered
+set 0 2 1 minecraft:redstone_block
+quiet 4
+clear 0 2 1
+quiet 10
+expect a 1
+expect q 0
+set 3 1 0 minecraft:redstone_block
+quiet 20
+expect a 0
+expect b 1
+expect q 1
+# ARM3 HELD pressed through the next REL: the stone returns to A and stays (A saw no new rising edge)
+set 0 2 1 minecraft:redstone_block
+quiet 4
+clear 0 2 1
+quiet 20
+expect a 1
+expect b 0
+expect q 0
+# the press continues: still nothing
+quiet 20
+expect a 1
+expect b 0
+expect q 0
+# ARM3 let go and pressed again (a block press ends at once): one release
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 6
+set 3 1 0 minecraft:redstone_block
+quiet 20
+expect a 0
+expect b 1
+expect q 1

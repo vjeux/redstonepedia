@@ -28,9 +28,12 @@ pub enum DesignCmd {
     /// redsim can't parse is reported as unjudged, not as a pop.
     WouldPop { paths: Vec<PathBuf> },
     /// (tickexact, Nov 14 2026, G1 04:10 (a): does a row run on one revision of a file stand for another?) Compare two
-    /// design files cell by cell: every cell only in A, only in B, or with a different state (air written or not counts
-    /// as absent), then the entities (kind, position, NBT). `--box x0,y0,z0,x1,y1,z1` limits the cells compared
-    /// (inclusive). Exits 0 either way; the counts line says whether they differ.
+    /// design files FIELD BY FIELD (G1 06:54 (1)): the name, every header `key: value` line (keep-block, emulated,
+    /// keep-clear, riderless, run-cells, positions …), the ports, every cell (air written or not counts as absent), the
+    /// entities in file order (kind, position, NBT), the block entities (`nbt:` lines), and the Nether part's cells,
+    /// ports and block entities. Comments (`#` lines) are not part of a design and never differ. `--box
+    /// x0,y0,z0,x1,y1,z1` limits the overworld cells, entities and block entities compared (inclusive; the Nether part
+    /// is compared whole). Exits 1 on any difference, naming each one.
     CellDiff {
         a: PathBuf,
         b: PathBuf,
@@ -47,8 +50,8 @@ pub fn run(cmd: DesignCmd) -> Result<()> {
     }
 }
 
-fn cell_diff(a: &Path, b: &Path, within: Option<&str>) -> Result<()> {
-    let bx: Option<[i32; 6]> = match within {
+fn parse_box(within: Option<&str>) -> Result<Option<[i32; 6]>> {
+    Ok(match within {
         Some(s) => {
             let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             if v.len() != 6 {
@@ -57,54 +60,124 @@ fn cell_diff(a: &Path, b: &Path, within: Option<&str>) -> Result<()> {
             Some([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5]), v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])])
         }
         None => None,
-    };
+    })
+}
+
+/// Every difference between two designs, field by field, one line each (empty: the designs are equal within `bx`)
+fn design_differences(da: &Design, db: &Design, bx: Option<[i32; 6]>) -> Vec<String> {
     let inside = |p: &[i32; 3]| bx.is_none_or(|q| (0..3).all(|i| p[i] >= q[i] && p[i] <= q[i + 3]));
-    let cells = |d: &Design| -> BTreeMap<[i32; 3], String> { d.block_list().into_iter().filter(|(p, s)| s != "minecraft:air" && inside(p)).collect() };
+    let inside_f = |p: &[f64; 3]| bx.is_none_or(|q| (0..3).all(|i| p[i] >= q[i] as f64 && p[i] < (q[i + 3] + 1) as f64));
+    let mut out: Vec<String> = Vec::new();
+    if da.name != db.name {
+        out.push(format!("name: {:?} -> {:?}", da.name, db.name));
+    }
+    fn map_diff<K: Ord + std::fmt::Debug, V: PartialEq + std::fmt::Debug>(what: &str, a: &BTreeMap<K, V>, b: &BTreeMap<K, V>, keep: impl Fn(&K) -> bool, out: &mut Vec<String>) {
+        for (k, v) in a.iter().filter(|(k, _)| keep(k)) {
+            match b.get(k) {
+                None => out.push(format!("{what} only in A {k:?}: {v:?}")),
+                Some(w) if w != v => out.push(format!("{what} changed {k:?}: {v:?} -> {w:?}")),
+                Some(_) => {}
+            }
+        }
+        for (k, w) in b.iter().filter(|(k, _)| keep(k)) {
+            if !a.contains_key(k) {
+                out.push(format!("{what} only in B {k:?}: {w:?}"));
+            }
+        }
+    }
+    map_diff("header line", &da.meta, &db.meta, |_| true, &mut out);
+    map_diff("port", &da.ports, &db.ports, |_| true, &mut out);
+    let cells = |d: &Design| -> BTreeMap<[i32; 3], String> { d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(p, s)| (*p, s.clone())).collect() };
+    map_diff("cell", &cells(da), &cells(db), |p| inside(p), &mut out);
+    let ents = |d: &Design| -> Vec<String> { d.entities.iter().filter(|e| inside_f(&e.pos)).map(|e| format!("{} at ({}, {}, {}) {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.clone().unwrap_or_default())).collect() };
+    let (ea, eb) = (ents(da), ents(db));
+    for i in 0..ea.len().max(eb.len()) {
+        match (ea.get(i), eb.get(i)) {
+            (Some(x), Some(y)) if x != y => out.push(format!("entity #{i}: {x} -> {y}")),
+            (Some(x), None) => out.push(format!("entity #{i} only in A: {x}")),
+            (None, Some(y)) => out.push(format!("entity #{i} only in B: {y}")),
+            _ => {}
+        }
+    }
+    map_diff("block entity", &da.block_entities, &db.block_entities, |p| inside(p), &mut out);
+    map_diff("nether cell", &da.nether_blocks, &db.nether_blocks, |_| true, &mut out);
+    map_diff("nether port", &da.nether_ports, &db.nether_ports, |_| true, &mut out);
+    map_diff("nether block entity", &da.nether_block_entities, &db.nether_block_entities, |_| true, &mut out);
+    out
+}
+
+fn cell_diff(a: &Path, b: &Path, within: Option<&str>) -> Result<()> {
+    let bx = parse_box(within)?;
     let (da, db) = (Design::load(a)?, Design::load(b)?);
-    let (ca, cb) = (cells(&da), cells(&db));
-    let mut only_a = 0usize;
-    let mut only_b = 0usize;
-    let mut changed = 0usize;
-    for (p, s) in &ca {
-        match cb.get(p) {
-            None => {
-                only_a += 1;
-                println!("  only in A ({},{},{}): {s}", p[0], p[1], p[2]);
-            }
-            Some(t) if t != s => {
-                changed += 1;
-                println!("  changed ({},{},{}): {s} -> {t}", p[0], p[1], p[2]);
-            }
-            Some(_) => {}
-        }
+    let diffs = design_differences(&da, &db, bx);
+    for d in &diffs {
+        println!("  {d}");
     }
-    for (p, t) in &cb {
-        if !ca.contains_key(p) {
-            only_b += 1;
-            println!("  only in B ({},{},{}): {t}", p[0], p[1], p[2]);
-        }
-    }
-    let ent = |d: &Design| -> Vec<String> { d.entities.iter().map(|e| format!("{} at ({}, {}, {}) {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.clone().unwrap_or_default())).collect() };
-    let (ea, eb) = (ent(&da), ent(&db));
-    let ent_same = ea == eb;
-    if !ent_same {
-        for e in ea.iter().filter(|e| !eb.contains(e)) {
-            println!("  entity only in A: {e}");
-        }
-        for e in eb.iter().filter(|e| !ea.contains(e)) {
-            println!("  entity only in B: {e}");
-        }
-    }
+    let n = |d: &Design| d.blocks.values().filter(|s| s.as_str() != "minecraft:air").count();
     println!(
-        "{} vs {}{}: {} cells in A, {} in B; {only_a} only in A, {only_b} only in B, {changed} changed; entities {}",
+        "{} vs {}{}: {} cells in A, {} in B, {} entities in A, {} in B; {}",
         a.display(),
         b.display(),
         bx.map(|q| format!(" within ({},{},{})..({},{},{})", q[0], q[1], q[2], q[3], q[4], q[5])).unwrap_or_default(),
-        ca.len(),
-        cb.len(),
-        if ent_same { format!("the same ({})", ea.len()) } else { format!("DIFFER ({} vs {})", ea.len(), eb.len()) }
+        n(&da),
+        n(&db),
+        da.entities.len(),
+        db.entities.len(),
+        if diffs.is_empty() { "EQUAL field by field".to_string() } else { format!("{} difference(s)", diffs.len()) }
     );
+    if !diffs.is_empty() {
+        bail!("{} and {} differ: {} difference(s)", a.display(), b.display(), diffs.len());
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod cell_diff_tests {
+    use super::*;
+
+    const A: &str = "name: t\n# a comment\nkeep-block: 1 0 0\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  G minecraft:glass\nlayer 0:\n  SG\n  S.\nentity: minecraft:minecart 0.5 1 0.5\nnbt: 0 0 0 {Items:[]}\n";
+
+    fn diffs(a: &str, b: &str) -> Vec<String> {
+        design_differences(&Design::parse(a).expect("A parses"), &Design::parse(b).expect("B parses"), None)
+    }
+
+    #[test]
+    fn identical_designs_are_equal() {
+        assert!(diffs(A, A).is_empty());
+    }
+
+    #[test]
+    fn a_comment_only_change_is_equal() {
+        assert!(diffs(A, &A.replace("# a comment", "# another comment\n# and one more")).is_empty());
+    }
+
+    #[test]
+    fn one_cell_differs() {
+        let d = diffs(A, &A.replace("  SG\n", "  SS\n"));
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(d[0].starts_with("cell changed"), "{d:?}");
+    }
+
+    #[test]
+    fn one_entity_differs() {
+        let d = diffs(A, &A.replace("minecart 0.5 1 0.5", "minecart 0.5 1 1.5"));
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(d[0].starts_with("entity #0"), "{d:?}");
+    }
+
+    #[test]
+    fn a_keep_block_only_change_differs() {
+        let d = diffs(A, &A.replace("keep-block: 1 0 0", "keep-block: 0 0 0"));
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(d[0].starts_with("header line changed"), "{d:?}");
+    }
+
+    #[test]
+    fn a_block_entity_change_differs() {
+        let d = diffs(A, &A.replace("{Items:[]}", "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}"));
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(d[0].starts_with("block entity changed"), "{d:?}");
+    }
 }
 
 /// The rails of one part (its blocks pasted raw into a world one cell larger on every side) that

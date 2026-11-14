@@ -706,7 +706,8 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     }
     match name {
         // (tickexact 2026-11-14, farmopt 05:49 (2)) ARM3's drive with real cart presses: the cart (id0) onto the detector
-        // rail (11.5, 65.0625, 8.5) and back to its parking rail; REL at the repeater's input (9, 66, 9); A filled at t1
+        // rail (11.5, 65.0625, 8.5) and back to its parking rail; REL a redstone block at (8, 66, 9), the input of the repeater
+        // R at (9, 66, 9); A filled at t1
         "arm3-cart" => {
             let press = || ([0, 0, 0], "tp:id0:11.5:65.0625:8.5".to_string());
             let park = || ([0, 0, 0], "tp:id0:2.5:64.0625:2.5".to_string());
@@ -6107,6 +6108,8 @@ fn scenes_raw() -> Vec<Scene> {
         let o = [16, 80, 16];
         // the (A) stop's shutter (-5,-26,8) is written open and powered (its drive, day-1's shutter line, is a stand-in
         // the scene does not carry): placed settled (closed, unpowered), as one update pass leaves it; far from lane 3
+        // (checked by vendored_tests::lane3_settle_is_the_vendored_scene). The design's header lines (emulated, keep-block
+        // …) and its Nether part are not used: the scene is its overworld cells and lane 3's six carts, nothing else
         let shutter = [-5 + o[0], -26 + o[1], 8 + o[2]];
         let b: Vec<([i32; 3], String)> = d
             .block_list()
@@ -9696,6 +9699,69 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
 /// and the gaps between neighbours (centres under 0.01 apart: MERGED); then per lane the closest
 /// pair over the run and the first contact, with the arriving (faster) cart's stored speed the tick
 /// before. `summary`: one line a lane, nothing per tick.
+/// (tickexact 2026-11-14, G1 07:04 (1) / ironspec 07:16 (1): car 3′'s golem glass at the stop's (2,2,3)) `mctas mobai
+/// rec-cell <rec> x,y,z`: every frame of a recording, every entity's box (its type's standing size, 26.3's EntityType
+/// dimensions: a sleeping villager's own box is smaller, so the test is conservative) against the one block cell x,y,z:
+/// the frames any box overlaps the cell (strictly, as AABB.intersects), and each entity's closest approach (the gap
+/// between its box and the cell) and its frame. An entity type with no size here fails by name.
+pub fn rec_cell(path: &std::path::Path, cell: &str) -> Result<()> {
+    let c: Vec<i32> = cell.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+    anyhow::ensure!(c.len() == 3, "the cell is x,y,z, got {cell}");
+    let (lo, hi) = ([c[0] as f64, c[1] as f64, c[2] as f64], [c[0] as f64 + 1.0, c[1] as f64 + 1.0, c[2] as f64 + 1.0]);
+    let size = |t: &str| -> Option<(f64, f64)> {
+        Some(match t {
+            "villager" | "zombie" | "pillager" | "witch" | "vindicator" | "evoker" | "zombie_villager" | "husk" | "drowned" => (0.6, 1.95),
+            "oak_boat" | "spruce_boat" | "birch_boat" | "jungle_boat" | "acacia_boat" | "dark_oak_boat" | "mangrove_boat" | "cherry_boat" | "pale_oak_boat" | "bamboo_raft" => (1.375, 0.5625),
+            "minecart" => (0.98, 0.7),
+            "iron_golem" => (1.4, 2.7),
+            "item" => (0.25, 0.25),
+            _ => return None,
+        })
+    };
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    // per entity n: (type, frames inside, least gap, its frame, the cells its box touched)
+    let mut per: std::collections::BTreeMap<u64, (String, u32, f64, usize, std::collections::BTreeSet<[i32; 3]>)> = std::collections::BTreeMap::new();
+    let mut frames = 0usize;
+    for (t, l) in lines.enumerate() {
+        frames += 1;
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
+        for e in f["entities"].as_array().cloned().unwrap_or_default() {
+            let ty = e["type"].as_str().unwrap_or("?").to_string();
+            let (wd, ht) = size(&ty).ok_or_else(|| anyhow!("frame {t}: entity type {ty} has no size in rec-cell"))?;
+            let n = e["n"].as_u64().unwrap_or(0);
+            let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+            let (bmin, bmax) = ([p[0] - wd / 2.0, p[1], p[2] - wd / 2.0], [p[0] + wd / 2.0, p[1] + ht, p[2] + wd / 2.0]);
+            let inside = (0..3).all(|i| bmin[i] < hi[i] && bmax[i] > lo[i]);
+            let gap = (0..3).map(|i| (lo[i] - bmax[i]).max(bmin[i] - hi[i]).max(0.0)).map(|g| g * g).sum::<f64>().sqrt();
+            let ent = per.entry(n).or_insert_with(|| (ty.clone(), 0, f64::INFINITY, 0, std::collections::BTreeSet::new()));
+            if inside {
+                ent.1 += 1;
+            }
+            if gap < ent.2 {
+                ent.2 = gap;
+                ent.3 = t;
+            }
+            for x in bmin[0].floor() as i32..=(bmax[0] - 1e-9).floor() as i32 {
+                for y in bmin[1].floor() as i32..=(bmax[1] - 1e-9).floor() as i32 {
+                    for z in bmin[2].floor() as i32..=(bmax[2] - 1e-9).floor() as i32 {
+                        ent.4.insert([x, y, z]);
+                    }
+                }
+            }
+        }
+    }
+    println!("== rec-cell {}: {frames} frames, the cell ({},{},{})", path.display(), c[0], c[1], c[2]);
+    let mut total = 0u32;
+    for (n, (ty, inside, gap, at, cells)) in &per {
+        total += inside;
+        println!("  #{n} {ty}: its box overlaps the cell on {inside} frames; closest approach {gap:.4} b at frame {at}; it touched {} cells", cells.len());
+    }
+    println!("  {} entities: {}", per.len(), if total == 0 { format!("NO box overlaps ({},{},{}) in any of {frames} frames", c[0], c[1], c[2]) } else { format!("{total} entity-frames overlap the cell") });
+    Ok(())
+}
+
 pub fn rec_carts(path: &std::path::Path, every: u32, band: i32, summary: bool, xz: bool) -> Result<()> {
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
@@ -11482,4 +11548,100 @@ fn replay_one(f: &std::path::Path, all: &[Scene]) -> Result<(String, Option<Stri
         (None, false) => (format!("FAIL {name}: {ticks} ticks, 0 differences, but {} model error(s): {}\n", c.model_errors.len(), c.model_errors.join("; ")), Some(format!("{}: redsim's model errors", f.display()))),
         (Some(_), _) => (c.report(), Some(format!("{}: differs from the game", f.display()))),
     })
+}
+
+#[cfg(test)]
+mod vendored_tests {
+    use std::path::Path;
+
+    fn scenes_dir() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes")
+    }
+
+    /// (G1 06:54 non-blocking) no two scenes share a name (car 11's first `queue-settle` shadowed an existing scene)
+    #[test]
+    fn scene_names_are_unique() {
+        let mut seen = std::collections::BTreeSet::new();
+        for s in super::scenes() {
+            assert!(seen.insert(s.name.clone()), "two scenes are named {}", s.name);
+        }
+    }
+
+    /// (G1 06:54 non-blocking) `lane3-settle` is the vendored seed-1 scene's overworld cells at design + (16, 80, 16), cell
+    /// for cell, except the (A) stop's shutter (-5,-26,8): open and powered in the file, closed and unpowered in the scene
+    /// (the raw scene: `scenes()` then adds every scene's edge wall and joins fences)
+    #[test]
+    fn lane3_settle_is_the_vendored_scene() {
+        let d = mctas::design::Design::load(&scenes_dir().join("f1q2-seed1-c19-a588be77d188.txt")).expect("the vendored seed-1 scene");
+        let scene = super::scenes_raw().into_iter().find(|s| s.name == "lane3-settle").expect("the lane3-settle scene");
+        let o = [16, 80, 16];
+        let shutter = [-5, -26, 8];
+        let file: Vec<([i32; 3], String)> = d.block_list();
+        assert_eq!(file.len(), scene.blocks.len(), "the cell count");
+        for ((p, s), (q, t)) in file.iter().zip(&scene.blocks) {
+            assert_eq!([p[0] + o[0], p[1] + o[1], p[2] + o[2]], *q, "the cell order");
+            if *p == shutter {
+                assert!(s.contains("open=true") && s.contains("powered=true"), "the file's shutter: {s}");
+                assert_eq!(*t, s.replace("open=true", "open=false").replace("powered=true", "powered=false"), "the scene's shutter");
+                assert!(t.contains("open=false") && t.contains("powered=false"), "the scene's shutter: {t}");
+            } else {
+                assert_eq!(s, t, "the cell at file {p:?}");
+            }
+        }
+    }
+
+    /// (G1's car-8 note, ironspec 06:43 (1)(a)) every vendored file named by its md5 (`<name>-<12 hex>.<ext>` in
+    /// crates/mobai/scenes) still has that md5: a vendored scene, design or drive can't change under its name
+    #[test]
+    fn vendored_files_match_the_md5_in_their_names() {
+        let mut named = 0;
+        for e in std::fs::read_dir(scenes_dir()).expect("crates/mobai/scenes") {
+            let p = e.expect("a scenes entry").path();
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let Some((_, tail)) = stem.rsplit_once('-') else { continue };
+            if tail.len() != 12 || !tail.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
+                continue;
+            }
+            let bytes = std::fs::read(&p).expect("a vendored file");
+            let md5 = crate::md5::md5_hex(&bytes);
+            assert!(md5.starts_with(tail), "{}: its md5 is {md5}, its name says {tail}", p.display());
+            named += 1;
+        }
+        assert!(named >= 6, "only {named} md5-named vendored files found");
+    }
+
+    /// (ironspec 06:43 (1)(a)) `arm3-cart`'s cells are ironfarm's ARM3 gadget (the vendored copy, md5 0c7958d76b4f) at
+    /// local + (8, 64, 8), A's stone filled at t1 as the gadget's `nbt:` line writes it; and the gadget's own file, when it
+    /// is in the tree (designs/gadgets/ironfarm-arm3-interlock.txt), is that copy: a gadget change fails here before the
+    /// recorded scene goes stale unnoticed
+    #[test]
+    fn arm3_cart_is_the_vendored_gadget() {
+        let vendored = scenes_dir().join("ironfarm-arm3-interlock-0c7958d76b4f.txt");
+        let d = mctas::design::Design::load(&vendored).expect("the vendored ARM3 gadget");
+        let scene = super::scenes().into_iter().find(|s| s.name == "arm3-cart").expect("the arm3-cart scene");
+        let off = [8, 64, 8];
+        let gadget: Vec<([i32; 3], String)> = d.block_list().into_iter().map(|(p, s)| ([p[0] + off[0], p[1] + off[1], p[2] + off[2]], s)).collect();
+        assert_eq!(gadget.len(), 8, "the gadget's cell count");
+        for (p, s) in &gadget {
+            let got = scene.blocks.iter().rev().find(|(q, _)| q == p).map(|(_, s)| s.as_str());
+            assert_eq!(got, Some(s.as_str()), "arm3-cart at {p:?}");
+        }
+        // nothing else inside the gadget's box above the floor
+        let (lo, hi) = (off, [off[0] + 3, off[1] + 2, off[2] + 2]);
+        for (q, s) in &scene.blocks {
+            let inside = (0..3).all(|i| q[i] >= lo[i] && q[i] <= hi[i]);
+            if inside && !s.ends_with(":air") {
+                assert!(gadget.iter().any(|(p, _)| p == q), "arm3-cart has {s} at {q:?}, not a gadget cell");
+            }
+        }
+        let text = std::fs::read_to_string(&vendored).expect("the vendored gadget's text");
+        let nbt = text.lines().find_map(|l| l.trim().strip_prefix("nbt: 3 1 1 ")).expect("the gadget's nbt line for A (3 1 1)");
+        let acts = super::scene_actions("arm3-cart");
+        let fill = acts.iter().find(|(t, _)| *t == 1).and_then(|(_, a)| a.iter().find(|(p, _)| *p == [11, 65, 9])).map(|(_, s)| s.clone());
+        assert_eq!(fill, Some(format!("nbt:{nbt}")), "arm3-cart's t1 fill of A");
+        let in_tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/gadgets/ironfarm-arm3-interlock.txt");
+        if in_tree.exists() {
+            assert_eq!(std::fs::read(&in_tree).expect("the gadget in the tree"), std::fs::read(&vendored).expect("the vendored gadget"), "designs/gadgets/ironfarm-arm3-interlock.txt changed: vendor the new file and re-record arm3-cart");
+        }
+    }
 }

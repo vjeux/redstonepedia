@@ -23,7 +23,15 @@ fn num(srv: &mut VanillaServer, cmd: &str) -> Result<Option<f64>> {
 }
 
 fn pin(k: u32, cond: bool, what: String) -> Result<()> {
-    let planted = std::env::var("MCTAS_CART_ON_CART_PLANT").ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(k);
+    // (G1 06:54 non-blocking) read strictly: unset, or an assert number 1..=5; anything else fails by name
+    let planted = match std::env::var("MCTAS_CART_ON_CART_PLANT") {
+        Err(_) => None,
+        Ok(s) => {
+            let n: u32 = s.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_CART_ON_CART_PLANT={s:?} is not an assert number"))?;
+            anyhow::ensure!((1..=5).contains(&n), "MCTAS_CART_ON_CART_PLANT={n}: cart-on-cart has asserts 1..5");
+            Some(n)
+        }
+    } == Some(k);
     anyhow::ensure!(cond != planted, "[assert {k}{}] {what}", if planted { ", PLANTED: its expectation inverted" } else { "" });
     Ok(())
 }

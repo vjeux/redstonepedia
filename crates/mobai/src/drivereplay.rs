@@ -1943,7 +1943,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             // (cc767b78 16:08) MCTAS_REPLAY_TRACE_RAW=1: the position as the server prints its doubles (no rounding)
             let raw_pos = if std::env::var("MCTAS_REPLAY_TRACE_RAW").is_ok() { Some(srv.cmd_long(&format!("data get entity @e[tag={who},limit=1] Pos"))?) } else { None };
             // (cc767b78 04:28) MCTAS_REPLAY_TRACE_RIDER=1: the rider's own position too (raw doubles), for box-edge contacts
-            let rider_pos = if std::env::var("MCTAS_REPLAY_TRACE_RIDER").is_ok() {
+            let rider_pos = if std::env::var("MCTAS_REPLAY_TRACE_RIDER").as_deref() == Ok("1") {
                 let s = srv.cmd_long(&format!("execute as @e[tag={who},limit=1] on passengers run data get entity @s Pos"))?;
                 format!(" rider pos {}", s.split("data: ").nth(1).unwrap_or("none").trim())
             } else {

@@ -1,0 +1,37 @@
+name: gadget-ironfarm-arm3-interlock
+# The iron farm's ARM3 interlock (ironfarm, Nov 14; ironspec / G1 04:19-04:53: one napper release per
+# batch, a TRUE set / reset, never a toggle): "ARM3 fires the ARMED dropper", rs-dropper's mechanism
+# (designs/circuits/memory/archive/rs-dropper.txt: firing the empty dropper does nothing).
+# Dropper A (3 1 1; the farm's (4,6,8)) holds the one stone while ARMED; ARM3's detector rail (3 1 0; the
+# farm's (4,6,7), ascending_west there, east_west here: the shape doesn't change its signal) activates A
+# directly (a detector's strong power goes only to the block under it, so A isn't a conductor for it
+# and B isn't fired) and the stone moves into B (2 1 1; the farm's (3,6,8)): THE RELEASE, read by the
+# comparator C on B (2 1 2; the farm's (3,6,9)) rising. The batch's REL fires B through QUASI-
+# CONNECTIVITY: the repeater R (1 2 1; the farm's (2,7,8), on stone (2,6,8), REL in from (1,7,8))
+# powers the AIR above B (2 2 1; the farm's (3,7,8)) and updates B; B fires alone and the stone
+# returns to A: re-armed. B is never powered itself: a repeater or dust into B would power the dropper
+# as a block, which activates A beside it too, and the two swap the stone back in the same tick (the
+# first two drives' failure). A second ARM3 press in the batch (a cart rolling back over it) fires A
+# empty: nothing; a doubled REL fires B empty: nothing. Farm cells = these + (1, 5, 7).
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  G minecraft:glass
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  B minecraft:dropper[facing=east,triggered=false]
+  A minecraft:dropper[facing=west,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+nbt: 3 1 1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+layer 0:
+  ...G
+  ....
+  ..S.
+layer 1:
+  ...D
+  .SBA
+  ..C.
+layer 2:
+  ....
+  .R..
+  ....

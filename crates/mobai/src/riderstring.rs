@@ -13,10 +13,13 @@
 //! tick's moves, else oldPosition -> position), so its box is checked against the blocks it is inside
 //! (Entity.checkInsideBlocks 1345-) and `TripWireBlock.entityInside` (138-150) presses an unpowered string; once pressed,
 //! the string's own re-check (`checkPressed`, 160-164) reads every entity in its box (`level.getEntities(null, ...)`).
-//! Asserted (the first run's answers; MCTAS_RIDER_STRING_PLANT=k inverts assert k): (1) every resting ridden cart's rider
-//! presses its string at t1, AI on and NoAI alike, and holds it pressed all 60 ticks; (2) no resting EMPTY cart ever
-//! presses its string; (3) every rolling ridden cart presses its string while passing, AI on and NoAI; (4) the rolling
-//! empty carts and the no-cart control never press theirs.
+//! Asserted (the first run's answers; MCTAS_RIDER_STRING_PLANT=k inverts assert k, read strictly): (1) every resting
+//! ridden cart's rider presses its string at t1, AI on and NoAI alike, and holds it pressed all 60 ticks (16 rows); (2) no
+//! resting EMPTY cart ever presses its string (2 rows); (3) every rolling ridden cart presses its string while passing, AI
+//! on and NoAI (16 rows); (4) the rolling empty carts and the no-cart control never press theirs (3 rows); (5) each
+//! rolling AI rider first presses within one tick of its NoAI twin; (6) every ridden row's villager is read back SEATED in
+//! its own cart every tick, with NoAI exactly where summoned NoAI; (7) every control cart is read back under the string
+//! (the resting empties inside its cell all 60 ticks, the rolling ones passing through it).
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -24,9 +27,21 @@ use mctas::vanilla::{VanillaOptions, VanillaServer};
 const Y: i32 = 100;
 
 fn pin(k: u32, cond: bool, what: String) -> Result<()> {
-    let planted = std::env::var("MCTAS_RIDER_STRING_PLANT").ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(k);
+    let planted = plant()? == Some(k);
     anyhow::ensure!(cond != planted, "[assert {k}{}] {what}", if planted { ", PLANTED: its expectation inverted" } else { "" });
     Ok(())
+}
+
+/// (G1 06:54 non-blocking) MCTAS_RIDER_STRING_PLANT read strictly: unset, or an assert number 1..=7; anything else fails
+fn plant() -> Result<Option<u32>> {
+    match std::env::var("MCTAS_RIDER_STRING_PLANT") {
+        Err(_) => Ok(None),
+        Ok(s) => {
+            let k: u32 = s.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_RIDER_STRING_PLANT={s:?} is not an assert number"))?;
+            anyhow::ensure!((1..=7).contains(&k), "MCTAS_RIDER_STRING_PLANT={k}: rider-string has asserts 1..7");
+            Ok(Some(k))
+        }
+    }
 }
 
 /// One copy: its label, the rider (Some(AI on) / None: empty), its speed (0: at rest; < 0: no cart), its entry z.
@@ -93,7 +108,19 @@ pub fn rider_string(version: &str) -> Result<()> {
         }
     }
     println!("  {} copies: every string attached and unpowered before the carts are summoned (t0)", n);
+    plant()?;
     let mut seen: Vec<Vec<bool>> = vec![Vec::new(); rows.len()];
+    // (G1 06:54 (5), ironspec 07:03 (4)) read back every tick: each ridden row's villager still SEATED in its cart, and
+    // each control cart's z (a resting empty under the string's cell z 1 .. 2, a rolling one passing through it)
+    let mut seated: Vec<u32> = vec![0; rows.len()];
+    let mut in_cell: Vec<u32> = vec![0; rows.len()];
+    let mut noai: Vec<Option<bool>> = vec![None; rows.len()];
+    for (k, r) in rows.iter().enumerate() {
+        if r.rider.is_some() {
+            let out = srv.cmd_long(&format!("data get entity @e[tag=rs{k}v,limit=1] NoAI"))?;
+            noai[k] = Some(out.contains("1b"));
+        }
+    }
     for t in 1..=60u32 {
         srv.step(1)?;
         let mut line = String::new();
@@ -102,6 +129,20 @@ pub fn rider_string(version: &str) -> Result<()> {
             let on = srv.test_block([x, Y + 1, 1], "minecraft:tripwire[powered=true]")?;
             s.push(on);
             line.push(if on { 'P' } else { '.' });
+        }
+        for (k, r) in rows.iter().enumerate() {
+            if r.rider.is_some() {
+                let p = srv.cmd_long(&format!("data get entity @e[tag=rs{k},limit=1] Passengers"))?;
+                if p.contains(&format!("\"rs{k}v\"")) {
+                    seated[k] += 1;
+                }
+            } else if r.v >= 0.0 {
+                let z = srv.cmd_long(&format!("data get entity @e[tag=rs{k},limit=1] Pos[2]"))?;
+                let z: Option<f64> = z.split("entity data: ").nth(1).and_then(|s| s.trim().trim_end_matches('d').parse().ok());
+                if z.is_some_and(|z| (1.0..2.0).contains(&z)) {
+                    in_cell[k] += 1;
+                }
+            }
         }
         let feet = srv.cmd_long("data get entity @e[tag=rs0v,limit=1] Pos[1]")?;
         let feet: Option<f64> = feet.split("entity data: ").nth(1).and_then(|s| s.trim().trim_end_matches('d').parse().ok());
@@ -113,8 +154,13 @@ pub fn rider_string(version: &str) -> Result<()> {
         );
     }
     let first = |v: &Vec<bool>| v.iter().position(|&b| b).map(|f| f as u32 + 1);
-    for (r, s) in rows.iter().zip(&seen) {
-        println!("  => {}: pressed on {} of 60 ticks{}", r.label, s.iter().filter(|&&b| b).count(), first(s).map(|f| format!(", first at t{f}")).unwrap_or_else(|| ", NEVER".into()));
+    for (k, (r, s)) in rows.iter().zip(&seen).enumerate() {
+        let back = match r.rider {
+            Some(_) => format!("; its villager seated on {} of 60 ticks, NoAI read back {}", seated[k], if noai[k] == Some(true) { "1b" } else { "absent (AI on)" }),
+            None if r.v >= 0.0 => format!("; the cart's z inside the string's cell on {} of 60 ticks", in_cell[k]),
+            None => String::new(),
+        };
+        println!("  => {}: pressed on {} of 60 ticks{}{back}", r.label, s.iter().filter(|&&b| b).count(), first(s).map(|f| format!(", first at t{f}")).unwrap_or_else(|| ", NEVER".into()));
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
     let class = |pred: &dyn Fn(&RowSpec) -> bool| rows.iter().zip(&seen).filter(|(r, _)| pred(r)).map(|(_, s)| first(s)).collect::<Vec<_>>();
@@ -122,10 +168,27 @@ pub fn rider_string(version: &str) -> Result<()> {
         println!("  first-press ticks, resting {name}: {:?}; rolling {name}: {:?}", class(&|r| r.rider == Some(ai) && r.v == 0.0), class(&|r| r.rider == Some(ai) && r.v > 0.0));
     }
     let resting: Vec<&Vec<bool>> = rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_some() && r.v == 0.0).map(|(_, s)| s).collect();
-    pin(1, resting.len() == 16 && resting.iter().all(|s| s.iter().all(|&b| b)), "(1) every resting ridden cart's rider presses its string at t1, AI on and NoAI alike, and holds it pressed all 60 ticks".into())?;
-    pin(2, rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_none() && r.v == 0.0).all(|(_, s)| s.iter().all(|&b| !b)), "(2) no resting EMPTY cart ever presses its string (its box tops out 0.300 below the band)".into())?;
-    pin(3, rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_some() && r.v > 0.0).all(|(_, s)| s.iter().any(|&b| b)), "(3) every rolling ridden cart presses its string while passing, AI on and NoAI".into())?;
-    pin(4, rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_none() && r.v != 0.0).all(|(_, s)| s.iter().all(|&b| !b)), "(4) the rolling empty carts and the no-cart control never press theirs".into())?;
-    println!("  every known answer held (asserts 1..4)");
+    let resting_empty: Vec<&Vec<bool>> = rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_none() && r.v == 0.0).map(|(_, s)| s).collect();
+    let rolling_ridden: Vec<&Vec<bool>> = rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_some() && r.v > 0.0).map(|(_, s)| s).collect();
+    let never: Vec<&Vec<bool>> = rows.iter().zip(&seen).filter(|(r, _)| r.rider.is_none() && r.v != 0.0).map(|(_, s)| s).collect();
+    pin(1, resting.len() == 16 && resting.iter().all(|s| s.iter().all(|&b| b)), "(1) every resting ridden cart's rider presses its string at t1, AI on and NoAI alike, and holds it pressed all 60 ticks (16 rows)".into())?;
+    pin(2, resting_empty.len() == 2 && resting_empty.iter().all(|s| s.iter().all(|&b| !b)), "(2) no resting EMPTY cart ever presses its string (its box tops out 0.300 below the band; 2 rows)".into())?;
+    pin(3, rolling_ridden.len() == 16 && rolling_ridden.iter().all(|s| s.iter().any(|&b| b)), "(3) every rolling ridden cart presses its string while passing, AI on and NoAI (16 rows)".into())?;
+    pin(4, never.len() == 3 && never.iter().all(|s| s.iter().all(|&b| !b)), "(4) the rolling empty carts and the no-cart control never press theirs (3 rows)".into())?;
+    // (G1 06:54 non-blocking) the AI-vs-NoAI comparison, asserted as the game shows it over runs: each rolling AI row
+    // first presses within ONE tick of its NoAI twin (identical in most runs; an AI rider's own move control can nudge
+    // its cart, one row a tick early in one plant run of car 12)
+    let ai_ticks = class(&|r| r.rider == Some(true) && r.v > 0.0);
+    let noai_ticks = class(&|r| r.rider == Some(false) && r.v > 0.0);
+    let within_one = ai_ticks.len() == 8 && noai_ticks.len() == 8 && ai_ticks.iter().zip(&noai_ticks).all(|(a, b)| matches!((a, b), (Some(a), Some(b)) if a.abs_diff(*b) <= 1));
+    pin(5, within_one, format!("(5) every rolling AI rider first presses within one tick of its NoAI twin: {ai_ticks:?} / {noai_ticks:?}"))?;
+    // the read-backs: every ridden row's villager seated all 60 ticks with its NoAI flag as summoned
+    let back_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_some()).all(|(k, r)| seated[k] == 60 && noai[k] == Some(r.rider == Some(false)));
+    pin(6, back_ok, "(6) every ridden row's villager is read back SEATED in its own cart on all 60 ticks, NoAI 1b exactly where summoned NoAI".into())?;
+    // the controls sat or passed under the string: a resting empty in the string's cell all 60 ticks, a rolling one in it
+    // on at least one tick
+    let ctl_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_none() && r.v >= 0.0).all(|(k, r)| if r.v == 0.0 { in_cell[k] == 60 } else { in_cell[k] >= 1 });
+    pin(7, ctl_ok, "(7) every control cart is read back under the string: the resting empties inside its cell (z 1 .. 2) on all 60 ticks, the rolling ones passing through it".into())?;
+    println!("  every known answer held (asserts 1..7)");
     Ok(())
 }

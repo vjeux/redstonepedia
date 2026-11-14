@@ -193,6 +193,14 @@ pub enum MobaiCmd {
     /// (tickexact 2026-11-11, ironspec's slope merge) A recorded scene's minecarts lane by lane
     /// (the carts sharing a block x): positions, speeds, riders, the gaps between neighbours
     /// (MERGED under 0.01), every `--every` ticks and at every merge
+    /// (tickexact 2026-11-14, G1 07:04 (1)) Every entity box of a recording, every frame, against one block cell: the
+    /// frames any box overlaps it and each entity's closest approach (car 3′'s golem glass vs the dawn rows)
+    RecCell {
+        path: std::path::PathBuf,
+        /// the cell, x,y,z (world coordinates of the recording)
+        #[arg(allow_hyphen_values = true)]
+        cell: String,
+    },
     RecCarts {
         path: std::path::PathBuf,
         #[arg(long, default_value_t = 0)]
@@ -2025,6 +2033,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::fixture::unload_rate(version, &name, from..=to, [x, y, z], &state, after, cart, len, check)
         }
         MobaiCmd::Replay { paths, jobs } => crate::fixture::replay(&paths, jobs),
+        MobaiCmd::RecCell { path, cell } => crate::fixture::rec_cell(&path, &cell),
         MobaiCmd::RecCarts { path, every, band, summary, xz } => crate::fixture::rec_carts(&path, every, band, summary, xz),
         MobaiCmd::SceneLint { scenes, all } => crate::fixture::scene_lint(&scenes, all),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
