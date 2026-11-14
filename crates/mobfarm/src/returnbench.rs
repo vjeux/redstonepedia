@@ -615,11 +615,11 @@ fn build_base(o: &ReturnOpts) -> Result<FarmSpec, String> {
         put(7, 25, 9, &rail("north_west")?);
         put(7, 24, 9, &glass);
         if o.napper_delay.is_some() {
-            // (the napper's leg east of J(7): (8,25,9) east_west and (9,25,9) east_west, the shape a rail
-            // with only its west neighbour settles to here; record7's (9,25,9) is the way-in's curve
-            // north_west (b8949c96's file): a declared stand-in (`# stand-in:`; ironspec 23:50 PT))
+            // (the napper's leg east of J(7): (8,25,9) east_west; (9,25,9) is the way-in's curve, WAYLEG's block
+            // (b8949c96's file, record7's built curve) laid as its exact copy, rail north_west (ironspec 14:07p (3):
+            // the composed V holds it once, "held twice with the same state"; no cart of this bench reaches it)
             for x in 8..=9 {
-                put(x, 25, 9, &rail("east_west")?);
+                put(x, 25, 9, &rail(if x == 9 { "north_west" } else { "east_west" })?);
                 put(x, 24, 9, &glass);
             }
         }
@@ -710,11 +710,10 @@ fn build_base(o: &ReturnOpts) -> Result<FarmSpec, String> {
             put(jx, 27, 9, &glass);
         }
         if o.napper_delay.is_some() {
-            // (the napper's leg east of J(7): (8,25,9) east_west and (9,25,9) east_west, the shape a rail
-            // with only its west neighbour settles to here; record7's (9,25,9) is the way-in's curve
-            // north_west (b8949c96's file): a declared stand-in (`# stand-in:`; ironspec 23:50 PT))
+            // (the napper's leg east of J(7): (8,25,9) east_west; (9,25,9) WAYLEG's curve, its exact copy, rail
+            // north_west (ironspec 14:07p (3)), as above)
             for x in 8..=9 {
-                put(x, 25, 9, &rail("east_west")?);
+                put(x, 25, 9, &rail(if x == 9 { "north_west" } else { "east_west" })?);
                 put(x, 24, 9, &glass);
             }
         }
@@ -1454,15 +1453,16 @@ pub fn controls(o: &ReturnOpts) -> Result<(String, usize), String> {
         });
     }
     if o.record.is_some() && o.row9 && o.path_a {
-        // (11) H10 (G1 on 0a8663a30): the way-in curve's stand-in (9,25,9) made equal to the record's
-        // own curve must be refused by record-match's stand-in check (a stand-in equal to the record)
+        // (11) H10 (G1 on 0a8663a30; inverted by ironspec 14:07p (3)): the way-in's curve (9,25,9) laid in another
+        // state than WAYLEG's (the shape a rail with only its west neighbour settles to, east_west) must be refused
+        // by name (the curve is an exact copy of WAYLEG's block)
         let mut sc = base.set_cells.clone();
-        sc.push("9,25,9=minecraft:rail[shape=north_west,waterlogged=false]".to_string());
+        sc.push("9,25,9=minecraft:rail[shape=east_west,waterlogged=false]".to_string());
         let oc = ReturnOpts { set_cells: sc, ..base.clone() };
         res.push(match return_run(&oc) {
-            Err(e) if e.contains("9,25,9") && e.contains("equal") => (format!("H10, the stand-in (9,25,9) equal to the record: bites (the run errors: {e})"), true),
-            Err(e) => (format!("H10, the stand-in (9,25,9) equal to the record: DOESN'T BITE (another error: {e})"), false),
-            Ok(_) => ("H10, the stand-in (9,25,9) equal to the record: DOESN'T BITE (the run passed the stand-in check)".to_string(), false),
+            Err(e) if e.contains("(9,25,9)") && e.contains("WAYLEG") => (format!("H10, the curve (9,25,9) laid east_west, not WAYLEG's: bites (the run errors: {e})"), true),
+            Err(e) => (format!("H10, the curve (9,25,9) laid east_west, not WAYLEG's: DOESN'T BITE (another error: {e})"), false),
+            Ok(_) => ("H10, the curve (9,25,9) laid east_west, not WAYLEG's: DOESN'T BITE (the run passed the copy check)".to_string(), false),
         });
     }
     let missed = res.iter().filter(|(_, ok)| !ok).count();
@@ -2820,14 +2820,14 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
                 }
             }
         }
-        // (ironspec 23:50 PT: the way-in's curve (9,25,9), north_west in record7 (b8949c96's file), laid
-        // here as the shape a rail with only its west neighbour settles to: a declared stand-in;
-        // ironspec 03:22 / 03:26 PT: the split row's J and K levers stand in for day-1's latch output and
-        // timed taps (no lever ships in the built farm: a wind burst can flip one), so no composed
-        // record ships them. Written in record-match's header format (`declared_from_header`):
-        // `x,y,z (why); …`, the owner-checked verdicts on `# stand-in-guard:`)
+        // (ironspec 14:07p (3), adopting G1 13:50: the way-in's curve (9,25,9) is WAYLEG's block, laid here as its
+        // exact copy (rail north_west), so the composed V holds it "twice with the same state" (column.rs: kept once
+        // and counted) and record-match finds no difference there: no `# stand-in:` line (record-match fails a
+        // declared cell equal to the record as stale) and no guard. ironspec 03:22 / 03:26 PT: the split row's J and
+        // K levers stand in for day-1's latch output and timed taps (no lever ships in the built farm: a wind burst
+        // can flip one), so no composed record ships them)
         if o.row9 && o.k_relay && o.napper_delay.is_some() && !o.mirror_z {
-            let mut si: Vec<String> = vec!["9,25,9 support=9,24,9 (the way-in's curve: north_west in record7, b8949c96's file; here a rail east_west, the shape a rail with only its west neighbour settles to; this bench ends the napper's route at its K(x) and the batch carts' at their J, so no cart of the bench reaches it)".to_string()];
+            let si: Vec<String> = Vec::new();
             if o.path_a {
                 // (ironspec 12:35p / 12:37p (3): the six J / K levers are THROWN by the harness, so they are
                 // `emulated:` entries in the ruled grammar, `x,26,9=STATE (support=x,27,9; drive=j:<lane>|k:<lane>;
@@ -2843,7 +2843,10 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
                 }
             }
             head.extend(si.iter().map(|e| format!("# stand-in: {e}")));
-            head.push("# stand-in-guard: 9,25,9: golem=ok (rail for rail), path=ok (rail for rail), late-path=ok (rail for rail: no collision box), update reach=ok (a plain rail that never switches in the run: it updates nothing the curve doesn't), power reach=ok (a plain rail emits no power), survival=ok (on its glass (9,24,9)), sight=ok (rail for rail: no collider)".to_string());
+            // (ironspec 14:27c (2), (A′): the curve copies WAYLEG's exact block, its settle verdict judged on the
+            // composed record; LIFT's standalone settle-check PRINTS it as WAYLEG's cell (settle's `# held:` key: out
+            // of the compare, both states printed with this note), never a silent skip)
+            head.push("# held: 9,25,9 rail[shape=north_west,waterlogged=false] (WAYLEG's cell, judged on the composed record: the way-in's curve, an exact copy of WAYLEG's block (b8949c96's file); driver: WAYLEG's leg rail (9,25,8) north of it, which this file doesn't hold, so standalone the curve re-shapes east_west; phase: always)".to_string());
         }
         // (9fc3155f's wet-spawn static via farmopt 22:34: the light in this file's water cells, from
         // redsim's light engine on the bench's world (this file's cells and the bench's stand-ins only;
@@ -3373,26 +3376,12 @@ fn record_declared(o: &ReturnOpts, w: &redsim::world::World, rec: &BTreeMap<[i32
             d.standins.insert([q.x, q.y, q.z], StandIn { why: format!("day-1's line dust beside lane {x}'s pocket lever: its `up` connection to the replaced line end settles to another shape"), guard: gq });
         }
     }
-    // (`# stand-in: 9,25,9` (ironspec 23:50 PT): the way-in's curve is b8949c96's; this bench ends the
-    // napper's route at the leg)
+    // (ironspec 14:07p (3), adopting G1 13:50: the way-in's curve (9,25,9) is WAYLEG's block, laid here as its exact
+    // copy: the bench's cell must EQUAL the record's built curve; any other state fails by name)
     let p = BlockPos::new(9, 25, 9);
     let (mine, built) = (w.get(p), rb(p));
-    if mine == built && o.path_a && o.out.is_none() {
-        // (C8: the file declares `# stand-in: 9,25,9`; a record holding the same cell makes that
-        // declaration wrong)
-        return Err(format!("record-match: the file's `# stand-in: 9,25,9` equals the record's cell ({mine}): not a stand-in"));
-    }
-    if mine != built && o.path_a {
-        let mut g = Guard(guard_intrinsics(&mine, &built, &rb(p.above()), &rb(p.below())));
-        // (ironspec 07:26 PT MORE: computed, as the levers' are)
-        let m_reach = reach(p, &mine)?;
-        let b_reach = reach(p, &built)?;
-        let extra: Vec<BlockPos> = m_reach.iter().filter(|r| !b_reach.contains(r)).copied().collect();
-        let extra_c = comps(&extra, &[BlockPos::new(8, 25, 9)]);
-        put!(g, "update reach", if extra_c.is_empty() { Ok(format!("its update reach ({} cells) holds no component outside the built curve's ({} cells) but the leg (8,25,9)", m_reach.len(), b_reach.len())) } else { Err(format!("components the built curve doesn't update: {}", extra_c.join(", "))) });
-        put!(g, "power reach", if mine.to_string().starts_with("minecraft:rail[") { Ok("a plain rail: no signal source, as the built curve".to_string()) } else { Err(format!("not a plain rail: {mine}")) });
-        put!(g, "survival", if { let s = w.get(p.below()).to_string(); s == "minecraft:glass" || s == "minecraft:stone" } { Ok("on its support (9,24,9), laid in every world".to_string()) } else { Err(format!("its support is {}", w.get(p.below()))) });
-        d.standins.insert([9, 25, 9], StandIn { why: "the way-in's curve (b8949c96's file); this bench ends the napper's route at the leg".into(), guard: g });
+    if mine != built && o.path_a && o.napper_delay.is_some() {
+        return Err(format!("record-match: the bench's (9,25,9) holds {mine}, not WAYLEG's curve {built} (the record's built cell): the curve is laid as an exact copy of WAYLEG's block (ironspec 14:07p (3))"));
     }
     let _ = mz;
     // (the record's states redsim doesn't model (the Nether pad's portal cells; ironspec 21:58: the
@@ -6030,21 +6019,21 @@ mod record_file_tests {
         assert!(emitted == committed, "the committed record lift file differs from the bench's emission of its run line: re-emit it with that run line");
     }
 
-    /// G1 12:34 / vcompose 12:33: the committed LIFT file (the generator's emission, pinned by the test above) passes the
-    /// COMPOSER's OWN stand-in support check (`column::stand_in_supports`, the reader's rule, not a copy) on its
-    /// `# stand-in:` line (the way-in's curve 9,25,9, its support 9,24,9 held); the six harness-thrown J / K levers are
-    /// `emulated:` entries in the ruled grammar (ironspec 12:37p (3)), `(support=x,27,9; drive=j:<lane>|k:<lane>; why)`,
-    /// each support a cell the record holds (main's `stand_in_supports` reads an emulated entry's support right after
-    /// its state, the pre-ruling form, so the entries are checked here until vcompose's composer car moves it onto
-    /// `declkeys::emulated_entries`).
+    /// G1 12:34 / vcompose 12:33 / ironspec 14:07p (3): the committed LIFT file (the generator's emission, pinned by the
+    /// test above) holds the way-in's curve (9,25,9) as WAYLEG's exact block (rail north_west), its support (9,24,9) a
+    /// block of the record, and declares no `# stand-in:` line (the composer keeps two equal holds once; record-match
+    /// fails a declared cell equal to the record); the six harness-thrown J / K levers are `emulated:` entries in the
+    /// ruled grammar (ironspec 12:37p (3)), `(support=x,27,9; drive=j:<lane>|k:<lane>; why)`, each support a cell the
+    /// record holds, read through the ONE reader `declkeys::emulated_entries`.
     #[test]
     fn the_lift_files_stand_ins_pass_the_composers_support_check() {
         let committed = include_str!("../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt");
         let d = mctas::design::Design::parse(committed).expect("the LIFT file parses");
         let heads: Vec<String> = committed.lines().filter(|l| l.starts_with("# stand-in:")).map(str::to_string).collect();
+        assert!(heads.is_empty(), "no `# stand-in:` line: {heads:?}");
         let record: BTreeMap<[i32; 3], String> = d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(c, s)| ([c[0], c[1], c[2]], s.clone())).collect();
-        let checked = crate::column::stand_in_supports(&heads, &[], &record).expect("every stand-in names a support the record holds");
-        assert!(checked.iter().any(|c| c.contains("9,25,9")), "the curve stand-in 9,25,9 checked: {checked:?}");
+        assert_eq!(record.get(&[9, 25, 9]).map(String::as_str), Some("minecraft:rail[shape=north_west,waterlogged=false]"), "the curve is WAYLEG's exact block");
+        assert!(record.contains_key(&[9, 24, 9]), "the curve's support (9,24,9) is a block of the record");
         let emu = d.meta.get("emulated").expect("the levers' emulated: line");
         for (x, role) in [(-1, "j:-1"), (3, "j:3"), (7, "j:7"), (-3, "k:-1"), (1, "k:3"), (5, "k:7")] {
             let at = emu.find(&format!("{x},26,9=lever[")).unwrap_or_else(|| panic!("the lever ({x},26,9) is an emulated: entry"));
@@ -6088,16 +6077,14 @@ mod record_file_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The record file's header reads with record-match's own reader (cc767b78's
-    /// `declared_from_header`): the way-in's curve and the split row's six levers (day-1's line,
-    /// ironspec 03:22 / 03:26 PT) as stand-ins, the curve's seven verdicts set and passing.
+    /// The record file's header reads with record-match's own reader (cc767b78's `declared_from_header`): no
+    /// stand-in declared (the way-in's curve is WAYLEG's exact block, ironspec 14:07p (3); the split row's six levers
+    /// are `emulated:` entries, ironspec 12:35p / 12:37p (3)).
     #[test]
     fn the_record_header_reads_as_record_match_declarations() {
         let committed = include_str!("../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt");
         let d = crate::recordmatch::declared_from_header(committed).expect("the header reads");
-        assert!(d.standins.contains_key(&[9, 25, 9]), "the way-in's curve declared a stand-in");
-        let g = &d.standins[&[9, 25, 9]].guard;
-        assert!(g.passes(), "{:?}", g.gaps());
+        assert!(d.standins.is_empty(), "no stand-in declared: {:?}", d.standins.keys().collect::<Vec<_>>());
         // (ironspec 12:35p / 12:37p (3): the six J / K levers the harness throws are `emulated:` entries, not
         // `# stand-in:` lines: each with its support and its drive role, in the ruled grammar)
         let emu = committed.lines().find_map(|l| l.strip_prefix("emulated: ")).expect("the file carries one emulated: line");
