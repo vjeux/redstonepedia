@@ -2253,16 +2253,6 @@ pub enum MobfarmCmd {
         /// stop 9 down).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         move_positions: Vec<i32>,
-        /// The stop-9-down way-in (ironspec 12:23): the leg, the stop wall, the shaft (9,.,-5), the
-        /// queue at --queue (descending south) and the run down to the moved stop's entry (3,-25,-5).
-        #[arg(long)]
-        s9: bool,
-        /// With --s9: the run is (C)'s rail descent (ironspec 15:58), not the drop-and-roll.
-        #[arg(long)]
-        c_descent: bool,
-        /// With --c-descent: cells whose rail is a brake (an unpowered powered rail), x,y,z;...
-        #[arg(long)]
-        brakes: Option<String>,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         queue: Vec<i32>,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
@@ -2312,10 +2302,6 @@ pub enum MobfarmCmd {
         /// The queue's staircase descends south (slopes ascending north), for the corner shaft (9,.,-5).
         #[arg(long)]
         south: bool,
-        /// The deep queue's leg, stop wall and climb laid as extra cells (ironspec 11:52): every
-        /// N-th slope of the climb a powered rail with its torch (implies --south --rail).
-        #[arg(long)]
-        deep: Option<usize>,
         /// Ticks to follow a ride (--ride-to).
         #[arg(long, default_value_t = 200)]
         ride_ticks: u32,
@@ -2422,9 +2408,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         reference_run: bool,
         /// (ironspec 18:39 (4)) the rail end's all-clear speed from the start-phase sweep (b/t): the ride
-        /// rows' speed entering (9,-15,-2) must be at least it + 10 % (without it: printed only)
+        /// rows' speed entering (9,-15,-2) must be at least it + 10 % (without it the rail-end bar is NOT JUDGED
+        /// and FAILS: G1 Nov 14 10:21)
         #[arg(long)]
         rail_end_least: Option<f64>,
+        /// (G1 Nov 14 10:21) A bar the run declares EXCLUDED (`trapdoor`, `fence`): printed EXCLUDED, never a pass;
+        /// without it, a bar with nothing to judge is NOT JUDGED and fails.
+        #[arg(long)]
+        exclude_bar: Vec<String>,
         /// (ironspec 17:38: the boost-margin row) with --ride-to, --south, --r1-built: the release held
         /// for k gt, k in A..=B (NOT-ready's lever back ON at t k), each cart followed to the entry or
         /// its end; the stated minimum pulse
@@ -2449,34 +2440,6 @@ pub enum MobfarmCmd {
         probe_every_tick: bool,
         #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
         freeze_lens: Vec<i64>,
-        /// (tick-exact's official restart row) tick-exact's mixed water rig (6 dry slopes onto 12
-        /// wet flats), a restart at every tick FROM..=TO: the tick and speed leaving the 5th wet
-        /// flat. Needs no design (pass any).
-        #[arg(long, value_delimiter = ',')]
-        water_restart_row: Vec<i64>,
-        /// Containment: run the module with the extra cells this many gt and list the water outside
-        /// waterlogged rails in the box --scan-box x0,y0,z0,x1,y1,z1 (default the way-in's descent).
-        #[arg(long)]
-        water_scan: Option<u32>,
-        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "2,-27,-8,9,-20,3")]
-        scan_box: Vec<i32>,
-        /// (ironspec 00:27 (5)) The water-layout search: a data file of candidates, one per line
-        /// `NAME: x,y,z=block;...` (`--extra` syntax; `#` lines and blank lines skipped), each laid
-        /// on the design and gated in order: the water rule, containment (--water-scan gt, default
-        /// 1200, every water cell scheduled), the seat's HOME path (--bed), the rests x
-        /// --release-phases in the band with 0 contacts (--ride-to); its cost and, for survivors, the
-        /// descent probe's partial positions.
-        #[arg(long)]
-        water_search: Option<String>,
-        /// The rests the search rides from (cart positions x,y,z;...; the first one is the seat
-        /// probed): default the five rest points z -3.831..-3.931.
-        #[arg(long, default_value = "9.5,-13.107,-3.831;9.5,-13.082,-3.856;9.5,-13.057,-3.881;9.5,-13.032,-3.906;9.5,-13.007,-3.931")]
-        search_rests: String,
-        /// The search's survivors also get the full ride sweep (every rest x phases x a restart at
-        /// every tick 1..110 in 10 orders x 1..4-gt freezes at every tick 0..110) and containment
-        /// over 24,000 gt.
-        #[arg(long)]
-        search_sweep: bool,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -9081,6 +9044,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 edits.extend(crate::vhits::parse_edits(s).map_err(|e| anyhow::anyhow!(e))?);
             }
             anyhow::ensure!(edits.iter().all(|e| e.at < ticks), "--edit-at: every edit's tick must fall inside the run's {ticks} tick(s)");
+            // (G1 Nov 14 10:21, cdf7bddd5 (3)) evidence inputs IN-TREE (tracked by git, no /tmp copy), each with its md5
+            println!("{}", crate::waycell::evidence_file(&design.to_string_lossy()).map_err(|e| anyhow::anyhow!(e))?);
+            for f in carts_file.iter().chain(crest_file.iter()) {
+                println!("{}", crate::waycell::evidence_file(&f.to_string_lossy()).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            if crest_file.is_some() {
+                println!("(vhits) the crest row planted: {crest_row} (--crest-row; its default crest-3 when not given)");
+            }
             // (a part file with no output port) the judge's air cell added to a copy of the file
             let (_c, spec) = match port_output[..] {
                 [] => load(version, &design)?,
@@ -9169,18 +9140,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1's N1 on R4b, the plant-role rule) every edit releases a declared rest's hold: a PROPERTY edit
             // on a cell of an in-scope class=rest line (so --judge); a whole-state edit, or a cell no such
             // line holds, refuses (an edit that removes or swaps the block under test can't turn a failure
-            // into a pass)
+            // into a pass). (G1 Nov 14 10:21, 4e19d7ead (1)) and only a RELEASE: `open=true` (a trapdoor hold) or
+            // `powered=true` (a braked powered rail), made while a cart rests in that line's at= box (checked at
+            // the edit's tick: a hand-picked tick with no resting cart fails by name); a rest line without at= refuses
             let mut edit_roles: Vec<String> = Vec::new();
+            let mut edits = edits;
             if !edits.is_empty() {
                 let Some((decls, _)) = judge_with.as_ref() else { anyhow::bail!("--edit-at needs --judge: an edit releases an in-scope class=rest line's hold") };
-                for e in &edits {
+                for e in edits.iter_mut() {
                     let crate::vhits::EditTo::Prop(k, v) = &e.to else {
                         anyhow::bail!("--edit-at {}:{}: a whole-state edit refuses: an edit may only change a property of a cell of an in-scope class=rest line", e.at, e.cell)
                     };
+                    if !matches!((k.as_str(), v.as_str()), ("open", "true") | ("powered", "true")) {
+                        anyhow::bail!("--edit-at {}:{}: {k}={v} is no release (an edit may only release a rest's hold: open=true or powered=true)", e.at, e.cell);
+                    }
                     let Some(d) = decls.iter().find(|d| d.class == crate::contacts::Class::Rest && d.cells.contains(&e.cell)) else {
                         anyhow::bail!("--edit-at {}:{}: names no cell of an in-scope class=rest line (an edit may only release a declared rest's hold)", e.at, e.cell)
                     };
-                    edit_roles.push(format!("run tick {} ({},{},{}) {k}={v} releasing the class=rest line {}", e.at, e.cell.x, e.cell.y, e.cell.z, d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect::<Vec<_>>().join("+")));
+                    let Some(at) = d.at.clone() else {
+                        anyhow::bail!("--edit-at {}:{}: the class=rest line it releases declares no at= box (the rest's place a cart must be resting in at the edit)", e.at, e.cell)
+                    };
+                    e.releases = Some(at);
+                    edit_roles.push(format!("run tick {} ({},{},{}) {k}={v} releasing the class=rest line {} (a cart at rest in its at= box required at that tick)", e.at, e.cell.x, e.cell.y, e.cell.z, d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect::<Vec<_>>().join("+")));
                 }
             }
             let o = crate::vhits::Opts {
@@ -9221,15 +9202,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
-            if let [a, b] = water_restart_row[..] {
-                let ticks: Vec<i64> = (a..=b).collect();
-                for how in crate::liveness::Restart::rows() {
-                    for l in crate::waycell::water_restart_rows(&ticks, how).map_err(|e| anyhow::anyhow!(e))? {
-                        println!("{l}");
-                    }
-                }
-                return Ok(());
+        MobfarmCmd::WayCell { design, positions, move_positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, exclude_bar, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens } => {
+            // (G1 Nov 14 10:21 / ironspec 10:45a (i)) evidence inputs IN-TREE: the design and every positions file are
+            // files of the repository the bench runs in, tracked by git (no /tmp copy), each printed with its md5
+            println!("{}", crate::waycell::evidence_file(&design.to_string_lossy()).map_err(|e| anyhow::anyhow!(e))?);
+            for f in &positions {
+                println!("{}", crate::waycell::evidence_file(&f.to_string_lossy()).map_err(|e| anyhow::anyhow!(e))?);
             }
             let (_c, mut spec) = load(version, &design)?;
             // (a module that already carries the way-in: its queue cart and its post's boat are the
@@ -9268,10 +9246,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1 (5) / (15)) a flag of the wrong shape is an error, never a silent fall-through
             anyhow::ensure!(bystander.is_empty() || bystander.len() == 3, "--bystander X,Y,Z (got {} values)", bystander.len());
             anyhow::ensure!(!probe_every_tick || bed.len() == 3, "--probe-every-tick needs --bed X,Y,Z (the HOME target), got {} values", bed.len());
-            anyhow::ensure!(water_search.is_none() || (scan_box.len() == 6 && bed.len() == 3 && ride_to.len() == 3), "--water-search needs --scan-box X0,Y0,Z0,X1,Y1,Z1, --bed X,Y,Z and --ride-to X,Y,Z (got {}, {}, {} values)", scan_box.len(), bed.len(), ride_to.len());
             anyhow::ensure!(visit_skip.iter().all(|&s| s >= 0), "--visit-skip: every skip tick >= 0 (after the release), got {visit_skip:?}");
             anyhow::ensure!(visit_plant_stamp.is_none_or(|a| (0..1_000_000).contains(&a)), "--visit-plant-stamp AGE: 0 <= AGE (gt) < 1,000,000, got {visit_plant_stamp:?}");
-            let mut o = crate::waycell::Opts {
+            let o = crate::waycell::Opts {
                 queue: [queue[0], queue[1], queue[2]],
                 post: (post.len() == 3).then(|| [post[0], post[1], post[2]]),
                 own: crate::waycell::parse_boxes(own.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
@@ -9287,6 +9264,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 queue_glass,
                 seat_at: (seat_at.len() == 3).then(|| [seat_at[0], seat_at[1], seat_at[2]]),
                 band: if band.len() == 2 { [band[0], band[1]] } else { [0.11, 0.24] },
+                band_default: band.len() != 2,
                 r1_built,
                 visit_skip: visit_skip.clone(),
                 bystander: (bystander.len() == 3).then(|| [bystander[0], bystander[1], bystander[2]]),
@@ -9316,55 +9294,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .map(|(p, _)| [p.x, p.y, p.z])
                     .collect(),
                 // (ironspec 10:42 / 10:58; G1 14:51 (4)) the bounded declarations in the ride's scope,
-                // read strictly by main's bounded reader: a malformed one in scope is an error
-                declared_bounded: crate::waycell::bounded_in_scope(&std::fs::read_to_string(&design)?, crate::waycell::RIDE_SCOPE).map_err(|e| anyhow::anyhow!(e))?,
+                // read strictly by main's bounded reader: a malformed one in scope is an error; (G1 Nov 14 10:21,
+                // cdf7bddd5 (2)) RIDE_SCOPE is EMULATED, uncited (set by hand from the old way-in's cells, no game
+                // print), and every declaration it leaves OUT is named, never discarded unnamed
+                declared_bounded: {
+                    let (d, outside) = crate::waycell::bounded_scope_split(&std::fs::read_to_string(&design)?, crate::waycell::RIDE_SCOPE).map_err(|e| anyhow::anyhow!(e))?;
+                    println!(
+                        "(scope) the ride rows' scope RIDE_SCOPE {:?}..{:?} (EMULATED, uncited: set by hand from the (b+) way-in's cells; OLD GEOMETRY): {} bounded declaration(s) in it; {} left OUT{}",
+                        crate::waycell::RIDE_SCOPE.0,
+                        crate::waycell::RIDE_SCOPE.1,
+                        d.len(),
+                        outside.len(),
+                        if outside.is_empty() { String::new() } else { format!(": {}", outside.join("; ")) }
+                    );
+                    d
+                },
                 reference_run,
                 rail_end_least,
+                exclude_bars: exclude_bar,
             };
-            if let Some(n) = deep {
-                // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
-                let (leg_cells, replaced) = crate::waycell::deep_leg();
-                o.extra.extend(leg_cells);
-                o.replace.extend(replaced);
-                o.extra.extend(crate::waycell::deep_climb(n));
-                o.south = true;
-                o.rail = true;
-            }
-            if s9 {
-                // the stop-9-down way-in (ironspec 12:23): the same leg and stop wall, the run down
-                // (the drop-and-roll, or (C)'s rail descent with --c-descent)
-                let (leg_cells, replaced) = crate::waycell::deep_leg();
-                o.extra.extend(leg_cells);
-                o.replace.extend(replaced);
-                if c_descent {
-                    let brakes: Vec<[i32; 3]> = crate::waycell::parse_extra(brakes.as_deref().map(|s| s.split(';').map(|c| format!("{c}=glass")).collect::<Vec<_>>().join(";")).as_deref())
-                        .map_err(|e| anyhow::anyhow!(e))?
-                        .into_iter()
-                        .map(|(p, _)| p)
-                        .collect();
-                    o.extra.extend(crate::waycell::c_run(&brakes));
-                    // laid over a module that carries the drop-and-roll (the module of record's
-                    // way-in part): the cells (C) changes, and the drop's cells it removes
-                    o.replace.extend([[9, -16, -2], [9, -24, -1], [9, -24, -2]]);
-                    for p in [[9, -15, -2], [9, -15, 0], [9, -24, 0], [9, -25, -1]] {
-                        o.extra.push((p, "minecraft:air".to_string()));
-                        o.replace.push(p);
-                    }
-                } else {
-                    o.extra.extend(crate::waycell::s9_run());
-                }
-                o.south = true;
-                o.rail = true;
-            }
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
             // (G1's W8 on R2) one mode a run, its companion flags present: a mis-shaped mode flag is an
             // error, never a fall-through into another mode
             let mode = crate::waycell::way_cell_mode(&crate::waycell::ModeFlags {
                 write: write.is_some(),
                 post: o.post.is_some(),
-                water_search: water_search.is_some(),
-                water_scan: water_scan.is_some(),
-                scan_box: scan_box.len(),
                 path_probe: path_probe.is_some(),
                 visit: visit > 0,
                 leg: leg.len(),
@@ -9384,69 +9338,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(restart_every.is_empty() || restart_every.len() == 2, "--restart-every A,B (two ticks)");
             anyhow::ensure!(freeze_every.is_empty() || freeze_every.len() == 2, "--freeze-every A,B (two ticks)");
             println!("(mode) {mode}");
+            // (G1 Nov 14 10:21 / ironspec 10:27a, scope (a)) the bench tools' lineage and what their rows can claim
+            if matches!(mode, "ride" | "ride rows" | "release pulse" | "launch speed" | "wait" | "sweep" | "visit" | "leg") {
+                println!("(bench) way-cell's single-cart rows (b8949c96's bench tools, R2-R5): one cart a row; the release EMULATED (the bench flips R1's NOT-ready lever or lays R1's cells, no token, no 12-gt pulse, no controller); R1 laid from R1_BUILT (record7's built R1 and hatch branch, onechunk aefff19cb, its levers the declared stand-ins: OLD GEOMETRY); the scope and fence box RIDE_SCOPE EMULATED, uncited; NO controller or safety-bar claim; written for the (b+) way-in's geometry (the front at y -14, no P1): rows on those files are NOT CITABLE for V (V's safety bars are R6's leg train on V)");
+            }
             if let (Some(out), Some(p)) = (&write, o.post) {
                 for l in crate::waycell::write_layout(&design, out, &o, p).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
-                }
-                return Ok(());
-            }
-            if let (Some(f), 6, 3, 3) = (water_search.as_deref(), scan_box.len(), bed.len(), ride_to.len()) {
-                let text = std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--water-search {f}: {e}"))?;
-                // (ironspec 05:09 / 05:50, the dry branch) a `brakes: x,y,z=SHAPE; ...` line expands into
-                // every single brake and every pair: unpowered powered rails of that shape replacing
-                // the rails there (named B[x,y,z] / B[a]+[b])
-                let mut cands: Vec<(String, String)> = Vec::new();
-                for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-                    if let Some(list) = l.strip_prefix("brakes:") {
-                        let cells: Vec<(String, String)> = list
-                            .split(';')
-                            .map(str::trim)
-                            .filter(|c| !c.is_empty())
-                            .map(|c| c.split_once('=').map(|(p, s)| (p.trim().to_string(), format!("!{}=powered_rail[shape={},powered=false,waterlogged=false]", p.trim(), s.trim()))).ok_or_else(|| anyhow::anyhow!("--water-search {f}: brakes: x,y,z=SHAPE; ... ({c:?})")))
-                            .collect::<anyhow::Result<_>>()?;
-                        for (k, (p, c)) in cells.iter().enumerate() {
-                            cands.push((format!("B[{p}]"), c.clone()));
-                            for (q, d) in &cells[k + 1..] {
-                                cands.push((format!("B[{p}]+[{q}]"), format!("{c};{d}")));
-                            }
-                        }
-                        continue;
-                    }
-                    cands.push(l.split_once(": ").map(|(n, c)| (n.trim().to_string(), c.trim().to_string())).ok_or_else(|| anyhow::anyhow!("--water-search {f}: {l:?}: NAME: cells"))?);
-                }
-                let rests: Vec<[f64; 3]> = search_rests
-                    .split(';')
-                    .map(|c| {
-                        let n: Vec<f64> = c.split(',').map(|x| x.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--search-rests {c}: {e}"))).collect::<anyhow::Result<_>>()?;
-                        if n.len() != 3 {
-                            anyhow::bail!("--search-rests x,y,z;...");
-                        }
-                        Ok([n[0], n[1], n[2]])
-                    })
-                    .collect::<anyhow::Result<_>>()?;
-                let (lines, pass) = crate::waycell::water_search_lines(
-                    &spec,
-                    &o,
-                    &cands,
-                    &rests,
-                    [bed[0], bed[1], bed[2]],
-                    [ride_to[0], ride_to[1], ride_to[2]],
-                    release_phases,
-                    water_scan.unwrap_or(1200),
-                    [scan_box[0], scan_box[1], scan_box[2]],
-                    [scan_box[3], scan_box[4], scan_box[5]],
-                    search_sweep,
-                )
-                .map_err(|e| anyhow::anyhow!(e))?;
-                for l in lines {
-                    println!("{l}");
-                }
-                // (G1 07:16 (3)) no surviving candidate is the exit status (--report-only: exit 0)
-                if !pass {
-                    println!("way-cell water search: no candidate survives{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
-                    if !report_only {
-                        std::process::exit(1);
-                    }
                 }
                 return Ok(());
             }
@@ -9458,7 +9356,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{l}");
                 }
                 if !pass {
-                    println!("way-cell release pulse: no stated minimum in the sweep{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    // (G1 Nov 14 10:21, non-blocking on b0175a2a6) the failure named: its lines above say which bar
+                    // failed (no stated minimum, a detector pressed at rest, or the emulated hold short of the minimum)
+                    println!("way-cell release pulse: FAIL (no stated minimum in the sweep, a detector pressed at rest, or the hold short of the minimum: see the lines above){}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
                     if !report_only {
                         std::process::exit(1);
                     }
@@ -9476,20 +9376,6 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 if !pass {
                     println!("way-cell launch speed: no clear threshold in the sweep{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
-                    if !report_only {
-                        std::process::exit(1);
-                    }
-                }
-                return Ok(());
-            }
-            if let (Some(n), 6) = (water_scan, scan_box.len()) {
-                let (lines, pass) = crate::waycell::water_scan_lines(&spec, &o, n, [scan_box[0], scan_box[1], scan_box[2]], [scan_box[3], scan_box[4], scan_box[5]]).map_err(|e| anyhow::anyhow!(e))?;
-                for l in lines {
-                    println!("{l}");
-                }
-                // (G1's W2 on R2) the water scan's verdict is the exit status (--report-only: exit 0)
-                if !pass {
-                    println!("way-cell water scan: FAIL or NOT JUDGED{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
                     if !report_only {
                         std::process::exit(1);
                     }
@@ -9544,7 +9430,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 return Ok(());
             }
             if ride_to.len() == 3 && (release_phases > 0 || !restart_at.is_empty() || restart_every.len() == 2 || freeze_every.len() == 2) {
-                let landing = (s9 && !c_descent).then_some([9, -24, -1]);
+                // (the s9 landing (9,-24,-1) went with the s9 mode: dropped from the car, ironspec Nov 14 10:35a)
+                let landing: Option<[i32; 3]> = None;
                 let mut restarts = restart_at.clone();
                 if let [a, b] = restart_every[..] {
                     restarts.extend(a..=b);

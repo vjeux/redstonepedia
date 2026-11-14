@@ -133,6 +133,9 @@ pub struct Edit {
     pub at: u32,
     pub cell: redsim::pos::BlockPos,
     pub to: EditTo,
+    /// (G1 Nov 14 10:21, 4e19d7ead (1)) the class=rest line the edit releases: its `at=` box, the place a cart must
+    /// be AT REST at the edit's tick (else the edit releases nothing and the run fails by name)
+    pub releases: Option<crate::contacts::AtBox>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -164,15 +167,25 @@ pub fn parse_edits(s: &str) -> Result<Vec<Edit>, String> {
         };
         let v: Vec<i32> = cell.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<i32>().map_err(|e| format!("--edit-at {part:?}: {x:?}: {e}"))).collect::<Result<_, _>>()?;
         let [x, y, z] = v[..] else { return Err(format!("--edit-at {part:?}: X,Y,Z")) };
-        out.push(Edit { at: t, cell: redsim::pos::BlockPos::new(x, y, z), to });
+        out.push(Edit { at: t, cell: redsim::pos::BlockPos::new(x, y, z), to, releases: None });
     }
     Ok(out)
 }
 
 /// Apply the edits due at run tick `k` (with the world's updates), each read back: the line printed,
-/// an edit that changes nothing or isn't held as made fails by name.
-fn apply_edits(w: &mut redsim::world::World, edits: &[Edit], k: u32, lines: &mut Vec<String>) -> Result<(), String> {
+/// an edit that changes nothing or isn't held as made fails by name. (G1 Nov 14 10:21, 4e19d7ead (1)) an edit
+/// that releases a class=rest line needs a cart AT REST in that line's `at=` box at its tick; returns the cells
+/// set, for the caller's read-back after the tick.
+fn apply_edits(w: &mut redsim::world::World, edits: &[Edit], k: u32, lines: &mut Vec<String>) -> Result<Vec<(redsim::pos::BlockPos, redsim::block::Block)>, String> {
+    let mut made = Vec::new();
     for e in edits.iter().filter(|e| e.at == k) {
+        if let Some(b) = &e.releases {
+            let inside = |p: &redsim::entity::vec3::Vec3| (0..3).all(|i| [p.x, p.y, p.z][i] >= b.lo[i] - b.eps && [p.x, p.y, p.z][i] <= b.hi[i] + b.eps);
+            let resting = w.entities.list.iter().any(|c| !c.removed && matches!(c.kind, redsim::entity::EntityKind::Minecart(_)) && inside(&c.pos) && (c.delta_movement.x.powi(2) + c.delta_movement.z.powi(2)).sqrt() < 0.003);
+            if !resting {
+                return Err(format!("--edit-at {}:{}: no cart AT REST in the released rest's at= box ({:?}..{:?}) at this tick: the edit releases nothing", e.at, e.cell, b.lo, b.hi));
+            }
+        }
         let before = w.get(e.cell);
         let after = match &e.to {
             EditTo::State(s) => redsim::block::Block::parse(s)?,
@@ -193,8 +206,9 @@ fn apply_edits(w: &mut redsim::world::World, edits: &[Edit], k: u32, lines: &mut
             return Err(format!("--edit-at {}:{}: set {after}, read back {read}", e.at, e.cell));
         }
         lines.push(format!("(vhits) edit at run tick {k} (game time {}): {} {before} -> {after} (read back as made)", w.time, e.cell));
+        made.push((e.cell, after));
     }
-    Ok(())
+    Ok(made)
 }
 
 /// (G1's D1 on R4 v2; one helper, G1 03:13) The legacy declarations among `decls`, each as its cells
@@ -306,9 +320,16 @@ pub fn vhits_lines(spec: &FarmSpec, carts: &[Planted], o: &Opts) -> Result<(Vec<
         // (ironspec 14:52: classify before declaring) each cart's first contact tick printed with its moves
         let mut evidenced: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for k in 0..o.ticks {
-            // (G1's D6 on R4b) the edits due this run tick, made before its tick
-            apply_edits(&mut run.world, o.edits, k, &mut lines)?;
+            // (G1's D6 on R4b) the edits due this run tick, made before its tick; (G1 Nov 14 10:21, non-blocking on
+            // 4e19d7ead) each edited cell read back again AFTER the tick (held, not only set)
+            let made = apply_edits(&mut run.world, o.edits, k, &mut lines)?;
             run.tick();
+            for (c, b) in &made {
+                let now = run.world.get(*c);
+                if now != *b {
+                    return Err(format!("--edit-at {k}:{c}: set {b}, but the tick after reads {now} (the edit did not hold)"));
+                }
+            }
             let t = run.world.time;
             for &(id, key) in &ids {
                 let Some(i) = run.world.entities.list.iter().position(|e| e.id == id && !e.removed) else {
@@ -399,7 +420,9 @@ pub fn vhits_lines(spec: &FarmSpec, carts: &[Planted], o: &Opts) -> Result<(Vec<
         key.and_then(|k| last_tick.get(&k)).is_some_and(|t| s.contains(&format!("..{t}:")))
     };
     let (open, stalls): (Vec<String>, Vec<String>) = v.stalls.iter().cloned().partition(is_open);
-    let failures = v.undeclared.len() + v.exceeded.len() + stalls.len() + open.len() + v.stale.len() + v.errors.len();
+    // (G1 Nov 14 10:21, cdf7bddd5 (1)) a declaration "stale, NOT JUDGED" (never met, too few samples to call it stale)
+    // fails the run here: a bound the rows can't judge never passes
+    let failures = v.undeclared.len() + v.exceeded.len() + stalls.len() + open.len() + v.stale.len() + v.stale_not_judged.len() + v.errors.len();
     lines.push(format!(
         "(vhits) main's bounded judge over the {} in-scope declaration(s) (contacts::judge, IRONSPEC_1042, the samples ({n_carts}, \"carts\")): {} undeclared hit(s){}; {} bound(s) exceeded{}; {} stall(s){}; {} event(s) open at their cart's last tick (no stall window: NOT JUDGED, a failure){}; {} stale{}; {} stale not judged{}; {} wiring error(s){}; events per declaration {:?}: {}",
         decls.len(),
@@ -504,10 +527,19 @@ mod tests {
         let p = redsim::pos::BlockPos::new(1, 1, 1);
         w.set_block(p, redsim::block::Block::parse("minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
         let mut lines = Vec::new();
-        apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()) }], 0, &mut lines).unwrap();
+        apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()), releases: None }], 0, &mut lines).unwrap();
         assert_eq!(w.get(p).to_string(), "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]");
         assert!(lines[0].contains("read back as made"), "{lines:?}");
-        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()) }], 0, &mut lines).unwrap_err().contains("no-op"));
-        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("lit".into(), "true".into()) }], 0, &mut lines).unwrap_err().contains("no property lit"));
+        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()), releases: None }], 0, &mut lines).unwrap_err().contains("no-op"));
+        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("lit".into(), "true".into()), releases: None }], 0, &mut lines).unwrap_err().contains("no property lit"));
+        // (G1 Nov 14 10:21, 4e19d7ead (1)) an edit releasing a rest needs a cart AT REST in the rest's at= box: with
+        // none there it refuses ("releases nothing"); with a cart resting there it applies
+        let q = redsim::pos::BlockPos::new(2, 1, 1);
+        w.set_block(q, redsim::block::Block::parse("minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        let at = crate::contacts::AtBox { lo: [2.4, 2.0, 1.4], hi: [2.6, 2.1, 1.6], eps: 0.001, why: None, decimals: [1, 1, 1] };
+        let rel = Edit { at: 0, cell: q, to: EditTo::Prop("open".into(), "true".into()), releases: Some(at) };
+        assert!(apply_edits(&mut w, std::slice::from_ref(&rel), 0, &mut lines).unwrap_err().contains("releases nothing"));
+        redsim::entity::spawn(&mut w, "minecraft:minecart", [2.5, 2.0, 1.5], None).unwrap();
+        assert_eq!(apply_edits(&mut w, std::slice::from_ref(&rel), 0, &mut lines).unwrap().len(), 1, "a resting cart in the at= box: applied");
     }
 }

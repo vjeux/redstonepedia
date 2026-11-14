@@ -66,6 +66,8 @@ pub struct Opts {
     /// (C)'s entry bar at A6's entry (ironspec 21:25: A6's operating band [0.11, 0.24], inherited from
     /// 58f770cc's park sweep).
     pub band: [f64; 2],
+    /// (G1 Nov 14 10:21, 414aab242 (3)) `band` is the default [0.11, 0.24] (--band not given): printed so
+    pub band_default: bool,
     /// (ironspec 22:19 (1)) record7's built R1 with day-1's line-bench levers instead of the torch
     /// stand-in; the release is NOT-ready's lever flipped off.
     pub r1_built: bool,
@@ -110,10 +112,32 @@ pub struct Opts {
     /// (ironspec 18:39 (4)) the rail end's all-clear speed (the start-phase sweep's figure): the ride
     /// rows' entry speed into (9,-15,-2) must be at least it + 10 % (None: printed only).
     pub rail_end_least: Option<f64>,
+    /// (G1 Nov 14 10:21, 414aab242 (7)) bars the run DECLARES excluded (`trapdoor`, `fence`): printed EXCLUDED,
+    /// never a pass; an undeclared bar with nothing to judge is NOT JUDGED and fails
+    pub exclude_bars: Vec<String>,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
 /// the module holds there).
+/// (G1 Nov 14 10:21 / ironspec 10:45a (i)) An evidence input read IN-TREE: `path` must be a file of the git repository
+/// the bench runs in (inside the current directory's tree) and tracked by git (`git ls-files --error-unmatch`); a /tmp
+/// copy or an untracked file is an error. Returns the line printed for it: the path, its md5, "tracked".
+pub fn evidence_file(path: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    let abs = p.canonicalize().map_err(|e| format!("the input {path}: {e}"))?;
+    let here = std::env::current_dir().and_then(|d| d.canonicalize()).map_err(|e| format!("the current directory: {e}"))?;
+    if !abs.starts_with(&here) {
+        return Err(format!("the input {path} is outside the repository tree {} (evidence inputs are in-tree: G1 / ironspec Nov 14)", here.display()));
+    }
+    let o = std::process::Command::new("git").args(["ls-files", "--error-unmatch", "--"]).arg(&abs).output().map_err(|e| format!("git ls-files: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("the input {path} is not tracked by git (evidence inputs are committed in-tree: G1 / ironspec Nov 14)"));
+    }
+    let bytes = std::fs::read(&abs).map_err(|e| format!("the input {path}: {e}"))?;
+    let md5: String = redsim::stems::md5(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!("(input) {path}: md5 {md5}, tracked in-tree"))
+}
+
 pub fn parse_extra(s: Option<&str>) -> Result<Vec<(P, String)>, String> {
     let Some(s) = s else { return Ok(Vec::new()) };
     s.split(';')
@@ -344,7 +368,9 @@ pub fn summon_box_lines(spec: &FarmSpec, o: &Opts) -> Result<(bool, Vec<String>)
         }
         others.push(*p);
     }
-    let pass = others.is_empty();
+    // (G1 Nov 14 10:21, 414aab242 (2)) no --positions is 0 samples: NOT JUDGED, and that FAILS (never a vacuous pass)
+    let judged = !o.positions.is_empty();
+    let pass = judged && others.is_empty();
     let mut out = vec![format!(
         "(a) the queue rider at ({:.2},{:.2},{:.2}): its summon box (its box inflated by 10: y {:.2}..{:.2}) holds {} position(s) of other villagers{}; {} of the one other napper's (the stop, its lift: one villager), the rider's own route left out: {}",
         feet.x,
@@ -355,7 +381,7 @@ pub fn summon_box_lines(spec: &FarmSpec, o: &Opts) -> Result<(bool, Vec<String>)
         others.len(),
         if others.is_empty() { String::new() } else { format!(" {:?}", others.iter().take(12).collect::<Vec<_>>()) },
         nappers,
-        if pass { "it can never count 3 (itself and at most the napper): PASS" } else { "FAIL" }
+        if !judged { "NOT JUDGED (no --positions: 0 samples): FAILS" } else if pass { "it can never count 3 (itself and at most the napper): PASS" } else { "FAIL" }
     )];
     // the nearest other position at every height band, as a margin
     if let Some(m) = o.positions.iter().filter(|p| !o.own.iter().any(|b| in_box(p, b)) && !o.napper.iter().any(|b| in_box(p, b))).map(|p| (p[1] as f64 - (feet.y + 11.95), *p)).filter(|(d, _)| *d >= 0.0).min_by(|a, b| a.0.total_cmp(&b.0)) {
@@ -688,9 +714,6 @@ pub const RIDE_SCOPE: ([i32; 3], [i32; 3]) = ([2, -27, -8], [9, -11, 3]);
 pub struct ModeFlags {
     pub write: bool,
     pub post: bool,
-    pub water_search: bool,
-    pub water_scan: bool,
-    pub scan_box: usize,
     pub path_probe: bool,
     pub visit: bool,
     pub leg: usize,
@@ -718,12 +741,6 @@ pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
     if f.write {
         modes.push("write");
     }
-    if f.water_search {
-        modes.push("water search");
-    }
-    if f.water_scan && !f.water_search {
-        modes.push("water scan");
-    }
     if f.path_probe {
         modes.push("path probe");
     }
@@ -739,7 +756,7 @@ pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
     if f.launch_speeds > 0 {
         modes.push("launch speed");
     }
-    if (f.ride_to > 0 || f.rows) && !f.visit && !f.release_sweep && !f.water_search && f.release_pulse == 0 {
+    if (f.ride_to > 0 || f.rows) && !f.visit && !f.release_sweep && f.release_pulse == 0 {
         modes.push(if f.rows { "ride rows" } else { "ride" });
     }
     if f.wait > 0 && !f.release_sweep {
@@ -755,12 +772,6 @@ pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
     let need = |ok: bool, what: &str| -> Result<(), String> { if ok { Ok(()) } else { Err(format!("the {m} mode needs {what}")) } };
     match m {
         "write" => need(f.post, "--post")?,
-        "water search" => {
-            need(f.scan_box == 6, "--scan-box x0,y0,z0,x1,y1,z1")?;
-            need(f.bed == 3, "--bed x,y,z")?;
-            need(f.ride_to == 3, "--ride-to x,y,z")?;
-        }
-        "water scan" => need(f.scan_box == 6, "--scan-box x0,y0,z0,x1,y1,z1")?,
         "path probe" => need(f.bed == 3, "--bed x,y,z")?,
         "visit" => {
             need(f.leg == 6, "--leg x,y,z,vx,vy,vz")?;
@@ -922,9 +933,17 @@ pub fn r1_cells(o: &Opts) -> Result<Vec<(BlockPos, Block)>, String> {
 fn release(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
     let q = o.queue;
     if o.south && o.r1_built {
-        // NOT-ready's fall: onechunk's wall lever (8,-14,-5) flipped OFF between ticks
+        // NOT-ready's fall: onechunk's wall lever (8,-14,-5) flipped OFF between ticks, READ BACK (G1 Nov 14
+        // 10:21, 414aab242 (4)): the old geometry's cell (the front at y -14), emulated, uncited beyond onechunk
         let p = BlockPos::new(8, -14, -5);
-        w.set_block(p, Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+        let off = Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?;
+        if !w.get(p).to_string().starts_with("minecraft:lever") {
+            return Err(format!("the release: NOT-ready's lever {p} holds {}, not a lever (R1 not built as the bench assumes)", w.get(p)));
+        }
+        w.set_block(p, off.clone(), redsim::world::flags::ALL);
+        if w.get(p) != off {
+            return Err(format!("the release: NOT-ready's lever {p} reads {} after it was flipped off", w.get(p)));
+        }
         return Ok(());
     }
     if o.south {
@@ -997,157 +1016,6 @@ pub fn rail_cells(q: P, south: bool) -> Vec<(P, &'static str, &'static str)> {
         ([q[0] - 1, q[1] - 2, q[2]], "minecraft:glass", "under the departure detector (glass: never a stroll draw)"),
         ([q[0] - 1, q[1] - 1, q[2]], "minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]", "the departure detector (resets HELD and the RS)"),
     ]
-}
-
-/// (ironspec 15:58: (C) decided) The rail descent replacing the second fall: from the queue's
-/// departure (9,-15,-3) the cart never leaves the rails, so a calm rider's HOME path always starts
-/// on a rail cell (58f770cc's fact 1) and none starts in free fall (fact 2). Ten slopes, every rail
-/// on glass, every slope's high side the previous rail's support, 2-high head room over each:
-/// south (9,-16,-2) .. (9,-19,1); the curve (9,-19,2); west (8,-20,2), (7,-21,2); the curve
-/// (6,-21,2); north (6,-22,1), (6,-23,0); the curve (6,-23,-1); east (7,-23,-1), (8,-23,-1); the curve
-/// (9,-23,-1); north (9,-24,-2), (9,-25,-3); then the drop-and-roll's (9,-25,-4), the curve
-/// (9,-25,-5) and west (8..4,-25,-5) into the entry. `brakes` are cells whose rail becomes an
-/// unpowered powered rail (each halves the cart's speed a tick while it is on it).
-pub fn c_run(brakes: &[P]) -> Vec<(P, String)> {
-    let glass = "minecraft:glass".to_string();
-    let rail = |p: P, s: &str| -> String {
-        if brakes.contains(&p) && !s.starts_with("north_") && !s.starts_with("south_") {
-            format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]")
-        } else {
-            format!("minecraft:rail[shape={s},waterlogged=false]")
-        }
-    };
-    let mut v: Vec<(P, String)> = Vec::new();
-    let mut put = |p: P, s: &str| {
-        v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
-        v.push((p, rail(p, s)));
-    };
-    put([9, -16, -2], "ascending_north");
-    put([9, -17, -1], "ascending_north");
-    put([9, -18, 0], "ascending_north");
-    put([9, -19, 1], "ascending_north");
-    put([9, -19, 2], "north_west");
-    put([8, -20, 2], "ascending_east");
-    put([7, -21, 2], "ascending_east");
-    put([6, -21, 2], "north_east");
-    put([6, -22, 1], "ascending_south");
-    put([6, -23, 0], "ascending_south");
-    put([6, -23, -1], "south_east");
-    put([7, -23, -1], "east_west");
-    put([8, -23, -1], "east_west");
-    put([9, -23, -1], "north_west");
-    put([9, -24, -2], "ascending_south");
-    put([9, -25, -3], "ascending_south");
-    put([9, -25, -4], "north_south");
-    put([9, -25, -5], "south_west");
-    for x in (4..=8).rev() {
-        put([x, -25, -5], "east_west");
-    }
-    v
-}
-
-/// (ironspec 12:23: the queue is the stop 9 down) The run from the queue's departure (9,-15,-3)
-/// down to the moved stop's entry (3,-25,-5), every rail on glass. A staircase of 10 unpowered
-/// slopes reached the entry at 1.04 b/t (A6's band tops at 0.62), so the run drops instead: the
-/// flat (9,-15,-2) carries the cart off its end south into (9,-15,-1), the wall (9,-15,0) stops it,
-/// it falls straight down (9,-16..-23,-1) onto the landing slope (9,-24,-1) (ascending south, its
-/// high side (9,-24,0) glass) and rolls north from rest: the flat (9,-24,-2), the slope (9,-25,-3),
-/// the flat (9,-25,-4), the curve (9,-25,-5), west (8..4,-25,-5) into the entry.
-pub fn s9_run() -> Vec<(P, String)> {
-    let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
-    let glass = "minecraft:glass".to_string();
-    let mut v: Vec<(P, String)> = vec![([9, -15, 0], glass.clone()), ([9, -24, 0], glass.clone())];
-    let mut put = |p: P, b: String| {
-        v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
-        v.push((p, b));
-    };
-    put([9, -15, -2], rail("north_south"));
-    put([9, -24, -1], rail("ascending_south"));
-    put([9, -24, -2], rail("north_south"));
-    put([9, -25, -3], rail("ascending_south"));
-    put([9, -25, -4], rail("north_south"));
-    put([9, -25, -5], rail("south_west"));
-    for x in (4..=8).rev() {
-        put([x, -25, -5], rail("east_west"));
-    }
-    v
-}
-
-/// (ironspec 11:47/11:52: the deep queue's way down) The leg from the split row's end to the
-/// corner shaft (9,.,-5), every rail on glass: the row's last rail (9,25,9) replaced by a
-/// north-west curve, (9,25,8) north-south, three slopes down north (9,24,7), (9,23,6), (9,22,5)
-/// (each high side the previous rail's glass), flat north to (9,22,-4); off its end the cart's
-/// northward speed is caught by the stop wall (9,22,-6), (9,21,-6), and it falls straight down
-/// (9,.,-5) to the arrival detector. Returns the cells and the replaced cell.
-pub fn deep_leg() -> (Vec<(P, String)>, Vec<P>) {
-    let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
-    let glass = "minecraft:glass".to_string();
-    let mut v: Vec<(P, String)> = vec![([9, 25, 9], rail("north_west"))];
-    let mut put = |p: P, b: String| {
-        v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
-        v.push((p, b));
-    };
-    put([9, 25, 8], rail("north_south"));
-    put([9, 24, 7], rail("ascending_south"));
-    put([9, 23, 6], rail("ascending_south"));
-    put([9, 22, 5], rail("ascending_south"));
-    for z in (-4..=4).rev() {
-        put([9, 22, z], rail("north_south"));
-    }
-    v.push(([9, 22, -6], glass.clone()));
-    v.push(([9, 21, -6], glass));
-    (v, vec![[9, 25, 9]])
-}
-
-/// (ironspec 11:52: the deep queue) The climb from the deep queue's departure (9,-29,-3) back up to
-/// the stop's entry (3,-16,-5), every rail on glass inside the module's chunk: the connector
-/// (9,-29,-2) north-west, (8,-29,-2); a spiral of 13 slopes round the column (6,.,-3) (a 3 x 3 ring:
-/// the slopes on its sides' middles, flat curves at its corners, one level a side), each slope's
-/// high side the next corner's glass support; the top (7,-16,-4) north-south, the exit (7,-16,-5)
-/// south-west and (6..4,-16,-5) east-west into the entry. Every `powered_every`-th slope is a
-/// powered rail, powered by a redstone torch standing on glass in the ring's centre column beside it
-/// (nothing solid-render inside the stop's box).
-pub fn deep_climb(powered_every: usize) -> Vec<(P, String)> {
-    let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
-    let glass = "minecraft:glass".to_string();
-    let mut v: Vec<(P, String)> = Vec::new();
-    let put = |v: &mut Vec<(P, String)>, p: P, b: String| {
-        v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
-        v.push((p, b));
-    };
-    put(&mut v, [9, -29, -2], rail("north_west"));
-    put(&mut v, [8, -29, -2], rail("east_west"));
-    put(&mut v, [7, -29, -2], rail("north_east"));
-    // the sides in turn: north along x 7, west along z -4, south along x 5, east along z -2
-    let sides: [([i32; 2], [i32; 2], &str, &str); 4] = [
-        ([7, -2], [0, -1], "ascending_north", "south_west"),
-        ([7, -4], [-1, 0], "ascending_west", "south_east"),
-        ([5, -4], [0, 1], "ascending_south", "north_east"),
-        ([5, -2], [1, 0], "ascending_east", "north_west"),
-    ];
-    let mut torches: Vec<i32> = Vec::new();
-    for k in 0..13usize {
-        let (start, d, slope, corner) = sides[k % 4];
-        let level = -29 + k as i32;
-        let mid = [start[0] + d[0], level, start[1] + d[1]];
-        let powered = powered_every > 0 && k % powered_every == 0;
-        let s = if powered { format!("minecraft:powered_rail[powered=true,shape={slope},waterlogged=false]") } else { rail(slope) };
-        put(&mut v, mid, s);
-        if powered {
-            torches.push(level);
-        }
-        let end = [start[0] + 2 * d[0], level + 1, start[1] + 2 * d[1]];
-        put(&mut v, end, if k == 12 { rail("north_south") } else { rail(corner) });
-    }
-    for l in torches {
-        v.push(([6, l - 1, -3], glass.clone()));
-        v.push(([6, l, -3], "minecraft:redstone_torch[lit=true]".to_string()));
-    }
-    put(&mut v, [7, -16, -5], rail("south_west"));
-    for x in [6, 5, 4] {
-        put(&mut v, [x, -16, -5], rail("east_west"));
-    }
-    v
 }
 
 /// The ride from the queue: the queue rail powered from its input cell (a redstone block at queue +
@@ -1256,16 +1124,36 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
         return Err(fluid_line);
     }
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
+    // (G1 Nov 14 10:21, b0175a2a6 (5)) the planted cart read back: it and its rider exist where summoned
+    if !run.world.entities.list.iter().any(|e| e.id == cart && !e.removed && [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32] == q) || !run.world.entities.list.iter().any(|e| !e.removed && e.vehicle == Some(cart)) {
+        return Err(format!("(release pulse) the summoned cart {cart} or its rider isn't on the queue cell {q:?} as planted"));
+    }
     for _ in 0..40 {
         run.tick();
     }
-    let lever = BlockPos::new(8, -14, -5);
+    // (G1 Nov 14 10:21, b0175a2a6 (3)) the old geometry's cells derived from the queue cell and read back as the
+    // kinds the bench assumes (NOT-ready's lever beside the queue, the detectors, the rail end, the shaft): the
+    // (b+) way-in, uncited beyond onechunk's R1, NOT CITABLE for V
+    let lever = BlockPos::new(q[0] - 1, q[1], q[2] - 1);
+    if !run.world.get(lever).to_string().starts_with("minecraft:lever") {
+        return Err(format!("(release pulse) NOT-ready's lever {lever} holds {}, not a lever", run.world.get(lever)));
+    }
     let ready_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
     // (ironspec 18:39 (4)) the departure detector (9,-15,-3) and the arrival detector (9,-13,-5) with the
     // cart at rest on the queue: neither may be pressed (a departure detector pressed at rest resets
     // RS_ready at once); the queue rail's power
     let powered = |w: &redsim::world::World, p: BlockPos| w.get(p).to_string().contains("powered=true");
     let (dep_cell, arr_cell, rail_cell) = (BlockPos::new(q[0], q[1] - 1, q[2] + 1), BlockPos::new(q[0], q[1] + 1, q[2] - 1), BlockPos::new(q[0], q[1], q[2]));
+    for (what, c) in [("the departure detector", dep_cell), ("the arrival detector", arr_cell)] {
+        if !run.world.get(c).to_string().starts_with("minecraft:detector_rail") {
+            return Err(format!("(release pulse) {what} {c} holds {}, not a detector rail", run.world.get(c)));
+        }
+    }
+    let rail_end = [q[0], q[1] - 1, q[2] + 2];
+    let (shaft_x, shaft_z, shaft_below) = (q[0], q[2] + 3, q[1] - 2);
+    if !run.world.get(BlockPos::new(rail_end[0], rail_end[1], rail_end[2])).to_string().contains("rail") {
+        return Err(format!("(release pulse) no rail at the rail end {rail_end:?} (the queue + (0,-1,2))"));
+    }
     let at_rest = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| (e.pos, e.delta_movement));
     let mut out = vec![
         fluid_line,
@@ -1295,6 +1183,9 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
         for t in 0..ticks {
             if t == k {
                 r.world.set_block(lever, ready_on.clone(), redsim::world::flags::ALL);
+                if r.world.get(lever) != ready_on {
+                    return Err(format!("(release pulse) k {k}: NOT-ready's lever {lever} reads {} after it was set back on", r.world.get(lever)));
+                }
             }
             r.tick();
             if dep_press.is_none() && powered(&r.world, dep_cell) {
@@ -1306,13 +1197,13 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
             let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
             let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
             last = Some((c, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
-            if rail_end_v.is_none() && c == [9, -15, -2] {
+            if rail_end_v.is_none() && c == rail_end {
                 rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
             }
             if left.is_none() && c != q {
                 left = Some(t);
             }
-            if shaft.is_none() && c[0] == 9 && c[2] == -1 && c[1] <= -16 {
+            if shaft.is_none() && c[0] == shaft_x && c[2] == shaft_z && c[1] <= shaft_below {
                 shaft = Some(t);
             }
             if c == entry {
@@ -1336,7 +1227,7 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
     let (_, first_press, _, _) = holds.last().copied().unwrap_or((0, None, 0, None));
     let built_hold = first_press.map(|t| t + 2);
     out.push(format!(
-        "(release pulse) the built gate's hold (RS_ready reset at the sensed departure, ironspec 18:39 (4)): the departure detector first pressed at t {first_press:?} after the release, so the hold ends at t {} (press + 2): {} the stated minimum{}",
+        "(release pulse) the built gate's hold (RS_ready reset at the sensed departure, ironspec 18:39 (4)): the departure detector first pressed at t {first_press:?} after the release, so the hold ends at t {} (press + 2: the reset's two repeater ticks as ironspec 18:39 (4) described them, EMULATED here, not wired): {} the stated minimum{}",
         built_hold.map_or("-".to_string(), |h| h.to_string()),
         match (built_hold, min_k) {
             (Some(h), Some(m)) if h >= m => format!("{} gt over", h - m),
@@ -1365,6 +1256,10 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
 /// bands and the least speed from which every faster speed clears; over the phases: the least speed
 /// from which every faster speed clears at EVERY phase, against the designed launch's 0.4000.
 pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32) -> Result<(Vec<String>, bool), String> {
+    // (G1 Nov 14 10:21, b0175a2a6 (2)) 0 phases is an error, never turned into 1
+    if phases == 0 {
+        return Err("--launch-speeds: --release-phases 0 (no start phase to judge)".to_string());
+    }
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 120, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
@@ -1388,12 +1283,18 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
     // speed swept clears
     let mut worst_all_clear: Option<f64> = Some(0.0);
     let mut held_union: Vec<(f64, f64, f64)> = Vec::new();
-    for k in 0..phases.max(1) {
-        let z0 = -2.0 + (k as f64 + 0.5) / phases.max(1) as f64;
+    for k in 0..phases {
+        let z0 = -2.0 + (k as f64 + 0.5) / phases as f64;
         let mut results: Vec<(f64, bool)> = Vec::new();
         for &v in speeds {
             let mut r = run.clone();
             let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [9.5, -15.0, z0], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
+            // (G1 Nov 14 10:21, b0175a2a6 (5)) the planted launch read back: the cart's stored motion is v south
+            match r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) {
+                Some(e) if (e.delta_movement.z - v).abs() < 1e-6 && e.delta_movement.x.abs() < 1e-9 => {}
+                Some(e) => return Err(format!("(launch speed) v {v:.4}: the summoned cart's motion reads ({:.6}, {:.6}, {:.6}), not the planted (0, 0, {v:.6})", e.delta_movement.x, e.delta_movement.y, e.delta_movement.z)),
+                None => return Err(format!("(launch speed) v {v:.4}: the summoned cart is gone")),
+            }
             let mut fell = None;
             let mut last = None;
             for t in 0..60u32 {
@@ -1443,13 +1344,18 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
             fmt_bands(&bands)
         ));
     }
-    let pass = worst_all_clear.is_some();
+    // (G1 Nov 14 10:21, b0175a2a6 (2)) the verdict judges the DESIGNED launch: every speed from the worst all-clear up
+    // clears at every phase AND that worst is at most the designed launch 0.4000 b/t (the off-rail cap, flagged
+    // uncited in the output), not merely "some speed clears"
+    const DESIGNED_LAUNCH: f64 = 0.4;
+    let pass = worst_all_clear.is_some_and(|w| w <= DESIGNED_LAUNCH);
     let union_lo = held_union.iter().map(|b| b.1).fold(f64::INFINITY, f64::min);
     out.push(format!(
-        "(launch speed) over the {} phase(s): every speed from {} up clears at EVERY phase (the designed launch 0.4000{}); held speeds anywhere in {:.4}..{:.4} over the phases ({} held band(s) in all)",
-        phases.max(1),
+        "(launch speed) OLD-GEOMETRY CELLS (the (b+) rail end (9,-15,-2), NOT CITABLE for V): over the {} phase(s): every speed from {} up clears at EVERY phase (the designed launch 0.4000, the off-rail cap: EMULATED, uncited{}): {}; held speeds anywhere in {:.4}..{:.4} over the phases ({} held band(s) in all)",
+        phases,
         worst_all_clear.map_or("NONE".to_string(), |w| format!("{w:.4}")),
-        worst_all_clear.filter(|w| *w > 0.0).map_or(String::new(), |w| format!(", margin x{:.2}", 0.4 / w)),
+        worst_all_clear.filter(|w| *w > 0.0).map_or(String::new(), |w| format!(", margin x{:.2}", DESIGNED_LAUNCH / w)),
+        if pass { "the designed launch clears at every phase: PASS" } else { "the designed launch NOT shown to clear at every phase: FAIL" },
         if union_lo.is_finite() { union_lo } else { 0.0 },
         held_union.iter().map(|b| b.2).fold(0.0, f64::max),
         held_union.len()
@@ -1497,7 +1403,9 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // (ironspec 00:27 (3): water in every bench) every fluid cell of the module's chunk given its
     // fluid tick, as a placement with updates schedules it (a raw placement schedules none); the count
     // printed with the rows (0 where the design has water fails)
-    let fluid_n = schedule_fluids(&mut base.world, o.chunk);
+    // (G1 Nov 14 10:21, 414aab242 (8)) the ride rows' water given its tick as a bar (W7's form)
+    let (fluid_line_ride, fluid_ok_ride) = fluids_line(&mut base.world, o.chunk, "ride rows");
+    let fluid_n = fluid_line_ride.clone();
     let spawn_at = o.seat_at.unwrap_or([q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5]);
     let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", spawn_at, Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     for _ in 0..40 {
@@ -1523,7 +1431,9 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     let mut fence_min = f64::INFINITY;
     // (ironspec 23:56: no vacuous passes) each bar's samples: game-time steps, cart ticks (contacts),
     // rider ticks (the eye), fence-gap samples over the way-in box's fences
-    let fences = fences_in(&base.world, [2, -27, -8], [9, -11, 3]);
+    // (G1 Nov 14 10:21, 414aab242 (6)) the fence scan's box is RIDE_SCOPE (EMULATED, uncited: the old way-in's cells by
+    // hand), printed with the scope line
+    let fences = fences_in(&base.world, RIDE_SCOPE.0, RIDE_SCOPE.1);
     // (ironspec 10:02 (b), the shared `contacts::stale_declared`) the declared contacts in the ride's
     // own scope (the way-in's box, the fences' box): each must be met at least once over the bar rows
     // or it is STALE (the row set fails); the record's other declarations (lanes, drop entries) are
@@ -1597,7 +1507,8 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         let mut cart = cart0;
         let mut frozen: Option<[i32; 4]> = None;
         let rider_of = |w: &redsim::world::World, c: u32| w.entities.list.iter().position(|v| !v.removed && v.vehicle == Some(c));
-        let h0 = rider_of(&run.world, cart).map(|i| redsim::entity::mob::mob(&run.world, i).health).unwrap_or(0.0);
+        // (G1 Nov 14 10:21, 414aab242 (3)) no rider at the release is an error, not a health of 0
+        let h0 = rider_of(&run.world, cart).map(|i| redsim::entity::mob::mob(&run.world, i).health).ok_or_else(|| format!("the ride row: no rider in cart {cart} at the release"))?;
         let mut h_min = h0;
         let (mut at_entry, mut v_entry, mut landed, mut derailed, mut back_south) = (None, None, None::<u32>, false, false);
         // (G1 09:31 E2) the band bench's t0 in this row: the tick and speed when the cart's centre is at
@@ -1905,8 +1816,9 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                 }
             }
             // (ironspec 18:39 (4): the rail end's normal-operation bar) the cart's horizontal speed the
-            // tick its cell first becomes the rail end (9,-15,-2)
-            if rail_end_v.is_none() && c == [9, -15, -2] {
+            // tick its cell first becomes the rail end: (G1 Nov 14 10:21, b0175a2a6 (3)) derived from the queue cell
+            // (queue + (0,-1,2), the (b+) way-in's layout), not a hard-coded cell
+            if rail_end_v.is_none() && c == [o.queue[0], o.queue[1] - 1, o.queue[2] + 2] {
                 rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
             }
             // (ironspec 05:09: the R2 search's gate) the HOME path from the rider's ACTUAL state at every
@@ -2117,8 +2029,12 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         )
     } else if td_s.contains("Trapdoor") || td_s.contains("trapdoor") {
         (format!("hasNeighborSignal at the oak trapdoor (8,-25,-4) {trapdoor_signal_n} of {steps_n} ticks (bar: never)"), trapdoor_signal_n == 0)
+    } else if o.exclude_bars.iter().any(|b| b == "trapdoor") {
+        (format!("(8,-25,-4) holds {td:?}: the trapdoor's signal bar EXCLUDED by --exclude-bar trapdoor (declared; not a pass)"), true)
     } else {
-        (format!("(8,-25,-4) holds {td:?}: the trapdoor's signal bar out of scope"), true)
+        // (G1 Nov 14 10:21, 414aab242 (7)) an exclusion never passes: no trapdoor there is NOT JUDGED, and fails,
+        // unless the run declares it (--exclude-bar trapdoor)
+        (format!("(8,-25,-4) holds {td:?}: no trapdoor there, the trapdoor's signal bar NOT JUDGED: FAILS (declare --exclude-bar trapdoor to exclude it)"), false)
     };
     // the watched cells: each one's block, the rider's box and in-wall eye box overlaps (bar 0 eye
     // overlaps where the cell is solid), least gaps
@@ -2208,7 +2124,8 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // with no bound (main's judge: legacy lines are judged for STALE and stalls only), so it would excuse
     // the hits it covers: NOT JUDGED, a failure, until the line is bounded
     let legacy_in_scope: Vec<String> = crate::vhits::legacy_lines(&o.declared_bounded);
-    let judge_ok = !verdict.failed() && legacy_in_scope.is_empty() && !(o.reference_run && (!ref_mismatch.is_empty() || ref_not_judged));
+    // (G1 Nov 14 10:21, cdf7bddd5 (1)) a declaration "stale, NOT JUDGED" fails the ride rows (never a pass)
+    let judge_ok = !verdict.failed() && verdict.stale_not_judged.is_empty() && legacy_in_scope.is_empty() && !(o.reference_run && (!ref_mismatch.is_empty() || ref_not_judged));
     let und: Vec<String> = verdict.undeclared.iter().map(|h| format!("[row {}] t {} ({},{},{}) face {} depth {:.4} speed {:.4} -> {:.4}", h.cart, rel(h), h.cell.x, h.cell.y, h.cell.z, h.face.name(), h.depth, h.speed_in, h.speed_out)).collect();
     let judge_line = format!(
         "; main's bounded judge (contacts::judge once over the {judge_rows} bar row(s), each row's hits its own sample and key, the samples ({judge_rows}, \"rows\"): A ROW = one release phase x restart order, at this one build position (the loop frame as laid); the in-scope declarations {}; the stall rule ironspec 10:42's; one build position: a touching-contact bar, the set owed (G1 15:52 (4))){}: {} row(s) failing; {} undeclared hit(s){}; {} bound(s) exceeded{}; {} stall(s){}; {} stale{}; {} stale not judged{}; {} wiring error(s){}; events per declaration {:?}; the reference check ({}): {}",
@@ -2247,23 +2164,28 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     let re_min = re.iter().copied().fold(f64::INFINITY, f64::min);
     let re_ok = match o.rail_end_least {
         Some(f) => re_missing == 0 && !re.is_empty() && re_min >= f * 1.1,
-        None => true,
+        // (G1 Nov 14 10:21, b0175a2a6 (1)) no all-clear figure: the rail-end bar NOT JUDGED, and that FAILS
+        None => false,
     };
     out.push(format!(
-        "(ride) the speed entering the rail end (9,-15,-2) over the {} bar row(s): {}{}; {}",
+        "(ride) the speed entering the rail end {:?} (queue + (0,-1,2), the (b+) layout) over the {} bar row(s): {}{}; {}",
+        [o.queue[0], o.queue[1] - 1, o.queue[2] + 2],
         rail_end_speeds.len(),
         if re.is_empty() { "never entered".to_string() } else { format!("{re_min:.4}..{:.4} b/t", re.iter().copied().fold(0.0, f64::max)) },
         if re_missing > 0 { format!(" ({re_missing} row(s) never entered it)") } else { String::new() },
         match o.rail_end_least {
             Some(f) => format!("the bar >= {:.4} (the all-clear figure {f:.4} + 10 %, ironspec 18:39 (4)): {}", f * 1.1, if re_ok { "PASSES" } else { "FAILS" }),
-            None => "no all-clear figure given (--rail-end-least): printed, not judged".to_string(),
+            None => "no all-clear figure given (--rail-end-least): NOT JUDGED: FAILS".to_string(),
         }
     ));
     // (G1 14:51 (4); ONE contact rule) the contact verdicts are main's bounded judge's (both axes): the
     // old horizontal-only stale count is printed as information and no longer gates the run
-    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && re_ok && !(fence_min.is_finite() && fence_min <= 0.0);
+    // (G1 Nov 14 10:21, 414aab242 (7)) no fence in the way-in's box: the fence bar NOT JUDGED (fails) unless the run
+    // declares it (--exclude-bar fence); (8) the water given its tick as a bar
+    let fence_ok = if fences.is_empty() { o.exclude_bars.iter().any(|b| b == "fence") } else { fence_n > 0 && !(fence_min.is_finite() && fence_min <= 0.0) };
+    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && re_ok && fence_ok && fluid_ok_ride;
     out.push(format!(
-        "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick; natural spawning OFF by construction: the bench's world has no natural spawner, mob.natural None, ironspec 14:57): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}{judge_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
+        "(ride) {} rows ({fluid_n}; natural spawning OFF by construction: the bench's world has no natural spawner, mob.natural None, ironspec 14:57): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}]{}, inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}{judge_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
         bar.len(),
         ts.len(),
         ts.iter().min().copied().unwrap_or(0),
@@ -2272,10 +2194,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         ss.iter().cloned().fold(0.0, f64::max),
         band[0],
         band[1],
+        if o.band_default { " (the DEFAULT: --band not given)" } else { " (--band)" },
         judged(cart_ticks_n, &format!("{undeclared_contact_ticks} undeclared contact tick(s) (the declared `# contacts:` cells {:?} aside)", o.declared_contacts)),
         judged(steps_n, "game time continuous"),
         judged(rider_ticks_n, "the rider's eye out of the water"),
-        if fences.is_empty() { "out of scope (no fence in the way-in's box)".to_string() } else if fence_n == 0 { format!("NOT JUDGED (0 samples, {} fences)", fences.len()) } else { format!("{fence_min:.4} blocks at the least (in the row {fence_min_row}) over {fence_n} samples of {} fences", fences.len()) },
+        if fences.is_empty() { if o.exclude_bars.iter().any(|b| b == "fence") { "EXCLUDED by --exclude-bar fence (no fence in the way-in's box; declared, not a pass)".to_string() } else { "NOT JUDGED (no fence in the way-in's box): FAILS (declare --exclude-bar fence to exclude it)".to_string() } } else if fence_n == 0 { format!("NOT JUDGED (0 samples, {} fences)", fences.len()) } else { format!("{fence_min:.4} blocks at the least (in the row {fence_min_row}) over {fence_n} samples of {} fences", fences.len()) },
         stress_line,
         if vacuous { "FAIL (a bar not judged)" } else if pass { "PASS" } else { "FAIL" }
     ));
@@ -2396,7 +2319,9 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     // stamp cleared within 100 gt, the fluids scheduled
     let stamp_ok = calm_rest > 0 && stamp_calm_max <= 1000;
     let cleared_ok = stamp.is_none() || cleared_at.is_some_and(|t| t <= 100);
-    let pass = stamp_ok && cleared_ok && fluid_ok;
+    // (G1 Nov 14 10:21, b0175a2a6 (6)) HOME LOST is part of the verdict, and a tick without an exact brain is a tick
+    // the bars couldn't read: either fails the wait (it was skipped and the wait still passed)
+    let pass = stamp_ok && cleared_ok && fluid_ok && home_lost.is_none() && no_exact == 0;
     let mut out = vec![
         fluid_line,
         format!("(wait) the summoned rider's activity at the summon (the day set first): {summon_act}"),
@@ -2859,30 +2784,6 @@ pub(crate) fn proxy_mismatch(record: &[i64], proxy: &[i64]) -> (Vec<i64>, Vec<i6
     (missed, spurious)
 }
 
-/// The seat's HOME path's nodes, read from [`path_probe_lines`]'s probe line (`... nodes): [(x, y,
-/// z), ...]`); none when the line carries no node list.
-fn seat_path_nodes(seat: &[String]) -> Vec<[i32; 3]> {
-    seat.iter()
-        .find_map(|l| l.split("nodes): [").nth(1))
-        .map(|s| {
-            s.trim_end_matches(']')
-                .split("), (")
-                .filter_map(|n| {
-                    let v: Vec<i32> = n.trim_matches(|c| c == '(' || c == ')').split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                    (v.len() == 3).then(|| [v[0], v[1], v[2]])
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// (ironspec 01:46 (1)(iii); G1 07:16 (3): a bar, not a print) the seat's HOME path runs FORWARD: its
-/// second node lower than the seat's, or further south (the ride's direction); fewer than two nodes is
-/// not forward (judged FAIL, never a vacuous pass).
-fn seat_path_forward(nodes: &[[i32; 3]]) -> bool {
-    nodes.len() >= 2 && (nodes[1][1] < nodes[0][1] || nodes[1][2] > nodes[0][2])
-}
-
 /// (G1 07:16 (4)) the water cells of a built world (sources, flows, waterlogged blocks) over its whole
 /// box: the one definition of a DRY layout (0).
 fn world_water_cells(w: &redsim::world::World) -> usize {
@@ -2919,6 +2820,10 @@ fn bed_line(w: &mut redsim::world::World, bp: BlockPos) -> String {
 pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P, follow: u32) -> Result<(Vec<String>, bool), String> {
     // (ironspec 22:10 (2)) the visit followed past A6's entry this many gt (the held walk's clear,
     // the sleep, HOME, armings, how far the napper gets)
+    // (G1 Nov 14 10:21, 414aab242 (3)) the follow window: --follow, or the default PRINTED
+    if follow == 0 {
+        println!("(visit) the follow window DEFAULTED to 600 gt (--follow not given)");
+    }
     let follow = if follow == 0 { 600 } else { follow };
     let max_hold = holds.iter().copied().max().unwrap_or(80);
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, phases + 900 + max_hold + follow, WalkMode::Random) };
@@ -2937,6 +2842,11 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     }
     let q = o.queue;
     let arrival = if o.south { [q[0], q[1] + 1, q[2] - 1] } else { [q[0] + 1, q[1] + 1, q[2]] };
+    // (G1 Nov 14 10:21) the arrival detector read back as one (its power is the visit's arrival signal)
+    let arrival_bp = BlockPos::new(arrival[0], arrival[1], arrival[2]);
+    if !base.world.get(arrival_bp).to_string().starts_with("minecraft:detector_rail") {
+        return Err(format!("(visit) the arrival detector {arrival:?} holds {}, not a detector rail (its power is the arrival signal)", base.world.get(arrival_bp)));
+    }
     let rider_nbt = format!(
         "{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}",
         bed[0], bed[1], bed[2]
@@ -3089,8 +2999,10 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                     held_since = None;
                 }
             }
-            let c = w0.world.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32]);
-            if c == Some(arrival) {
+            // (G1 Nov 14 10:21, 414aab242 (4) / b0175a2a6 (7)) the arrival is the arrival DETECTOR's power (a declared
+            // signal), not the cart's floored cell (simulator truth)
+            let _ = &w0.world.entities.list;
+            if w0.world.get(arrival_bp).to_string().contains("powered=true") {
                 t_arr = Some(t);
                 break;
             }
@@ -3481,7 +3393,6 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                             first_calm = Some(format!("+{} gt {}", t - h, probe(&mut r, i)));
                         }
                         let p = r.world.entities.list[i].pos;
-                        let _ = p;
                         if let Some(c) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) {
                             cart_last = Some(([c.pos.x.floor() as i32, c.pos.y.floor() as i32, c.pos.z.floor() as i32], (c.delta_movement.x.powi(2) + c.delta_movement.z.powi(2)).sqrt()));
                         }
@@ -3802,6 +3713,28 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         "(visit) the follow window {follow} gt against its BOUND {FOLLOW_BOUND} gt (G1 07:06: MoveToTargetSink's longest duration 250 + A6's restart-to-lie-down 89 + 2 for the walk target's re-set and the restart: a sink running at A6's entry ends by entry + 250, so a napper not asleep by the bound is a real farm-stop): {}",
         if follow >= FOLLOW_BOUND { "the window covers it" } else { "TOO SHORT: the farm-stop bar NOT JUDGED" }
     ));
+    // (G1 Nov 14 10:21, 414aab242 (8)) a PLANT makes the run a CONTROL: the bar it targets must FAIL (or, for the
+    // stamp plant, the priced HOME RELEASED count must be > 0), else the control planted nothing and the run fails
+    // by name; the pass with a plant is the control failing as planted
+    let plants: Vec<(&str, bool, &str)> = [
+        (o.visit_plant_erase, "--visit-plant-erase", "HOME LOST"),
+        (o.visit_break_bed, "--visit-break-bed", "FARM-STOP"),
+        (o.visit_clear_stamp, "--visit-clear-stamp", "(v) 0 armings"),
+    ]
+    .into_iter()
+    .filter(|(on, _, _)| *on)
+    .map(|(_, flag, bar)| (flag, bars.iter().any(|(name, samples, fails, _)| name.starts_with(bar) && *samples > 0 && *fails > 0), bar))
+    .chain(o.visit_plant_stamp.map(|_| ("--visit-plant-stamp", home_erased_rows > 0, "HOME RELEASED (priced)")))
+    .collect();
+    if !plants.is_empty() {
+        let nothing: Vec<String> = plants.iter().filter(|(_, bit, _)| !bit).map(|(f, _, b)| format!("{f} (its target {b} did not fail)")).collect();
+        out.push(if nothing.is_empty() {
+            format!("(visit) CONTROL: every plant's target failed as planted ({}): the control PASSES", plants.iter().map(|(f, _, b)| format!("{f} -> {b}")).collect::<Vec<_>>().join(", "))
+        } else {
+            format!("(visit) CONTROL PLANTED NOTHING: {}: FAILS", nothing.join("; "))
+        });
+        return Ok((out, nothing.is_empty()));
+    }
     Ok((out, pass))
 }
 
@@ -3856,374 +3789,6 @@ pub fn path_probe_lines(spec: &FarmSpec, o: &Opts, at: &[[f64; 3]], bed: P) -> R
         });
     }
     Ok((override_lines, out))
-}
-
-/// (farmopt 20:16: tick-exact's official restart row) tick-exact's water rig mixed: six DRY slopes
-/// ascending south (the cart rolls north from rest) onto twelve WATERLOGGED flats, glass under every
-/// rail and walls at x +- 1, the stop glass at z -18, a ridden cart summoned at (0.5, 100.5625,
-/// 0.5); a restart (`how`) between ticks t - 1 and t for each t of `ticks` (and none): the tick and
-/// the speed at which the cart leaves the 5th wet flat (z below -10), and its move on the reload
-/// tick.
-pub fn water_restart_rows(ticks: &[i64], how: crate::liveness::Restart) -> Result<Vec<String>, String> {
-    use redsim::world::{flags, World};
-    fn set(w: &mut World, p: (i32, i32, i32), s: &str) -> Result<(), String> {
-        w.set_block(BlockPos::new(p.0, p.1, p.2), Block::parse(s).map_err(|e| format!("{s}: {e}"))?, flags::ALL);
-        Ok(())
-    }
-    let mut w0 = World::new(BlockPos::new(-4, 88, -22), [12, 18, 28]);
-    let slope = "rail[shape=ascending_south,waterlogged=false]";
-    let flat = "rail[shape=north_south,waterlogged=true]";
-    for i in 0..6 {
-        set(&mut w0, (0, 99 - i, -i), "glass")?;
-        for y in (99 - i)..=(101 - i) {
-            set(&mut w0, (-1, y, -i), "glass")?;
-            set(&mut w0, (1, y, -i), "glass")?;
-        }
-        set(&mut w0, (0, 100 - i, -i), slope)?;
-    }
-    for j in 0..12 {
-        let z = -6 - j;
-        set(&mut w0, (0, 93, z), "glass")?;
-        for y in 93..=95 {
-            set(&mut w0, (-1, y, z), "glass")?;
-            set(&mut w0, (1, y, z), "glass")?;
-        }
-        set(&mut w0, (0, 94, z), flat)?;
-    }
-    set(&mut w0, (0, 94, -18), "glass")?;
-    set(&mut w0, (0, 95, -18), "glass")?;
-    set(&mut w0, (0, 100, 1), "glass")?;
-    for y in 100..=102 {
-        set(&mut w0, (-1, y, 1), "glass")?;
-        set(&mut w0, (1, y, 1), "glass")?;
-    }
-    set(&mut w0, (0, 101, 1), "rail[shape=north_south,waterlogged=false]")?;
-    set(&mut w0, (0, 101, 2), "glass")?;
-    set(&mut w0, (0, 102, 2), "glass")?;
-    for i in 0..6 {
-        set(&mut w0, (0, 100 - i, -i), slope)?;
-    }
-    let cart0 = redsim::entity::spawn(&mut w0, "minecraft:minecart", [0.5, 100.5625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
-    let mut out = Vec::new();
-    let t_origin = w0.time;
-    for rt in std::iter::once(None).chain(ticks.iter().map(|&t| Some(t))) {
-        let mut w = w0.clone();
-        let mut cart = cart0;
-        let (mut left, mut reload_move) = (None::<(i64, f64)>, None::<(f64, f64, f64, f64)>);
-        let mut idle = 0i64;
-        for t in 1..=200u32 {
-            let before = w.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| (e.pos.z, e.delta_movement.z.abs()));
-            if rt == Some(t as i64) {
-                let rs = crate::liveness::restart(&mut w, how)?;
-                idle = rs.entity_free;
-                cart = *rs.get(&cart).ok_or("the cart lost in the restart")?;
-            }
-            w.tick();
-            let Some(e) = w.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
-            if rt == Some(t as i64) {
-                if let Some((z0, v0)) = before {
-                    reload_move = Some((z0, e.pos.z, v0, e.delta_movement.z.abs()));
-                }
-            }
-            if left.is_none() && e.pos.z < -10.0 {
-                // (G1's CHANGES 1 on ac58d99cb) keyed by GAME time (the fixture's world tick), so a
-                // world open's idle ticks count as the game counts them
-                left = Some((w.time - t_origin, e.delta_movement.z.abs()));
-                break;
-            }
-        }
-        out.push(format!(
-            "(water-restart) {}: leaves the 5th wet flat at game tick {}{}",
-            rt.map_or("no restart".to_string(), |t| format!("a restart at step {t} ({}, {idle} idle tick(s))", how.label())),
-            left.map_or("NEVER".to_string(), |(t, v)| format!("{t} at {v:.4} b/t")),
-            reload_move.map_or(String::new(), |(z0, z1, v0, v1)| format!("; the reload tick z {z0:.3} -> {z1:.3}, v {v0:.4} -> {v1:.4}"))
-        ));
-    }
-    Ok(out)
-}
-
-/// (ironspec 19:12 (c): containment) The module with the extra cells (the way-in's water) run for
-/// `ticks` gt: every water cell in the box `lo..=hi` that isn't a waterlogged rail (flowing or source
-/// water outside the rails), at checkpoints and at the end; the bar: none.
-pub fn water_scan_lines(spec: &FarmSpec, o: &Opts, ticks: u32, lo: P, hi: P) -> Result<(Vec<String>, bool), String> {
-    // (G1's W2 on R2) the verdict reaches the caller: PASS only with water judged (samples > 0) and no
-    // loose water cell at any checkpoint
-    let (scheduled, worst, lines) = water_scan(spec, o, ticks, lo, hi)?;
-    Ok((lines, scheduled > 0 && worst == 0))
-}
-
-/// [`water_scan_lines`]'s run: (the water cells given their tick (the samples), the most loose
-/// water cells at a checkpoint, the lines).
-pub fn water_scan(spec: &FarmSpec, o: &Opts, ticks: u32, lo: P, hi: P) -> Result<(usize, usize, Vec<String>), String> {
-    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
-    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
-    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
-        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
-    }
-    // (G1 07:16 (6)) the override rule: every cell laid printed before -> after (the scan's first
-    // lines), a no-op --extra failing
-    let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
-    // a paste with updates: every water cell's water tick in the box (the file's and the extras'), as
-    // its updateShape schedules it when a neighbour lands (a raw placement schedules nothing; without
-    // this the water could never spread and the scan would prove nothing). (ironspec 23:56: no
-    // vacuous passes) the count of scheduled cells is the scan's sample count: 0 = NOT JUDGED
-    let mut scheduled = 0usize;
-    for x in lo[0]..=hi[0] {
-        for y in lo[1]..=hi[1] {
-            for z in lo[2]..=hi[2] {
-                let p = BlockPos::new(x, y, z);
-                if redsim::fluid::fluid_state(&run.world, p).fluid.is_water() {
-                    run.world.schedule_fluid_tick(p, redsim::fluid::Fluid::Water, 5);
-                    scheduled += 1;
-                }
-            }
-        }
-    }
-    for (p, b) in &cells {
-        let inside = (0..3).all(|k| [p.x, p.y, p.z][k] >= lo[k] && [p.x, p.y, p.z][k] <= hi[k]);
-        if !inside && (redsim::fluid::waterlogged(b) == Some(true) || redsim::fluid::fluid_state_of(b).fluid.is_water()) {
-            run.world.schedule_fluid_tick(*p, redsim::fluid::Fluid::Water, 5);
-            scheduled += 1;
-        }
-    }
-    let scan = |w: &redsim::world::World| -> (usize, Vec<String>) {
-        let (mut wet_rails, mut loose) = (0usize, Vec::new());
-        for x in lo[0]..=hi[0] {
-            for y in lo[1]..=hi[1] {
-                for z in lo[2]..=hi[2] {
-                    let p = BlockPos::new(x, y, z);
-                    if !redsim::fluid::fluid_state(w, p).fluid.is_water() {
-                        continue;
-                    }
-                    let b = w.get(p);
-                    if redsim::rails::is_rail(&b) && redsim::fluid::waterlogged(&b) == Some(true) {
-                        wet_rails += 1;
-                    } else {
-                        loose.push(format!("({x},{y},{z}) {b}"));
-                    }
-                }
-            }
-        }
-        (wet_rails, loose)
-    };
-    let mut out = vec![format!("(water-scan) the override rule's lines (G1 07:16 (6)):")];
-    out.extend(override_lines);
-    let mut t = 0u32;
-    let mut worst = 0usize;
-    for cp in [1u32, 20, 200, 1200, 6000, ticks] {
-        if cp > ticks || cp < t {
-            continue;
-        }
-        while t < cp {
-            run.tick();
-            t += 1;
-        }
-        let (wet, loose) = scan(&run.world);
-        worst = worst.max(loose.len());
-        out.push(format!("(water-scan) t {t}: {wet} waterlogged rail(s), {} other water cell(s) in the box {lo:?}..{hi:?}{}", loose.len(), if loose.is_empty() { String::new() } else { format!(": {}", loose.join(", ")) }));
-    }
-    out.push(format!(
-        "(water-scan) over {ticks} gt: {scheduled} water cell(s) given their water tick (the samples), {} checkpoint(s); the most water cells outside the rails at a checkpoint {worst}: {}",
-        out.len(),
-        if scheduled == 0 { "NOT JUDGED (0 samples): FAIL" } else if worst == 0 { "PASS" } else { "FAIL" }
-    ));
-    Ok((scheduled, worst, out))
-}
-
-/// (ironspec 00:27 (5)/(7): the water rule) Every dry waterloggable cell of the box `lo..=hi` the
-/// game would turn into a water source as laid: `FlowingFluid.getNewLiquid` (redsim's
-/// `fluid::get_new_liquid_of`, the fluid tick's own code) gives it a source (two or more horizontal
-/// sources and a solid block or a source under it). A design with one leaks or floods.
-pub fn water_rule_violations(w: &redsim::world::World, lo: P, hi: P) -> Vec<BlockPos> {
-    let mut v = Vec::new();
-    for x in lo[0]..=hi[0] {
-        for y in lo[1]..=hi[1] {
-            for z in lo[2]..=hi[2] {
-                let p = BlockPos::new(x, y, z);
-                let s = w.get(p);
-                let dry = redsim::fluid::waterlogged(&s) == Some(false) || s.is_air();
-                if dry && redsim::fluid::get_new_liquid_of(w, redsim::fluid::Fluid::Water, p, &s).is_source() {
-                    v.push(p);
-                }
-            }
-        }
-    }
-    v
-}
-
-/// (ironspec 00:27 (5)) The water-layout search: each candidate (a name and its cells, `--extra`
-/// syntax) laid on the design and gated in order, every gate through its row's own code path:
-/// (1) the water rule ([`water_rule_violations`] on the laid world); (2) containment
-/// ([`water_scan`], every water cell scheduled, the count printed); (3) the seat's HOME path
-/// complete ([`path_probe_lines`] at the first rest); (4) every rest x `phases` release phases in
-/// the band with 0 contacts ([`ride_rows_with`], its own PASS). Rides only for candidates passing
-/// (1) and (2). One line per candidate.
-pub fn water_search_lines(spec: &FarmSpec, o: &Opts, cands: &[(String, String)], rests: &[[f64; 3]], bed: P, entry: P, phases: u32, scan_ticks: u32, lo: P, hi: P, sweep: bool) -> Result<(Vec<String>, bool), String> {
-    let mut out = Vec::new();
-    let mut survivors = 0u32;
-    // the base world (no candidate) for each candidate's cost
-    let ro0 = RunOpts { ai: true, ..RunOpts::steady(1, 10, WalkMode::Random) };
-    let (mut base0, _) = crate::placing::start(&widened(spec, o), &ro0, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
-    let mut laid0: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
-        laid0.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
-    }
-    // (G1 07:16 (6)) the base's cells through the override rule, printed once
-    out.push("(water-search) the base world's cells (the --extra and the queue's), each before -> after:".to_string());
-    out.extend(place_overrides(&mut base0.world, o.extra.len(), &laid0)?);
-    for (name, cells) in cands {
-        let mut oc = o.clone();
-        let cand = parse_extra(Some(cells))?;
-        oc.extra.extend(cand.clone());
-        oc.replace.extend(parse_replace(Some(cells))?);
-        // the cost against the base: glass, fences, water (waterlogged cells), gold (powered rails)
-        let (mut glass, mut fences, mut water, mut gold) = (0i32, 0i32, 0i32, 0i32);
-        for (p, s) in &cand {
-            let new = Block::parse(s).map_err(|e| format!("{s}: {e}"))?;
-            let old = base0.world.get(BlockPos::new(p[0], p[1], p[2]));
-            let (ns, os) = (new.to_string(), old.to_string());
-            glass += ns.ends_with(":glass") as i32 - os.ends_with(":glass") as i32;
-            fences += matches!(new, Block::Fence { .. }) as i32 - matches!(old, Block::Fence { .. }) as i32;
-            water += (redsim::fluid::waterlogged(&new) == Some(true)) as i32 - (redsim::fluid::waterlogged(&old) == Some(true)) as i32;
-            gold += ns.contains(":powered_rail") as i32 - os.contains(":powered_rail") as i32;
-        }
-        let cost = format!("cost {glass:+} glass, {fences:+} fences, {water:+} water, {gold:+} gold");
-        // (1) the rule, on the world as the scan lays it (before any tick)
-        let ro = RunOpts { ai: true, ..RunOpts::steady(1, 10, WalkMode::Random) };
-        let (mut run, _) = crate::placing::start(&widened(spec, &oc), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
-        let mut laid: Vec<(BlockPos, Block)> = Vec::new();
-        for (p, b) in oc.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(&oc).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
-            laid.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
-        }
-        // (G1 07:16 (6)) the candidate's cells through the override rule: one that changes nothing
-        // fails the candidate (named), not the search
-        let cand_overrides = match place_overrides(&mut run.world, oc.extra.len(), &laid) {
-            Ok(l) => l,
-            Err(e) => {
-                out.push(format!("(water-search) {name} ({cost}): FAILS at the override rule: {e}"));
-                continue;
-            }
-        };
-        let laid_n = cand_overrides.first().cloned().unwrap_or_default();
-        let rule = water_rule_violations(&run.world, lo, hi);
-        // (2) containment; a DRY layout has nothing to contain: out of scope, said so (not a vacuous
-        // pass). (G1 07:16 (4)) ONE dry definition for the screen and the sweep: no water anywhere in
-        // the built world (every cell of the rides' region, not only the scan box)
-        let water_cells = world_water_cells(&run.world);
-        let dry = water_cells == 0;
-        let (scheduled, loose, _) = water_scan(spec, &oc, scan_ticks, lo, hi)?;
-        let contained = dry || (scheduled > 0 && loose == 0);
-        let mut line = format!(
-            "(water-search) {name} ({cost}; {}): the water rule {}; containment over {scan_ticks} gt: {scheduled} water cell(s) scheduled, {loose} loose: {}",
-            laid_n.trim_start_matches("(overrides) "),
-            if rule.is_empty() { "kept".to_string() } else { format!("BROKEN at {}", rule.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ")) },
-            if dry { "out of scope (a dry layout: no water anywhere in the built world)".to_string() } else if scheduled == 0 { format!("NOT JUDGED ({water_cells} water cell(s) in the world, 0 scheduled in the box)") } else if loose == 0 { "PASS".to_string() } else { "FAIL".to_string() }
-        );
-        if !rule.is_empty() {
-            line.push_str(": FAILS at the water rule");
-            out.push(line);
-            continue;
-        }
-        if !contained {
-            line.push_str(": FAILS at containment");
-            out.push(line);
-            continue;
-        }
-        // (3) the seat's HOME path
-        let (_, seat) = path_probe_lines(spec, &oc, &rests[..1], bed)?;
-        // (G1 (15)) the word COMPLETE, not a substring ("INCOMPLETE" never matches)
-        let seat_ok = seat.iter().any(|l| l.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == "COMPLETE"));
-        line.push_str(&format!("; the seat's HOME path {}", if seat_ok { "COMPLETE" } else { "PARTIAL" }));
-        if !seat_ok {
-            line.push_str(": FAILS at the seat's HOME path");
-            out.push(line);
-            continue;
-        }
-        // (4) the rests in the band (the first rest's plain phase-0 positions kept for the probe)
-        let mut rides_ok = true;
-        let mut why_rides: Vec<String> = Vec::new();
-        let mut descent: Vec<[f64; 3]> = Vec::new();
-        for (i, r) in rests.iter().enumerate() {
-            oc.seat_at = Some(*r);
-            let (rows, _) = ride_rows_core(spec, &oc, entry, 800, phases, &[], &[], None, if i == 0 { Some(&mut descent) } else { None })?;
-            let summary = rows.last().cloned().unwrap_or_default();
-            let pass = summary.ends_with(": PASS");
-            rides_ok &= pass;
-            if !pass {
-                // why: a contact, out of the band, never at the entry, or another flag of the rows
-                let contacts = rows.iter().filter(|l| l.contains("CONTACTS")).count();
-                let out_of_band = rows.iter().filter(|l| l.contains("OUT OF THE BAR")).count();
-                why_rides.push(format!("rest z {:.3}: {contacts} row(s) with a CONTACT, {out_of_band} row(s) out of the band", r[2]));
-            }
-            let speeds = summary.split(" after the release, ").nth(1).and_then(|s| s.split(" b/t").next()).unwrap_or("-").to_string();
-            line.push_str(&format!("; rest z {:.3}: {speeds} {}", r[2], if pass { "PASS" } else { "FAIL" }));
-        }
-        if !rides_ok {
-            line.push_str(&format!(": FAILS at the rides ({})", why_rides.join("; ")));
-            out.push(line);
-            continue;
-        }
-        // survivors: the descent probe over the nominal ride's positions (priced, not a gate), each
-        // partial position NAMED (ironspec 01:46 (1)(iv): its tick, the cart's cell, its path; a world
-        // open can land at any tick, so a recompute can happen at each of them)
-        let (_, probe) = path_probe_lines(spec, &oc, &descent, bed)?;
-        let partial: Vec<String> = probe
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.contains("partial"))
-            .map(|(t, l)| {
-                let c = descent.get(t).map(|p| format!("({},{},{})", p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32)).unwrap_or_default();
-                let path = l.split("nodes): ").nth(1).unwrap_or("-");
-                format!("t {t} cell {c} path {path} (a world open can land there: yes, any tick)")
-            })
-            .collect();
-        // (ironspec 01:46 (1)(iii), tick-exact's t70..t77 lesson) the seat's HOME path runs FORWARD:
-        // its second node down or on along the ride (lower, or further south than the seat), not back
-        // up toward the landing
-        let nodes = seat_path_nodes(&seat);
-        let forward = seat_path_forward(&nodes);
-        line.push_str(&format!(
-            "; the seat's HOME path {} (its first nodes {:?})",
-            if forward { "runs FORWARD" } else { "runs BACK UP THE RIDE" },
-            nodes.iter().take(4).collect::<Vec<_>>()
-        ));
-        // (G1 07:16 (3)) the FORWARD bar fails the candidate (computed, so judged)
-        if !forward {
-            line.push_str(": FAILS at the seat's HOME path direction");
-            out.push(line);
-            continue;
-        }
-        line.push_str(&format!("; the descent probe: {} partial of {} positions{}: PASSES the screen", partial.len(), probe.len(), if partial.is_empty() { String::new() } else { format!(" [{}]", partial.join("; ")) }));
-        let mut survived = true;
-        if sweep {
-            // (ironspec 00:27 (5)) the survivors' full list, first the rides: every rest x phases x a
-            // restart at every tick 1..110 (10 orders, pre-official-load) x 1..4-gt freezes at every
-            // tick 0..110; then containment over 24,000 gt
-            let restarts: Vec<i64> = (1..=110).collect();
-            let freezes: Vec<(i64, i64)> = (0..=110).flat_map(|s| (1..=4).map(move |l| (s, l))).collect();
-            let mut all = true;
-            for r in rests {
-                oc.seat_at = Some(*r);
-                let (rows, pass) = ride_rows_core(spec, &oc, entry, 800, phases, &restarts, &freezes, None, None)?;
-                let summary = rows.last().cloned().unwrap_or_default();
-                all &= pass;
-                let speeds = summary.split(" after the release, ").nth(1).and_then(|s| s.split(" b/t").next()).unwrap_or("-").to_string();
-                let n = summary.split(" rows").next().unwrap_or("").trim_start_matches("(ride) ").to_string();
-                line.push_str(&format!("; sweep rest z {:.3}: {n} rows {speeds} {}", r[2], if pass { "PASS" } else { "FAIL" }));
-            }
-            let (scheduled, loose, _) = water_scan(spec, &oc, 24000, lo, hi)?;
-            line.push_str(&format!("; containment over 24,000 gt: {scheduled} scheduled, {loose} loose{}", if dry { " (a dry layout: out of scope, the same definition as the screen's)" } else { "" }));
-            // (G1 07:16 (4)) ONE dry definition (the screen's: no water anywhere in the built world)
-            survived = all && (dry || (scheduled > 0 && loose == 0));
-            line.push_str(if survived { ": PASSES the sweep" } else { ": FAILS the sweep" });
-        }
-        survivors += survived as u32;
-        out.push(line);
-    }
-    // (G1 07:16 (3)) the search's verdict: at least one candidate survives every gate (the exit status)
-    out.push(format!("(water-search) {survivors} of {} candidate(s) survive{}", cands.len(), if survivors == 0 { ": the search FAILS" } else { "" }));
-    Ok((out, survivors > 0))
 }
 
 /// The napper's way down (the leg, the shaft, the queue): a cart with its rider started at `start`
@@ -4794,22 +4359,6 @@ mod tests {
         assert_eq!(proxy_mismatch(&[474, 475], &[474]), (vec![475], vec![]), "a missed run (the old proxy at the erase signature)");
     }
 
-    /// (G1 07:16 (3)) the water search's FORWARD bar on the seat's HOME path, the back-up-the-ride
-    /// control included: a second node lower or further south passes; level and north (back up toward
-    /// the landing), or higher, fails; no node list fails (never a vacuous pass).
-    #[test]
-    fn the_seat_path_forward_bar_and_its_back_up_control() {
-        let line = |nodes: &str| vec![format!("(path) a rider at (9.50,-13.44,-3.50): the HOME path COMPLETE (3 nodes): {nodes}")];
-        let down = seat_path_nodes(&line("[(9, -14, -4), (9, -15, -4), (9, -15, -3)]"));
-        assert_eq!(down, vec![[9, -14, -4], [9, -15, -4], [9, -15, -3]]);
-        assert!(seat_path_forward(&down), "lower: forward");
-        assert!(seat_path_forward(&seat_path_nodes(&line("[(9, -14, -4), (9, -14, -3)]"))), "level, south: forward");
-        assert!(!seat_path_forward(&seat_path_nodes(&line("[(9, -14, -4), (9, -14, -5)]"))), "level, north (back up the ride): FAILS");
-        assert!(!seat_path_forward(&seat_path_nodes(&line("[(9, -14, -4), (9, -13, -4)]"))), "higher: FAILS");
-        assert!(!seat_path_forward(&seat_path_nodes(&line("[(9, -14, -4)]"))), "one node: FAILS");
-        assert!(!seat_path_forward(&seat_path_nodes(&["(path) at [9, -14, -4]: no rider".to_string()])), "no node list: FAILS");
-    }
-
     fn test_opts(queue: P) -> Opts {
         Opts {
             queue,
@@ -4828,6 +4377,7 @@ mod tests {
             queue_glass: false,
             seat_at: None,
             band: [0.11, 0.24],
+            band_default: true,
             r1_built: false,
             visit_skip: Vec::new(),
             bystander: None,
@@ -4843,6 +4393,7 @@ mod tests {
             declared_bounded: Vec::new(),
             reference_run: false,
             rail_end_least: None,
+            exclude_bars: Vec::new(),
         }
     }
 
@@ -4914,6 +4465,9 @@ mod tests {
         assert!(!v.stale.is_empty(), "{v:?}");
         let v = crate::contacts::judge(&decl(" | rate=1/2 rows"), &[], &falling, StallRule::IRONSPEC_1042, Some((2, "rows")));
         assert!(v.stale.is_empty() && !v.stale_not_judged.is_empty(), "{v:?}");
+        // (G1 Nov 14 10:21, cdf7bddd5 (1)) the bench treats "stale, not judged" as a failure: main's judge leaves it out
+        // of failed(), the ride rows' and vhits' verdicts count it
+        assert!(!v.failed() && !(!v.failed() && v.stale_not_judged.is_empty()), "the bench's verdict fails on stale-not-judged");
         // the untagged wiring error is gone: re-keyed hits carry their row as the sample
         assert!(rows.iter().all(|x| x.sample == Some(x.cart as u64)));
     }
@@ -4983,8 +4537,8 @@ mod tests {
         assert!(way_cell_mode(&ModeFlags { leg: 6, bed: 3, ..base.clone() }).unwrap_err().contains("--hold"));
         // a mis-shaped --wait (one value) is refused
         assert!(way_cell_mode(&ModeFlags { wait: 1, post: true, bed: 3, ..base.clone() }).unwrap_err().contains("--wait"));
-        // two modes at once: the water scan with a path probe
-        assert!(way_cell_mode(&ModeFlags { water_scan: true, scan_box: 6, path_probe: true, bed: 3, ..base.clone() }).unwrap_err().contains("one mode a run"));
+        // two modes at once: the path probe with the visit
+        assert!(way_cell_mode(&ModeFlags { path_probe: true, bed: 3, leg_day: true, ..visit.clone() }).unwrap_err().contains("one mode a run"));
         // the ride rows need --ride-to; the release pulse needs the built R1 gate
         assert!(way_cell_mode(&ModeFlags { rows: true, ..base.clone() }).unwrap_err().contains("--ride-to"));
         assert!(way_cell_mode(&ModeFlags { release_pulse: 2, ride_to: 3, ..base.clone() }).unwrap_err().contains("--r1-built"));
