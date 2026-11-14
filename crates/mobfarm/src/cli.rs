@@ -3308,6 +3308,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         allow_empty: bool,
     },
+    /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: each --expect
+    /// x,y,z=ID[key=value,...] against the settled design; fails on any cell that doesn't hold it.
+    AssertBlocks {
+        design: PathBuf,
+        /// x,y,z=ID[key=value,...], e.g. 2,-3,4=repeater[facing=west] (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        expect: Vec<String>,
+    },
     /// (ironspec Nov 13 19:11, with day-1; G1 21:38 / 21:41) The riderless-source statics on every route
     /// position (each rail at 1/20, each lift / drop column every 0.1): (a) activator rails and every
     /// block that powers or could power them (--allow-activator names the design's own emptying rail's
@@ -9517,6 +9525,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::AssertBlocks { design, expect } => {
+            let (_c, spec) = load(version, &design)?;
+            let mut ex = Vec::new();
+            for e in &expect {
+                let (cell, want) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--expect {e}: x,y,z=ID[key=value,...]"))?;
+                let v: Vec<i32> = cell.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| anyhow::anyhow!("--expect {e}: {err}"))?;
+                anyhow::ensure!(v.len() == 3, "--expect {e}: x,y,z=ID[key=value,...]");
+                ex.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), want.to_string()));
+            }
+            anyhow::ensure!(!ex.is_empty(), "assert-blocks: NOT JUDGED: no --expect");
+            let (lines, n) = crate::fleecheck::assert_blocks(&spec, &ex).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "assert-blocks: {n} component(s) not as expected");
         }
         MobfarmCmd::StringAudit { design, expect, rail_range, allow_empty } => {
             let (_c, spec) = load(version, &design)?;
