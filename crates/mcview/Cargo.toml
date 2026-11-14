@@ -17,6 +17,8 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan",
 pollster = "1"
 jpeg-decoder = { version = "0.3", default-features = false }
 wasmi = "2"
+# text on a rendered picture (`caption`: `web framecost --title --legend --labels`), natively only
+fontdue = "0.9"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgl", "std"] }

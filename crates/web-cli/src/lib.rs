@@ -413,6 +413,38 @@ pub enum WebCmd {
         /// design (a loop, not its far wires).
         #[arg(long)]
         fit: Option<String>,
+        /// The camera turned this many degrees of yaw over the frames, from `--yaw` (or the live
+        /// camera's), each frame framed again at its yaw as the first is: an orbit film of a design
+        /// in one command (`--frames 144 --orbit 360 --png-dir D`: 2.5 degrees a frame).
+        #[arg(long, allow_hyphen_values = true)]
+        orbit: Option<f32>,
+        /// Draw nothing at or above this height (the design's coordinates): a roof lifted off
+        /// for a view inside, the design file unchanged (`--hide-above 28`).
+        #[arg(long, allow_hyphen_values = true)]
+        hide_above: Option<f32>,
+        /// With `--png-dir`: a title band above each picture (`\n` breaks a line):
+        /// `mcview::caption`, a labelled render in one command.
+        #[arg(long)]
+        title: Option<String>,
+        /// With `--png-dir`: a legend band below each picture, this file's lines.
+        #[arg(long)]
+        legend: Option<PathBuf>,
+        /// With `--png-dir`: labels on each picture, from this file: `x y text` a line (the
+        /// label box's top-left corner in the frame's pixels; `\n` in the text breaks a line).
+        #[arg(long)]
+        labels: Option<PathBuf>,
+        /// The labels' text size in pixels (the title 8% larger, the legend 20% smaller).
+        #[arg(long, default_value_t = 24.0)]
+        label_size: f32,
+        /// The captions' TrueType font (default: the system's DejaVu Sans; a `-Bold` sibling
+        /// beside it for the title).
+        #[arg(long)]
+        font: Option<PathBuf>,
+        /// With `--png-dir` and two or more designs: each frame's pictures of the designs side
+        /// by side, left to right in the order given, at the same camera (a comparison; each
+        /// panel `--width` wide, 12 pixels apart; `--labels` x counts from the left edge).
+        #[arg(long)]
+        side_by_side: bool,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -976,7 +1008,28 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, png_base, yaw, pitch, zoom, look_at, drive, follow, brightness, fit } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, png_base, yaw, pitch, zoom, look_at, drive, follow, brightness, fit, orbit, hide_above, title, legend, labels, label_size, font, side_by_side } => {
+            // (a labelled render: the caption read before the run, so a bad file fails first)
+            let caption = mcview::caption::Caption {
+                title: title.as_deref().map(mcview::caption::split_lines).unwrap_or_default(),
+                legend: match &legend {
+                    Some(p) => std::fs::read_to_string(p).with_context(|| format!("--legend {}", p.display()))?.lines().map(str::to_string).collect(),
+                    None => Vec::new(),
+                },
+                labels: match &labels {
+                    Some(p) => mcview::caption::parse_labels(&std::fs::read_to_string(p).with_context(|| format!("--labels {}", p.display()))?).map_err(anyhow::Error::msg)?,
+                    None => Vec::new(),
+                },
+                size: label_size,
+            };
+            let fonts = if caption.is_empty() {
+                None
+            } else {
+                if png_dir.is_none() {
+                    bail!("--title / --legend / --labels: with --png-dir (they caption its pictures)");
+                }
+                Some(mcview::caption::Fonts::load(font.as_deref()).map_err(anyhow::Error::msg)?)
+            };
             let fit: Option<([f32; 3], [f32; 3])> = match fit.as_deref() {
                 None => None,
                 Some(s) => {
@@ -1016,8 +1069,11 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                     mcview::mobfarm::provide_drive(&name, &dtext).map_err(anyhow::Error::msg)?;
                 }
             }
-            if png_dir.is_some() && designs.len() != 1 {
-                bail!("--png-dir: one design");
+            if png_dir.is_some() && designs.len() != 1 && !side_by_side {
+                bail!("--png-dir: one design (or several with --side-by-side)");
+            }
+            if side_by_side && (png_dir.is_none() || designs.len() < 2) {
+                bail!("--side-by-side: two or more designs and --png-dir");
             }
             if let Some(dir) = &png_dir {
                 std::fs::create_dir_all(dir)?;
@@ -1025,9 +1081,15 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
             let atlas = atlas(false);
             let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
             let mut bad = 0;
-            for d in &designs {
+            // (`--side-by-side`: each design's film in its own panel folder, joined after)
+            let panel = |i: usize| png_dir.as_ref().map(|d| if side_by_side { d.join(format!(".panel{i}")) } else { d.clone() });
+            for (i, d) in designs.iter().enumerate() {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom, look_at, follow, brightness, fit) {
+                let pdir = panel(i);
+                if let Some(p) = &pdir {
+                    std::fs::create_dir_all(p)?;
+                }
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, pdir.as_deref(), (yaw, pitch), zoom, look_at, follow, brightness, fit, orbit, hide_above) {
                     Ok(c) => {
                         println!(
                             "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
@@ -1057,6 +1119,27 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                         bad += 1;
                     }
                 }
+            }
+            // (`--side-by-side`: each frame's panels joined left to right into the film's folder,
+            // the panel folders then removed)
+            if side_by_side && let Some(dir) = &png_dir {
+                let p0 = panel(0).expect("a panel folder");
+                let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(&p0)?.filter_map(|e| e.ok().map(|e| e.file_name())).filter(|n| n.to_string_lossy().ends_with(".png")).collect();
+                names.sort();
+                for name in &names {
+                    let mut pics = Vec::new();
+                    for i in 0..designs.len() {
+                        let p = panel(i).expect("a panel folder").join(name);
+                        let bytes = std::fs::read(&p).with_context(|| format!("{}", p.display()))?;
+                        pics.push(mcview::tools::decode_png(&bytes).map_err(anyhow::Error::msg)?);
+                    }
+                    let (rgba, w, h) = mcview::caption::hstack(&pics, 12);
+                    mcview::render::headless::write_png(&dir.join(name), w, h, &rgba).map_err(anyhow::Error::msg)?;
+                }
+                for i in 0..designs.len() {
+                    std::fs::remove_dir_all(panel(i).expect("a panel folder"))?;
+                }
+                println!("side by side: {} frames of {} panels in {}", names.len(), designs.len(), dir.display());
             }
             if let (Some(dir), Some(base)) = (&png_dir, &png_base) {
                 let mut names: Vec<PathBuf> = std::fs::read_dir(dir)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "png")).collect();
@@ -1090,6 +1173,11 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                         println!("{}: {n} pixels differ (most by {most}) in x {}..{}, y {}..{}", name.to_string_lossy(), lo[0], hi[0], lo[1], hi[1]);
                     }
                 }
+            }
+            // (the caption last: `--png-base` compares the frames as drawn)
+            if let (Some(dir), Some(f)) = (&png_dir, &fonts) {
+                let n = mcview::caption::apply_to_dir(dir, &caption, f).map_err(anyhow::Error::msg)?;
+                println!("captioned {n} pictures in {}", dir.display());
             }
             if bad > 0 {
                 anyhow::bail!("{bad} design(s) failed");

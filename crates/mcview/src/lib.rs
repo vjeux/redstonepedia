@@ -36,6 +36,8 @@ pub mod terrain;
 pub mod daylight;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tools;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod caption;
 
 pub use design::{Design, Pos};
 pub use session::{Mode, Options, RBlock, Session};

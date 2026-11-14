@@ -894,6 +894,19 @@ pub fn edge_offset(real: &[[u8; 3]], ours: &[[u8; 3]], w: u32, h: u32) -> ((f32,
     ((best.1, best.2), if base > 0.0 { 1.0 - best.0 / base } else { 0.0 })
 }
 
+/// An orbit film's yaw at counted frame `k` (1 ..= `frames`) of a turn of `deg` degrees from
+/// `yaw0` (radians): `k - 1` steps of `deg / frames`, so a full turn's last frame stops one step
+/// short of its first (a loop that repeats cleanly).
+pub fn orbit_yaw(yaw0: f32, deg: f32, k: u32, frames: u32) -> f32 {
+    yaw0 + deg.to_radians() * (k.saturating_sub(1)) as f32 / frames.max(1) as f32
+}
+
+/// The triangles of a list (three vertices each) with a part below height `y` (the design's
+/// coordinates): a roof at `y` and above lifted off for a view inside, its cells' faces gone.
+pub fn below_cut(v: &[crate::mesh::Vertex], y: f32) -> Vec<crate::mesh::Vertex> {
+    v.chunks(3).filter(|t| t.iter().any(|p| p.pos[1] < y - 1e-4)).flatten().copied().collect()
+}
+
 /// What a live viewer's frames cost natively ([`frame_cost`]): per frame, the mesh (the
 /// player's triangles, as the browser asks them), the draw (submitted and waited for: the
 /// GPU's work, lavapipe on a GPU-less box, like a software WebGL), and the vertices drawn.
@@ -940,42 +953,52 @@ pub struct FrameCost {
 /// changed mesh is built whole in its frame); `png_dir`: each frame's picture also written there
 /// (`frame_00001.png`, ...: a film of the live view); `view`: the camera's yaw and pitch in
 /// degrees, framed as a page's `data-yaw` / `data-pitch` frame it (None: the live camera); `zoom`:
-/// the camera that many times closer.
+/// the camera that many times closer; `orbit`: the camera turned this many degrees of yaw over the
+/// frames, from its yaw ([`orbit_yaw`]: frame k at k - 1 steps of `orbit / frames`), each frame
+/// framed again at its yaw as the first is (an orbit film of a still, one command); `hide_above`:
+/// nothing drawn at or above that height ([`below_cut`]: a roof lifted off, the design unchanged).
 #[allow(clippy::too_many_arguments)]
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>, look_at: Option<[f32; 3]>, follow: Option<redsim::entity::mob::drive::Who>, brightness: Option<f32>, fit: Option<([f32; 3], [f32; 3])>) -> Result<FrameCost, String> {
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>, look_at: Option<[f32; 3]>, follow: Option<redsim::entity::mob::drive::Who>, brightness: Option<f32>, fit: Option<([f32; 3], [f32; 3])>, orbit: Option<f32>, hide_above: Option<f32>) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
-    if view.0.is_some() || view.1.is_some() {
-        // (as `live::finish_load` frames a page's `data-yaw` / `data-pitch`)
-        if let Some(y) = view.0 {
-            p.camera.yaw = y.to_radians();
+    let aspect = width as f32 / height as f32;
+    // (the camera framed: at the page's yaw / pitch on the design's bounds, or on a film's subject
+    // box, then closer, then aimed; again at each orbit frame's yaw)
+    let reframe = |p: &mut crate::player::Player, refit: bool| {
+        if refit && fit.is_none() {
+            let (lo, hi) = scene::frame_bounds(&p.session, &p.look);
+            p.camera.fit(lo, hi, aspect, 0.85);
         }
-        if let Some(pt) = view.1 {
-            p.camera.pitch = pt.to_radians();
+        if let Some((lo, hi)) = fit {
+            // (a film's subject box, its cells: the camera aimed at its centre and fitted to it at
+            // its yaw and pitch, as the view fits a design's bounds; the loop of a long design, not
+            // its far wires; `Camera::fit` keeps the target, so the centre first)
+            let hi = [hi[0] + 1.0, hi[1] + 1.0, hi[2] + 1.0];
+            p.camera.target = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
+            p.camera.fit(lo, hi, aspect, 0.85);
         }
-        let (lo, hi) = scene::frame_bounds(&p.session, &p.look);
-        p.camera.fit(lo, hi, width as f32 / height as f32, 0.85);
+        if let Some(z) = zoom.filter(|z| *z > 0.0) {
+            // (closer by that factor: the distance divided)
+            p.camera.dist /= z;
+        }
+        if let Some(t) = look_at {
+            // (a film's subject: the camera aimed there, its framing kept)
+            p.camera.target = [t[0] + 0.5, t[1] + 0.5, t[2] + 0.5];
+        }
         p.home = p.camera;
+    };
+    // (as `live::finish_load` frames a page's `data-yaw` / `data-pitch`)
+    if let Some(y) = view.0 {
+        p.camera.yaw = y.to_radians();
     }
-    if let Some((lo, hi)) = fit {
-        // (a film's subject box, its cells: the camera aimed at its centre and fitted to it at its
-        // yaw and pitch, as the view fits a design's bounds; the loop of a long design, not its
-        // far wires; `Camera::fit` keeps the target, so the centre first)
-        let hi = [hi[0] + 1.0, hi[1] + 1.0, hi[2] + 1.0];
-        p.camera.target = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
-        p.camera.fit(lo, hi, width as f32 / height as f32, 0.85);
-        p.home = p.camera;
+    if let Some(pt) = view.1 {
+        p.camera.pitch = pt.to_radians();
     }
-    if let Some(z) = zoom.filter(|z| *z > 0.0) {
-        // (closer by that factor: the distance divided)
-        p.camera.dist /= z;
-        p.home = p.camera;
+    let framed = view.0.is_some() || view.1.is_some() || orbit.is_some();
+    if framed || fit.is_some() || zoom.is_some() || look_at.is_some() {
+        reframe(&mut p, framed);
     }
-    if let Some(t) = look_at {
-        // (a film's subject: the camera aimed there, its framing kept)
-        p.camera.target = [t[0] + 0.5, t[1] + 0.5, t[2] + 0.5];
-        p.home = p.camera;
-    }
+    let yaw0 = p.camera.yaw;
     // (`follow`'s entity, by its id: found as the drive names it once its lines are spawned, at the
     // session's start, before the warm ticks: a napper leaves its cart for the bed later)
     let followed: Option<u32> = follow.and_then(|who| {
@@ -1006,6 +1029,13 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         for _ in 0..ticks {
             p.session.step();
         }
+        // (an orbit film: each counted frame at its own yaw, framed again there)
+        if let Some(deg) = orbit
+            && k > 0
+        {
+            p.camera.yaw = orbit_yaw(yaw0, deg, k, frames);
+            reframe(&mut p, true);
+        }
         // (a film's subject that moves: the camera aimed at that entity of the part's bench drive
         // each frame, eN or eN.pK as the drive names them, by its id: a napper leaving its cart
         // for the bed is no longer the cart's passenger; its framing kept)
@@ -1019,6 +1049,12 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         // (the blocks' translucent faces kept on the GPU and culled too, as the browser does)
         p.split_blend = cull;
         let Some((fixed, solid, translucent)) = p.triangles_split_within(atlas, &mut oot) else { return Err("no triangles".into()) };
+        // (a roof lifted off for a view inside: nothing drawn at or above `hide_above`, the design
+        // itself unchanged; the cut blocks' own key, so no cache mixes the two)
+        let (fixed, solid, translucent) = match hide_above {
+            Some(y) => (fixed.map(|(k, v)| (k ^ 0x9e37_79b9_7f4a_7c15, std::rc::Rc::new(below_cut(&v, y)))), below_cut(&solid, y), below_cut(&translucent, y)),
+            None => (fixed, solid, translucent),
+        };
         let blend = p.fixed_blend();
         if k > 0 {
             c.staged_frames += p.staged_now() as u32;
@@ -1109,6 +1145,33 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An orbit's frames turn evenly from the first yaw, and a full turn's last frame stops one
+    /// step short of the first, so the film loops without a doubled frame.
+    #[test]
+    fn an_orbit_turns_evenly_and_loops() {
+        let y0 = 0.3f32;
+        assert!((orbit_yaw(y0, 360.0, 1, 144) - y0).abs() < 1e-6);
+        assert!((orbit_yaw(y0, 360.0, 2, 144) - (y0 + 2.5f32.to_radians())).abs() < 1e-6);
+        let last = orbit_yaw(y0, 360.0, 144, 144);
+        assert!((last - (y0 + 357.5f32.to_radians())).abs() < 1e-5, "{last}");
+        assert!((orbit_yaw(y0, -90.0, 3, 4) - (y0 - 45f32.to_radians())).abs() < 1e-6);
+    }
+
+    /// A cut keeps a triangle with any part below it and drops one wholly at or above it: a
+    /// roof slab's faces at y 28..28.5 go, a wall's side face reaching from 27 to 28 stays.
+    #[test]
+    fn a_cut_lifts_the_roof_only() {
+        let v = |y: f32| crate::mesh::Vertex { pos: [0.0, y, 0.0], ..Default::default() };
+        let roof = [v(28.0), v(28.5), v(28.5)];
+        let wall = [v(27.0), v(28.0), v(28.0)];
+        let floor = [v(0.0), v(0.0), v(0.0)];
+        let all: Vec<_> = [roof, wall, floor].concat();
+        let kept = below_cut(&all, 28.0);
+        assert_eq!(kept.len(), 6, "the wall and the floor kept, the roof gone");
+        assert!(kept.iter().all(|p| p.pos[1] < 28.5));
+        assert_eq!(below_cut(&all, 40.0).len(), 9, "a cut above everything keeps all");
+    }
 
     /// A picture of soft stripes both ways; ours the same moved half a pixel right: the edge
     /// offset finds +0.5, 0 (the third of a pixel `web compare` had: ours resampled apart).
