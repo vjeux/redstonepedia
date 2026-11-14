@@ -6766,6 +6766,10 @@ pub enum MobfarmCmd {
         /// string at (4,0,5) over R's detector, hooks at (4,0,4) / (4,0,6) on glass (4,0,3) / (4,0,7).
         #[arg(long)]
         rs_ready: bool,
+        /// (A) with --exit-south, no loop booster: the sensed park (ironspec 17:35 / 17:39): a
+        /// detector rail at (0,0,3), the cell the cart last passes into the park, for DAY-1's PARKED.
+        #[arg(long)]
+        park_sense: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -7047,14 +7051,23 @@ pub enum MobfarmCmd {
         /// --close-after, the release at the wake + --release-after).
         #[arg(long, default_value = "adopted")]
         controller: String,
-        /// (G1's B1) The adopted controller's terms A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG
-        /// (default 70,12,50,6,6,2,10,8,10: DAY-1's ctl-shutter at logic level, 16:27).
+        /// (G1's B1) The adopted controller's terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,
+        /// LAG,ONSET (default 52,0,12,50,6,6,2,6,4,10,1: DAY-1's gate list rev 17:30 at
+        /// ctl-shutter's designed timing, 17:24, with ironspec 17:32 (4) (OPEN's set on PARKED: A70
+        /// 0), 17:35 (p = 4, provisional) and 17:39 (PARKED = the sensed park AND COOL, the PARKED
+        /// term); PARKED 0 = the stand-in "the cart at rest in the park cell"; ONSET -1 = no onset
+        /// term).
         #[arg(long)]
         adopted_terms: Option<String>,
         /// (G1's B1 control twin) Block P's headroom (-2,1,4) one tick after the lie-down: the woken
         /// napper can't stand on P.
         #[arg(long)]
         block_p_at_wake: bool,
+        /// (ironspec 17:35 / 17:39, the sensed park) X,Y,Z,DELAY: PARKED is latched from the cart's
+        /// first end-of-tick on X,Y,Z after ARM (+ DELAY gt; a named stand-in for a detector rail
+        /// there), ANDed with the COOL timer (the PARKED term); `none`: the timer alone (rev 17:30).
+        #[arg(long, default_value = "0,0,3,0")]
+        parked_sense: String,
         /// (G1 12:38: the merge row) A hurt this many gt after the lie-down (a reverse merge at <= 3).
         #[arg(long)]
         hurt_after_lie: Option<i64>,
@@ -16495,13 +16508,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready } => {
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense } => {
             anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
             anyhow::ensure!(!runup || eject_at_bed, "--runup is (A)'s variant: with --eject-at-bed");
             anyhow::ensure!(!no_loop_booster || runup, "--no-loop-booster is (A) with the run-up's variant: with --runup (G1's Q12: no silent no-op)");
             anyhow::ensure!(!(head_glass || exit_south) || runup, "--head-glass and --exit-south are (A) with the run-up's variants: with --runup");
             anyhow::ensure!(!(waker_south || exit_boost || hold_slope || wake_sensor || rs_ready) || exit_south, "--waker-south, --exit-boost, --hold-slope, --wake-sensor and --rs-ready go with --exit-south");
-            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
+            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
@@ -16562,7 +16575,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let failed: Vec<&String> = lines.iter().filter(|l| l.starts_with("FAILED: ")).collect();
             anyhow::ensure!(failed.is_empty(), "strand-window: {} validation failures", failed.len());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, hurt_after_lie, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, parked_sense, hurt_after_lie, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             // (G1's N15: no negative --release-after-arm)
@@ -16813,11 +16826,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ("adopted", None) => Some(match &adopted_terms {
                     None => crate::bedtier::Adopted::default(),
                     Some(s) => {
-                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--adopted-terms {s}: A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG[,RLS_GATE] ({e})"))?;
+                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--adopted-terms {s}: PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG,ONSET ({e})"))?;
                         match v.as_slice() {
-                            &[a70, d, w, open_set, open_reset, torch, rls, park, lag] if v.iter().all(|&x| x >= 0) => crate::bedtier::Adopted { a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate: 0 },
-                            &[a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate] if v.iter().all(|&x| x >= 0) => crate::bedtier::Adopted { a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate },
-                            _ => anyhow::bail!("--adopted-terms {s}: nine or ten terms A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG[,RLS_GATE], none negative"),
+                            &[parked, a70, d, w, open_set, open_reset, torch, rls, park, lag, onset] if v[..10].iter().all(|&x| x >= 0) && onset >= -1 => crate::bedtier::Adopted { parked, a70, d, w, open_set, open_reset, torch, rls, park, lag, onset: (onset >= 0).then_some(onset) },
+                            _ => anyhow::bail!("--adopted-terms {s}: eleven terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG,ONSET, none negative but ONSET (-1: no onset term)"),
                         }
                     }
                 }),
@@ -16827,7 +16839,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 (o, None) => anyhow::bail!("--controller {o}: adopted or stand-in"),
             };
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, hurt_after_lie };
+            // (ironspec 17:35: the sensed park's stand-in, strictly parsed; "none": the timer alone)
+            let parked_sense: Option<([i32; 3], i64)> = match parked_sense.as_str() {
+                "none" => None,
+                s => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--parked-sense {s}: X,Y,Z,DELAY or none ({e})"))?;
+                    match v.as_slice() {
+                        &[x, y, z, dl] if dl >= 0 => Some(([x as i32, y as i32, z as i32], dl)),
+                        _ => anyhow::bail!("--parked-sense {s}: X,Y,Z,DELAY (DELAY not negative) or none"),
+                    }
+                }
+            };
+            let parked_sense = if adopted.is_some() { parked_sense } else { None };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, parked_sense, hurt_after_lie };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {

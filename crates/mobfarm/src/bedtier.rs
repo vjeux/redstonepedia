@@ -118,6 +118,11 @@ pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
 /// (A)'s wake sensor (G1 12:04 / day-1 12:03): an observer under the bed head, facing up at it;
 /// its output face down into (-3,-2,4).
 pub const WAKE_SENSOR: [i32; 3] = [-3, -1, 4];
+/// (ironspec 17:35, the sensed park; day-1 17:36) The candidate cell for the park-entry detector
+/// rail: (0,0,3), the last straight cell the cart passes into the park that touches no powered rail
+/// ((1,0,3), the climb, sits beside the park's powered rail (1,0,4), which a detector there would
+/// power; (2,1,3) and (2,1,4) are curves); its read can leave north into the empty (0,0,2).
+pub const PARK_SENSE: [i32; 3] = [0, 0, 3];
 /// (G1's Q15) The wake sensor's window: a lie-down or wake edge with no rise within it is a missed
 /// edge, a rise with no edge within it before is spurious: the observer's pulse rises 2 gt after the
 /// bed head's change (tick-exact 26.3), is 2 wide, and the bench stamps edges at the tick boundary:
@@ -682,7 +687,8 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool, rs_ready: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool, rs_ready: bool, park_sense: bool) -> Result<String> {
+    anyhow::ensure!(!park_sense || (exit_south && !loop_booster), "the sensed park's detector goes on the plain (0,0,3) of the --exit-south layout without the loop booster");
     anyhow::ensure!(!rs_ready || exit_south, "--rs-ready lays its string over R (4,-1,5), the --exit-south row");
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
@@ -757,6 +763,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         put(&mut b, [0, -1, 3], "glass")?;
         put(&mut b, [0, 0, 2], "redstone_torch[lit=true]")?;
         put(&mut b, [0, -1, 2], "glass")?;
+    } else if park_sense {
+        // (ironspec 17:35 / 17:39: the sensed park: a detector rail on the last straight cell the
+        // cart passes into the park that touches no powered rail; 9fc3155f 17:47: its two Ts re-settle
+        // to their own shapes (update-only); DAY-1's PARKED latch reads it from the empty (0,0,2))
+        put(&mut b, PARK_SENSE, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+        put(&mut b, [0, -1, 3], "glass")?;
     } else {
         put(&mut b, [0, 0, 3], &rail("east_west"))?;
         put(&mut b, [0, -1, 3], "glass")?;
@@ -793,7 +805,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     // east; the flat at the park slope's foot stays open: a cart coming down the slope rides with its
     // box's top above y 1 until it's on the flat, and a block over that flat stopped it)
     for x in -1..=0 {
-        put(&mut b, [x, 0, 4], "rail[shape=east_west,waterlogged=true]")?;
+        // (with the sensed park, 9fc3155f 17:49's MUTUAL HOLD (-1,0,3) <-> (-1,0,4), each T held only
+        // through the other: (-1,0,4) an activator rail, a fixed straight shape (no plain-rail T),
+        // never powered (no source beside it: the detector (0,0,3) is diagonal); unpowered, a
+        // minecart rides it as a plain rail, and the water caps it the same)
+        let s = if park_sense && x == -1 { "activator_rail[powered=false,shape=east_west,waterlogged=true]" } else { "rail[shape=east_west,waterlogged=true]" };
+        put(&mut b, [x, 0, 4], s)?;
         put(&mut b, [x, -1, 4], "glass")?;
     }
     put(&mut b, [-1, 1, 4], "glass")?;
@@ -1054,7 +1071,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     let mut lines: Vec<String> = vec![
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
         if waker_south {
-            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its list of record, rev 15:42 + the 16:00 form) opens it once the napper sleeps (OPEN on A70 and SO and not P_STRING), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); after its sustained presence with the cart parked, RLS releases the park (RLS + 8) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string()
+            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its gate list rev 17:30 with ironspec 17:32-17:41's changes) opens it once the napper sleeps (OPEN on PARKED and SO and not P_STRING, PARKED the sensed park AND COOL), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); RLS (P_STRING and SINCE and WIN and PARKED) releases the park (RLS + p, p = 4 provisional) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string()
         } else {
             "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string()
         },
@@ -1063,7 +1080,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the longest wake -> boarding on DAY-1's adopted controller is 51 gt over 408 visits: 60 leaves 9; LAST_WOKEN's 100 keeps the cooldown bar's >= 10 beside it)".to_string(),
     ];
     if wake_sensor {
-        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO: the first pulse after ARM opens the window's path) and its release (RLS on P_STRING's sustained presence after the latest pulse; the park at RLS + 8: the first (-2,0,5) entry clears the close + 27 by >= 13 gt, ironspec 16:09) start; the bench prints its pulses against the napper's own edges.".to_string());
+        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears the close + 27 by >= 1 on the convention, >= 3 off it, the 14:15 requirement) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if rs_ready {
         lines.push("The rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire string at (4,0,5), one cell over R's detector (4,-1,5), its hooks at (4,0,4) facing south and (4,0,6) facing north on glass (4,0,3) / (4,0,7), off the rail line: a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band (y 0.0625..0.156); hooks and string have no collision and block no sight line; DAY-1 reads the north hook by a repeater at (5,0,4) on (5,-1,4) (its cells, not laid here)".to_string());
@@ -1074,7 +1091,20 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47 / 10:58's
         // `# integrity:` key, checked by the static))
-        lines.push("integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east; holds -1,0,3=east_west; holds -1,0,4=east_west".to_string());
+        lines.push(if park_sense {
+            // (9fc3155f 17:50 / PlaceClasses, ironspec 10:54: one entry per ARM rail, its `holds`
+            // clauses belonging to it: P holds K; the fixed (-1,0,4) holds (-1,0,3); the park's rail
+            // (1,0,4) holds the climb (1,0,3))
+            "integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east; -1,0,4=connections -2,0,4+0,0,4; holds -1,0,3=east_west; 1,0,4=connections 0,0,4+2,1,4; holds 1,0,3=ascending_east".to_string()
+        } else {
+            "integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east; holds -1,0,3=east_west; holds -1,0,4=east_west".to_string()
+        });
+        if park_sense {
+            // (ironspec 17:35 / 17:39: PARKED sensed; 9fc3155f 17:47 / 17:49: its t-exposure
+            // update-only, the arms keyed, the mutual hold broken by the fixed (-1,0,4))
+            lines.push("update-only: 0,0,3=the sensed park's detector rail (ironspec 17:39): its updates reach the Ts (-1,0,3) and (1,0,3), which re-settle to their held east_west and ascending_east (the full arms (-1,0,4), an activator rail of fixed shape, and (1,0,4), the park's powered rail; 9fc3155f 17:47)".to_string());
+            lines.push("The sensed park (ironspec 17:35 / 17:39): a detector rail at (0,0,3), the last straight cell the cart passes into the park that touches no powered rail ((1,0,3), the climb, sits beside the park's powered rail (1,0,4)); DAY-1's PARKED latch (set by it after ARM, reset at the release, ANDed with COOL) reads it from the empty (0,0,2) (DAY-1's cells). Its power reach: it strongly powers the glass (0,-1,3) under it (inert) and powers its neighbours (-1,0,3) and (1,0,3) (plain rails), (0,0,4) (a plain rail), (0,1,3) (air) and (0,0,2) (DAY-1's read): no powered rail, activator rail or other component; the park's rail (1,0,4) and the activator (-1,0,4) sit diagonal to it. Only the arriving empty cart crosses it: the released cart leaves the park west along z 4 and the loaded cart leaves P south. Its block updates reach the Ts (-1,0,3) and (1,0,3), which re-settle to their own shapes, held by the full arms (-1,0,4) (an activator rail of fixed shape, never powered, breaking the mutual hold (-1,0,3) <-> (-1,0,4), 9fc3155f 17:49) and (1,0,4) (9fc3155f 17:47, the integrity entries above).".to_string());
+        }
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1342,6 +1372,17 @@ pub struct Row {
     pub mem_empty_at: Option<i64>,
     pub panic_end_at: Option<i64>,
     pub cell25_at: Option<i64>,
+    /// (G1 17:40) the window's first end-of-tick open (the shutter read unpowered)
+    pub open_state_at: Option<i64>,
+    /// (ironspec 17:35) the cart's first end-of-tick on the sensed park's cell, before the release
+    pub park_sense_at: Option<i64>,
+    /// (G1 17:49 (2)(a)) every rising edge of the sensed park's detector in the visit
+    pub park_sense_presses: Vec<i64>,
+    /// (ironspec 17:32 (3)) the cart's first end-of-tick in P after the release
+    pub cart_at_p: Option<i64>,
+    /// (ironspec 17:32 (3); tick-exact 17:39: 60 gt from the dismount) the first end-of-tick with
+    /// the napper's boarding cooldown back at 0 after the eject set it
+    pub cooldown_end: Option<i64>,
     /// The waker's window shut on the wake edge (`--hide-after-wake`): its tick.
     pub close_at: Option<i64>,
     /// The cart's horizontal speed (and the tick) when its pickup box first met the napper on foot
@@ -1685,6 +1726,10 @@ pub struct Faults {
     /// (G1's B1) DAY-1's adopted stop controller emulated on the real cells (the default; None:
     /// the named stand-ins, `--controller stand-in`).
     pub adopted: Option<Adopted>,
+    /// (ironspec 17:35, the sensed park) PARKED also waits for the cart's first end-of-tick on this
+    /// cell + this many gt (a NAMED STAND-IN for a detector rail there feeding PARKED's set, ANDed with
+    /// the timer); None: the timer alone.
+    pub parked_sense: Option<([i32; 3], i64)>,
     /// (G1's B1 control twin) block P's headroom (-2,1,4) at the wake: the woken napper can't stand
     /// on P (the adopted controller holds; the stand-ins release an empty cart).
     pub block_p_at_wake: bool,
@@ -1930,8 +1975,8 @@ pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], Str
         if let Some(rest) = d.strip_prefix("holds ") {
             let (c, shape) = rest.split_once('=').ok_or(format!("integrity {d:?}: holds x,y,z=SHAPE"))?;
             let shape = shape.trim();
-            if !["north_south", "east_west", "north_east", "north_west", "south_east", "south_west"].contains(&shape) {
-                return Err(format!("integrity {d:?}: {shape:?} is no flat rail shape"));
+            if !["north_south", "east_west", "north_east", "north_west", "south_east", "south_west", "ascending_north", "ascending_south", "ascending_east", "ascending_west"].contains(&shape) {
+                return Err(format!("integrity {d:?}: {shape:?} is no rail shape"));
             }
             out.push((cell(c, &d)?, shape.to_string()));
         } else if let Some((c, rest)) = d.split_once("=connections ") {
@@ -1947,6 +1992,13 @@ pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], Str
                     _ => Err(format!("integrity {d:?}: ({},{},{}) isn't beside ({},{},{})", p[0], p[1], p[2], x[0], x[1], x[2])),
                 }
             };
+            // (a connection one block up makes the rail ascend toward it: the park's (1,0,4) joins
+            // (0,0,4) and the U-turn's (2,1,4), ascending_east)
+            let up: Vec<[i32; 3]> = [a, b].into_iter().filter(|p| p[1] == x[1] + 1).collect();
+            if let [u] = up.as_slice() {
+                out.push((x, format!("ascending_{}", dir(*u)?)));
+                continue;
+            }
             let mut ds = [dir(a)?, dir(b)?];
             ds.sort_by_key(|s| ["north", "south", "east", "west"].iter().position(|t| t == s));
             let shape = match ds {
@@ -1976,18 +2028,22 @@ pub struct Latch {
     pub rel_after: i64,
 }
 
-/// (G1's B1 on 1662bed98; ironspec 15:46 / 16:00, DAY-1's list of record rev 15:42 + the 16:00
-/// form) DAY-1's adopted stop controller, emulated on the real cells: SO set by the first observer
-/// pulse after ARM (reset at ARM); A70 = ARM's edge + `a70`; P_STRING (a NAMED STAND-IN: the awake
-/// napper's box meeting the band of the string at P + 1, (-2,1,4), released `lag` gt after it last
-/// meets it); PARKED (a NAMED STAND-IN: the cart at rest in the park cell (1,0,4)); OPEN set on the
-/// edge of (A70 and SO and not P_STRING), reset on RLS or P_STRING, the shutter NOT OPEN through a
-/// torch (`open_set` / `open_reset` gt of logic, + `torch`); RLS once per visit when P_STRING has
-/// held from the latest observer pulse (or from its press, landing by the pulse + `w`) through + `d`
-/// with PARKED, `rls` gt of logic after; the park released at RLS + `park`; no timeouts. Defaults:
-/// DAY-1's ctl-shutter at logic level (16:27: close at the wake + 8, RLS + 24, park + 32).
+/// (G1's B1 on 1662bed98; DAY-1's gate list rev 17:30 (artifact 1851943746153858), its stop block of
+/// record G16-G22 with G1's B2 onset (day-1 17:35)) DAY-1's adopted stop controller, emulated on the
+/// real cells. G22 P_STRING (a NAMED STAND-IN: the awake napper's box meeting the band of the string
+/// at P + 1, (-2,1,4), released `lag` gt after it last meets it). G16 SINCE: set by an observer pulse
+/// with P_STRING on at its head change (the pulse's rise - 2) and the press begun within `onset` gt
+/// of that change (None: no onset term); reset on NOT P_STRING. G17 WIN: from the latest pulse + `d`
+/// (RLS's sample: the D line 8 + the latch and AND overhead) until a new pulse or the pulse + `w`.
+/// G18 PARKED: ARM's edge + `parked` (a timer; 0: the stand-in "the cart at rest in the park cell");
+/// A70: ARM's edge + `a70` AND PARKED; both reset at RLS. G19 SO: set by any pulse, reset at RLS.
+/// G20 OPEN: S = A70 and SO and not P_STRING, R = RLS or P_STRING; the shutter NOT OPEN through a
+/// torch (`open_set` / `open_reset` gt of logic, + `torch`). G21 RLS = P_STRING and SINCE and WIN and
+/// PARKED, `rls` gt of logic after; one pulse a visit; the park released at RLS + `park`. Defaults:
+/// ctl-shutter's designed timing (17:24: the close at the wake + 8, RLS + 20, the park + 22).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Adopted {
+    pub parked: i64,
     pub a70: i64,
     pub d: i64,
     pub w: i64,
@@ -1997,14 +2053,14 @@ pub struct Adopted {
     pub rls: i64,
     pub park: i64,
     pub lag: i64,
-    /// RLS also waits for ARM's edge + this (0: no such gate; the 16:00 form has none): the
-    /// boarding-cooldown gate proposed for the merged path (58f770cc 17:27).
-    pub rls_gate: i64,
+    pub onset: Option<i64>,
 }
 
 impl Default for Adopted {
     fn default() -> Self {
-        Adopted { a70: 70, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 10, park: 8, lag: 10, rls_gate: 0 }
+        // (ironspec 17:32 (4): OPEN's set uses PARKED in place of A70 (a70 0); 17:35: p = 4,
+        // provisional; 17:39: PARKED sensed, ANDed with COOL (~ARM + 52, the `parked` term))
+        Adopted { parked: 52, a70: 0, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 6, park: 4, lag: 10, onset: Some(1) }
     }
 }
 
@@ -2666,17 +2722,21 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (the bed's head and foot states after the previous tick: the contact's bed check)
     let mut prev_bed: Option<(String, String)> = None;
     let mut sensor_prev = false;
+    // (ironspec 17:32: the close read from the shutter's state; the boarding cooldown seen set)
+    let (mut shutter_open_seen, mut close_by_state, mut cooldown_seen) = (false, false, false);
+    let mut sense_prev = false;
     let mut tap_on = false;
     let mut hold_entered = false;
     // (the emulated DAY-1 latch's state, `f.latch`)
     let (mut latch_seen, mut latch_slept, mut latch_once, mut latch_window_open) = (0usize, false, false, false);
     let (mut latch_open_at, mut latch_fall_at, mut release_due): (Option<i64>, Option<i64>, Option<i64>) = (None, None, None);
-    // (DAY-1's adopted controller's state, `f.adopted`: SO, the latest observer pulse, P_STRING's
-    // stand-in (on, its last meet, its press), OPEN's edge input, OPEN's set / reset, RLS, the park
+    // (DAY-1's adopted controller's state, `f.adopted` (rev 17:30): SO, SINCE, the latest observer
+    // pulse (WIN's start), P_STRING's stand-in (on, its last meet, its press), OPEN, RLS, the park
     // due, the window as written)
     let (mut ad_seen, mut ad_so, mut ad_pulse): (usize, bool, Option<i64>) = (0, false, None);
+    let mut ad_since = false;
     let (mut p_on, mut p_last_meet, mut p_press): (bool, Option<i64>, Option<i64>) = (false, None, None);
-    let (mut ad_cond_prev, mut ad_open, mut ad_released) = (false, false, false);
+    let (mut ad_open, mut ad_released) = (false, false);
     let (mut ad_open_set_at, mut ad_open_reset_at, mut ad_rls_due, mut ad_park_due): (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = (None, None, None, None);
     let mut ad_window_open = false;
     let mut ad_armed_seen = false;
@@ -2960,25 +3020,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.problems.push(format!("t {t}: the control twin's block over P wrote nothing"));
         }
         if let Some(ad) = f.adopted {
-            // (ARM's edge resets SO and the visit's one-shot)
+            // (ARM's edge starts the visit: PARKED and A70 count from it (G18))
             if row.armed_at.is_some() && !ad_armed_seen {
                 ad_armed_seen = true;
-                ad_so = false;
                 ad_released = false;
             }
-            // (the observer's pulses: the latest one; SO set by the first after ARM)
-            while ad_seen < row.sensor_rises.len() {
-                let r = row.sensor_rises[ad_seen];
-                ad_seen += 1;
-                ad_pulse = Some(r);
-                if ad_armed_seen && !ad_so {
-                    ad_so = true;
-                    row.latch_lines.push(format!("t {r}: the observer's pulse: SO set (adopted)"));
-                } else {
-                    row.latch_lines.push(format!("t {r}: the observer's pulse (adopted: the latest pulse)"));
-                }
-            }
-            // (P_STRING, a named stand-in: the awake napper's box meeting the band at (-2,1,4))
+            // (G22 P_STRING, a named stand-in: the awake napper's box meeting the band at (-2,1,4);
+            // this read is before tick t, so its post-tick time is t - 1, on the wake's footing)
             let meet = vill.and_then(|v| idx(&run.world, v)).is_some_and(|vi| {
                 let bb = run.world.entities.list[vi].bb;
                 let (x0, y0, z0) = (bb.min_x - off[0] as f64, bb.min_y - off[1] as f64, bb.min_z - off[2] as f64);
@@ -2986,61 +3034,77 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 x1 > -2.0 && x0 < -1.0 && y1 > 1.0625 && y0 < 1.15625 && z1 > 4.0 && z0 < 5.0
             });
             if meet {
-                p_last_meet = Some(t);
+                p_last_meet = Some(t - 1);
                 if !p_on {
                     p_on = true;
-                    p_press = Some(t);
-                    row.latch_lines.push(format!("t {t}: P_STRING pressed (adopted; the stand-in: the napper's box meets its band)"));
+                    p_press = Some(t - 1);
+                    row.latch_lines.push(format!("t {}: P_STRING pressed (adopted; the stand-in: the napper's box meets its band)", t - 1));
                 }
-            } else if p_on && p_last_meet.is_some_and(|m| t - m >= ad.lag) {
+            } else if p_on && p_last_meet.is_some_and(|m| t - 1 - m >= ad.lag) {
                 p_on = false;
-                row.latch_lines.push(format!("t {t}: P_STRING released ({} gt after its last meet)", ad.lag));
+                // (G16: SINCE resets on NOT P_STRING)
+                ad_since = false;
+                row.latch_lines.push(format!("t {}: P_STRING released ({} gt after its last meet; SINCE reset)", t - 1, ad.lag));
             }
-            // (A70; PARKED, a named stand-in: the cart at rest in the park cell)
-            let a70 = row.armed_at.is_some_and(|a| t - 1 >= a + ad.a70);
-            let parked = idx(&run.world, cart_id).is_some_and(|i| {
-                let c = &run.world.entities.list[i];
-                let cp = dpos(c.pos);
-                [cp.x.floor() as i32, (cp.y + 0.01).floor() as i32, cp.z.floor() as i32] == PARK_A2 && c.delta_movement.horizontal_distance_sqr() < 1e-6
-            });
-            // (OPEN set on the edge of (A70 and SO and not P_STRING); reset on RLS or P_STRING)
-            let cond = a70 && ad_so && !p_on;
-            if cond && !ad_cond_prev && !ad_open && !ad_released {
-                ad_open = true;
-                ad_open_set_at = Some(t);
-                ad_open_reset_at = None;
-                row.latch_lines.push(format!("t {t}: OPEN set (A70 and SO and not P_STRING; adopted)"));
+            // (the observer's pulses: G19 SO set by any pulse; G17 WIN restarted by each; G16 SINCE
+            // set by a pulse with P_STRING on at its head change, and (G1's B2 onset) the press begun
+            // within `onset` gt of that change; the change is the pulse's rise - 2 (the observer's
+            // 2-gt delay, tick-exact 26.3); a merged lie-down + wake is one pulse)
+            while ad_seen < row.sensor_rises.len() {
+                let r = row.sensor_rises[ad_seen];
+                ad_seen += 1;
+                ad_pulse = Some(r);
+                ad_so = true;
+                let change = r - 2;
+                let onset_ok = ad.onset.is_none_or(|o| p_press.is_some_and(|ps| (ps - change).abs() <= o));
+                ad_since = p_on && onset_ok;
+                row.latch_lines.push(format!("t {r}: the observer's pulse (its change t {change}): SO set, WIN restarted, SINCE {} (P_STRING {}{})", if ad_since { "set" } else { "not set" }, if p_on { "on" } else { "off" }, if p_on && !onset_ok { format!(", its press at t {:?} not within {:?} gt of the change", p_press, ad.onset) } else { String::new() }));
             }
-            ad_cond_prev = cond;
+            // (G18 PARKED: ARM's edge through the `parked` tap (a timer, rev 17:30), or with
+            // `parked` 0 the stand-in: the cart at rest in the park cell; reset at RLS. A70: the
+            // `a70` tap AND PARKED)
+            let parked = !ad_released
+                && if ad.parked > 0 {
+                    row.armed_at.is_some_and(|a| t - 1 >= a + ad.parked) && f.parked_sense.is_none_or(|(_, dl)| row.park_sense_at.is_some_and(|p| t - 1 >= p + dl))
+                } else {
+                    idx(&run.world, cart_id).is_some_and(|i| {
+                        let c = &run.world.entities.list[i];
+                        let cp = dpos(c.pos);
+                        [cp.x.floor() as i32, (cp.y + 0.01).floor() as i32, cp.z.floor() as i32] == PARK_A2 && c.delta_movement.horizontal_distance_sqr() < 1e-6
+                    })
+                };
+            let a70 = parked && row.armed_at.is_some_and(|a| t - 1 >= a + ad.a70);
+            // (G20 OPEN: S = A70 and SO and not P_STRING, R = RLS or P_STRING)
             if ad_open && p_on {
                 ad_open = false;
                 ad_open_reset_at = Some(t);
-                row.latch_lines.push(format!("t {t}: OPEN reset (P_STRING)"));
+                row.latch_lines.push(format!("t {}: OPEN reset (P_STRING)", t - 1));
+            } else if !ad_open && !ad_released && a70 && ad_so && !p_on {
+                ad_open = true;
+                ad_open_set_at = Some(t);
+                ad_open_reset_at = None;
+                row.latch_lines.push(format!("t {}: OPEN set (A70 and SO and not P_STRING; adopted)", t - 1));
             }
-            // (RLS: P_STRING held from the latest pulse (or from its press, landing by the pulse +
-            // W) through + D, with PARKED; once per visit)
-            if !ad_released
-                && ad_rls_due.is_none()
-                && p_on
-                && parked
-                && row.armed_at.is_some_and(|a| t - 1 >= a + ad.rls_gate)
-                && let (Some(l), Some(ps)) = (ad_pulse, p_press)
-                && ps <= l + ad.w
-                && t - 1 >= l.max(ps) + ad.d
-            {
+            // (G17 WIN: open from the latest pulse + `d` (RLS's sample) until a new pulse or the
+            // pulse + `w`; G21 RLS = P_STRING and SINCE and WIN and PARKED, `rls` gt of logic after
+            // (its AND reads P_STRING that far back); one pulse a visit)
+            let win = ad_pulse.is_some_and(|l| t - 1 >= l + ad.d && t - 1 < l + ad.w);
+            if !ad_released && ad_rls_due.is_none() && p_on && ad_since && win && parked {
                 ad_rls_due = Some(t + ad.rls);
-                row.latch_lines.push(format!("t {t}: sustained presence (P_STRING since t {ps}, the latest pulse t {l}, + D {}) with PARKED: RLS due at t {}", ad.d, t + ad.rls));
+                row.latch_lines.push(format!("t {}: P_STRING and SINCE (press t {:?}) and WIN (pulse t {:?} + {}) and PARKED: RLS due at t {}", t - 1, p_press, ad_pulse, ad.d, t + ad.rls - 1));
             }
             if ad_rls_due == Some(t) {
                 ad_released = true;
+                // (G19: SO resets at RLS; PARKED's reset ends RLS's pulse)
+                ad_so = false;
                 row.rls_at = Some(t - 1);
                 ad_park_due = Some(t + ad.park);
                 if ad_open {
                     ad_open = false;
                     ad_open_reset_at = Some(t);
-                    row.latch_lines.push(format!("t {t}: OPEN reset (RLS)"));
+                    row.latch_lines.push(format!("t {}: OPEN reset (RLS)", t - 1));
                 }
-                row.latch_lines.push(format!("t {t}: RLS; the park due at t {}", t + ad.park));
+                row.latch_lines.push(format!("t {}: RLS; the park due at t {}", t - 1, t + ad.park - 1));
             }
             // (the shutter = NOT OPEN: `open_set` / `open_reset` gt of logic, then the torch)
             let want_open = ad_open_set_at.is_some_and(|s| t >= s + ad.open_set + ad.torch) && !ad_open_reset_at.is_some_and(|r| t >= r + ad.open_reset + ad.torch);
@@ -4093,6 +4157,24 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.parked = Some(([cpos.x, cpos.y, cpos.z], t));
             shift_pending = f.park_shift;
         }
+        // (ironspec 17:32 (3): the cart's first end-of-tick in P (-2,0,4) after the release, against
+        // the napper's boarding-cooldown end)
+        if row.release_at.is_some() && row.cart_at_p.is_none() && [cpos.x.floor() as i32, (cpos.y + 0.01).floor() as i32, cpos.z.floor() as i32] == [-2, 0, 4] {
+            row.cart_at_p = Some(t);
+        }
+        // (ironspec 17:35: the sensed park: its detector rail's rising edges (the real cell when the
+        // design lays it; else a NAMED STAND-IN, the cart in the cell); the first before the release
+        // latches PARKED's evidence; G1 17:49 (2)(a): every press per visit, those after RLS named)
+        let sense_cell = f.parked_sense.map_or(PARK_SENSE, |(c, _)| c);
+        let det = format!("{}", w.get(wc(sense_cell)));
+        let pressed = if det.contains("detector_rail") { det.contains("powered=true") } else { [cpos.x.floor() as i32, (cpos.y + 0.01).floor() as i32, cpos.z.floor() as i32] == sense_cell };
+        if pressed && !sense_prev {
+            row.park_sense_presses.push(t);
+            if row.release_at.is_none() && row.park_sense_at.is_none() {
+                row.park_sense_at = Some(t);
+            }
+        }
+        sense_prev = pressed;
         last_cart = cp;
         if let Some(ci) = idx(w, cart_id) {
             let ce = &w.entities.list[ci];
@@ -4109,6 +4191,31 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.sensor_rises.push(t);
                 }
                 sensor_prev = on;
+            }
+        }
+        // (ironspec 17:32 (2)(a): ONE definition of the close: the first end-of-tick the shutter
+        // reads shut (open=true: its plate standing across the window's face) after the window was
+        // open; it replaces the write's stamp)
+        if z1_design {
+            let shut = format!("{}", w.get(wc(WAKER_SHUT))).contains("open=true");
+            if !shut {
+                if !shutter_open_seen {
+                    // (G1 17:40: the window's first open tick, read the same way)
+                    row.open_state_at = Some(t);
+                }
+                shutter_open_seen = true;
+            } else if shutter_open_seen && !close_by_state {
+                close_by_state = true;
+                row.close_at = Some(t);
+            }
+        }
+        // (ironspec 17:32 (3): the napper's boarding cooldown, set at the eject's dismount)
+        if let Some(vi) = vill.and_then(|v| idx(w, v)) {
+            let cd = w.entities.list[vi].boarding_cooldown;
+            if cd > 0 {
+                cooldown_seen = true;
+            } else if cooldown_seen && row.cooldown_end.is_none() {
+                row.cooldown_end = Some(t);
             }
         }
         // (G1's Q13: the design's `# integrity:` shapes judged every tick (the mutual hold
@@ -5081,7 +5188,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1 15:59's bench rule: a verdict on the stop's controller terms emulates DAY-1's adopted list
     // or carries NAMED STAND-INS)
     if let Some(ad) = base.adopted {
-        println!("the stop's controller: DAY-1's list of record (rev 15:42 + the 16:00 form; G1's B1) emulated on the real cells: SO set by the first observer pulse after ARM; A70 = ARM + {}; OPEN set on the edge of (A70 and SO and not P_STRING), reset on RLS or P_STRING, the shutter {} + {} gt (torch) behind; RLS when P_STRING has held from the latest pulse (or its press, landing by the pulse + {}) through + {} with PARKED, {} gt of logic after, once per visit; the park released at RLS + {}; no timeouts; NAMED STAND-INS: P_STRING = the awake napper's box meeting the band of the string at P + 1 (-2,1,4), released {} gt after its last meet; PARKED = the cart at rest in the park cell (1,0,4); terms from DAY-1's ctl-shutter at logic level (16:27: close at the wake + 8, RLS + 24, park + 32)", ad.a70, ad.open_reset, ad.torch, ad.w, ad.d, ad.rls, ad.park, ad.lag);
+        println!("the stop's controller: DAY-1's gate list rev 17:30 (its stop block of record G16-G22, with G1's B2 onset; G1's B1) emulated on the real cells: SO set by any observer pulse, reset at RLS; SINCE set by a pulse with P_STRING on at its head change (the rise - 2){}, reset on NOT P_STRING; WIN from the latest pulse + {} until a new pulse or the pulse + {}; PARKED {}; A70 = ARM + {} AND PARKED; OPEN: S = A70 and SO and not P_STRING, R = RLS or P_STRING, the shutter {} / {} + {} gt (torch) behind; RLS = P_STRING and SINCE and WIN and PARKED, {} gt of logic after, one a visit; the park released at RLS + {}; no timeouts; NAMED STAND-INS: P_STRING = the awake napper's box meeting the band of the string at P + 1 (-2,1,4), released {} gt after its last meet{}; terms at ctl-shutter's designed timing (17:24: the close at the wake + 8, RLS + 20, the park + 22)", ad.onset.map_or(String::new(), |o| format!(" and its press begun within {o} gt of the change")), ad.d, ad.w, if ad.parked > 0 { format!("= ARM + {} (a timer)", ad.parked) } else { "= the cart at rest in the park cell (1,0,4) (a stand-in, --adopted-terms PARKED 0)".to_string() }, ad.a70, ad.open_set, ad.open_reset, ad.torch, ad.rls, ad.park, ad.lag, if ad.parked > 0 { "" } else { "; PARKED = the cart at rest in the park cell" });
     } else if base.latch.is_some() {
         println!("the stop's controller: (superseded latch, before 15:37) DAY-1's 12:38 guard-free latch (SLEPT / OPEN / TIMEOUT) on the real wake sensor; every controller-dependent line below carries this label");
     } else {
@@ -5311,6 +5418,34 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                     sk.ad_park.push(x - wk);
                                 }
                             }
+                        }
+                        // (G1 17:33: the park's rest against ARM: the first of the 10 still ticks)
+                        if let (Some(a), Some((_, tp))) = (r.armed_at, r.parked) {
+                            sk.park_rest.push((r.speed, tp - 9 - a));
+                        }
+                        // (ironspec 17:32 (3): the cart at P against the napper's boarding-cooldown end)
+                        if let (Some(p), Some(c)) = (r.cart_at_p, r.cooldown_end) {
+                            sk.board_cd.push((r.speed, p - c));
+                        }
+                        // (ironspec 17:41: COOL's inputs: the eject after ARM, the park -> P ride;
+                        // 17:39: the sensed park's pass -> the rest)
+                        if let (Some(a), Some((_, tl))) = (r.armed_at, r.landed) {
+                            sk.eject_after_arm.push(tl - a);
+                        }
+                        if let (Some(rel), Some(p)) = (r.release_at, r.cart_at_p) {
+                            sk.park_to_p.push(p - rel);
+                        }
+                        if let (Some(ps), Some((_, tp))) = (r.park_sense_at, r.parked) {
+                            sk.pass_to_rest.push((r.speed, tp - 9 - ps));
+                        }
+                        // (G1 17:49 (2)(a): the sensed park's presses per visit, and after RLS)
+                        *sk.sense_presses.entry(r.park_sense_presses.len()).or_default() += 1;
+                        if let Some(rl) = r.rls_at.or(r.release_at) {
+                            sk.sense_after_rls += r.park_sense_presses.iter().filter(|&&p| p > rl).count();
+                        }
+                        // (G1 17:40: the window's first open tick against the lie-down)
+                        if let (Some(o), Some(s)) = (r.open_state_at, r.slept_at) {
+                            sk.open_after_lie.push((r.speed, o - s));
                         }
                         seated += r.seated_out as usize;
                         seated_here += r.seated_out as usize;
@@ -5974,11 +6109,80 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
     }
     // (G1's B1: the adopted controller over the run: its close, RLS and park against the wake (DAY-1's
-    // ctl-shutter at logic level: + 8, + 24, + 32); every slept visit opens the window and releases
-    // by RLS, never with the napper asleep, the bed free at the end)
-    if base.adopted.is_some() {
+    // ctl-shutter, designed, 17:24: + 8, + 20, + 22); every slept visit opens the window and releases
+    // by RLS, never with the napper asleep, the bed free at the end; G1 17:33: the park's rest against
+    // PARKED's timer (ARM + PARKED), the band margin per visit and per entry speed)
+    if let Some(ad) = base.adopted {
         let mm = |v: &[i64]| if v.is_empty() { "none".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
-        println!("the adopted controller (DAY-1's list of record, emulated; P_STRING and PARKED named stand-ins): the window shut at the wake + {} gt; RLS at the wake + {}; the park released at the wake + {} (ctl-shutter at logic level, 16:27: + 8, + 24, + 32); slept visits with no OPEN {}, no RLS {}; releases with the napper asleep {} (bar 0); visits ending with the bed occupied {} (bar 0)", mm(&sk.ad_close), mm(&sk.ad_rls), mm(&sk.ad_park), sk.ad_no_open, sk.ad_no_rls, sk.released_asleep, sk.bed_occupied_end);
+        println!("the adopted controller (DAY-1's gate list rev 17:30, emulated; P_STRING a named stand-in): the window shut at the wake + {} gt; RLS at the wake + {}; the park released at the wake + {} (ctl-shutter, designed, 17:24: + 8, + 20, + 22); slept visits with no OPEN {}, no RLS {}; releases with the napper asleep {} (bar 0); visits ending with the bed occupied {} (bar 0)", mm(&sk.ad_close), mm(&sk.ad_rls), mm(&sk.ad_park), sk.ad_no_open, sk.ad_no_rls, sk.released_asleep, sk.bed_occupied_end);
+        if ad.parked > 0 {
+            let margins: Vec<i64> = sk.park_rest.iter().map(|&(_, r)| ad.parked - r).collect();
+            let mut per_speed: std::collections::BTreeMap<String, i64> = Default::default();
+            for &(v, r) in &sk.park_rest {
+                let e = per_speed.entry(format!("{v:.4}")).or_insert(i64::MAX);
+                *e = (*e).min(ad.parked - r);
+            }
+            println!("the park's rest against PARKED's timer (G1 17:33: rev 17:30's PARKED is ARM + {} whether or not the cart rests; the rest = the first of the cart's 10 still ticks in the park): the rest at ARM + {} over {} visits, the band margin (ARM + {} - the rest) {}; visits resting after the timer (the fault: a cart held unreleased if it rests later) {}; least margin per entry speed {:?}", ad.parked, mm(&sk.park_rest.iter().map(|&(_, r)| r).collect::<Vec<_>>()), sk.park_rest.len(), ad.parked, mm(&margins), margins.iter().filter(|&&m| m < 0).count(), per_speed);
+        }
+    }
+    // (ironspec 17:32 (3) / tick-exact 17:39: the boarding cooldown, 60 gt from the eject's dismount;
+    // the cart's first tick in P after the release less the cooldown's end, bar >= 2 after k + j:
+    // k the world-open term (1 on the convention placement, 3 off it), j 0 (the stop in one chunk))
+    {
+        let on_conv = base.offset[0].rem_euclid(16) == 6 && base.offset[2].rem_euclid(16) == 5;
+        let k = if on_conv { 1 } else { 3 };
+        let ms: Vec<i64> = sk.board_cd.iter().map(|&(_, m)| m).collect();
+        let mut per_speed: std::collections::BTreeMap<String, i64> = Default::default();
+        for &(v, m) in &sk.board_cd {
+            let e = per_speed.entry(format!("{v:.4}")).or_insert(i64::MAX);
+            *e = (*e).min(m);
+        }
+        let least = ms.iter().min().copied();
+        let mm2 = |v: &[i64]| if v.is_empty() { "none".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
+        // (ironspec 17:41: COOL = the eject's latest tick after ARM + 60 + k + 2 - p - the fastest
+        // park -> P ride; its inputs measured here)
+        let p_term = base.adopted.map_or(0, |a| a.park);
+        let cool = match (sk.eject_after_arm.iter().max(), sk.park_to_p.iter().min()) {
+            (Some(e), Some(r)) => Some(e + 60 + k + 2 - p_term - r),
+            _ => None,
+        };
+        println!("COOL's inputs (ironspec 17:41: COOL = the eject's latest tick after ARM + 60 + k + 2 - p - the fastest park -> P ride): the eject at ARM + {} over {} visits; the park's release -> the cart in P {} gt; k {k}, p {p_term}: COOL = ARM + {} (the bench's PARKED term: {})", mm2(&sk.eject_after_arm), sk.eject_after_arm.len(), mm2(&sk.park_to_p), cool.map_or("none".to_string(), |c| c.to_string()), base.adopted.map_or("no adopted controller".to_string(), |a| format!("ARM + {}", a.parked)));
+        if !sk.pass_to_rest.is_empty() {
+            let mut per_speed: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
+            for &(v, d) in &sk.pass_to_rest {
+                let e = per_speed.entry(format!("{v:.4}")).or_insert((i64::MAX, i64::MIN));
+                e.0 = e.0.min(d);
+                e.1 = e.1.max(d);
+            }
+            println!("the sensed park (ironspec 17:39; a named stand-in for a detector rail at {:?}): the cart's pass of it -> its rest in the park {} gt over {} visits; per entry speed {:?}", base.parked_sense.map_or(PARK_SENSE, |(c, _)| c), mm2(&sk.pass_to_rest.iter().map(|&(_, d)| d).collect::<Vec<_>>()), sk.pass_to_rest.len(), per_speed);
+        }
+        println!("the sensed park's presses (G1 17:49 (2)(a): only the arriving empty cart may press it): visits by presses {:?}; presses after RLS (or the release) {} (bar 0)", sk.sense_presses, sk.sense_after_rls);
+        if sk.sense_after_rls > 0 {
+            failed.push(format!("{} presses of the sensed park after RLS (G1 17:49 (2)(a): they would pre-set the next visit's PARKED)", sk.sense_after_rls));
+        }
+        // (G1 17:40: with OPEN's set on PARKED, the window's first open tick - the lie-down, bar
+        // >= 4 (the lie-down exclusion), per visit; the late lie-down rows are expected to fail)
+        if !sk.open_after_lie.is_empty() {
+            let v: Vec<i64> = sk.open_after_lie.iter().map(|&(_, d)| d).collect();
+            let mut per_speed: std::collections::BTreeMap<String, i64> = Default::default();
+            for &(s, d) in &sk.open_after_lie {
+                let e = per_speed.entry(format!("{s:.4}")).or_insert(i64::MAX);
+                *e = (*e).min(d);
+            }
+            let low = v.iter().filter(|&&d| d < 4).count();
+            println!("the window's first open tick - the lie-down (G1 17:40: bar >= 4, the lie-down exclusion): {} gt over {} visits; visits under 4: {low}; least per entry speed {:?}", mm2(&v), v.len(), per_speed);
+            if low > 0 && base.adopted.is_some() {
+                failed.push(format!("{low} visits with the window open less than 4 gt after the lie-down (G1 17:40)"));
+            }
+        }
+        println!("the boarding cooldown (ironspec 17:32 (3); tick-exact 17:39: 60 gt from the eject's dismount): (the cart's first tick in P after the release) - (the napper's cooldown end) {} gt over {} visits; the bar >= 2 after k + j = {} ({} placement: k {k}, j 0): {}; least per entry speed {:?}", least.map_or("none".to_string(), |l| format!("{l}..{}", ms.iter().max().unwrap())), ms.len(), 2 + k, if on_conv { "the convention" } else { "off the convention" }, if least.is_some_and(|l| l < 2 + k) { "FAILED" } else { "passes" }, per_speed);
+        if let Some(l) = least
+            && l < 2 + k
+        {
+            failed.push(format!("the cart reached P only {l} gt after the napper's boarding cooldown ended (ironspec 17:32 (3): >= 2 after k + j = {})", 2 + k));
+        }
+    }
+    if base.adopted.is_some() {
         if base.hurt_after_lie.is_none() && !base.block_p_at_wake {
             if sk.ad_no_open > 0 || sk.ad_no_rls > 0 {
                 failed.push(format!("the adopted controller: {} slept visits without OPEN, {} without RLS (normal operation: every one)", sk.ad_no_open, sk.ad_no_rls));
@@ -6087,11 +6291,14 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         if delta_ruled > i64::MIN {
             let terms = if base.adopted.is_some() { "the adopted controller's close and park".to_string() } else if base.latch.is_some() { "(superseded latch, before 15:37) its close and release".to_string() } else { format!("the stand-ins' release (--release-after {release_after}) and close (--close-after {})", base.close_after.max(1)) };
-            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake; ironspec 16:09's bar: a margin >= 13): {terms} leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", -delta_ruled);
-            // (ironspec 16:09: on the adopted wiring (the shutter closing at the wake press, the park
-            // at RLS + 8) the hold delta's margin is a bar: >= 13 gt)
-            if -delta_ruled < 13 {
-                failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (ironspec 16:09's bar: >= 13; the park releases at RLS + 8, about the wake + 20..28)", -delta_ruled));
+            // (ironspec 17:28 (5) / 17:32 (2)(a): the 14:15 requirement, margin >= 1 on the convention
+            // placement, >= 3 off it; the close = the shutter's first end-of-tick shut, the entry =
+            // the cart's first end-of-tick inside (-2,0,5))
+            let on_conv = base.offset[0].rem_euclid(16) == 6 && base.offset[2].rem_euclid(16) == 5;
+            let bar = if on_conv { 1 } else { 3 };
+            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first end-of-tick inside (-2,0,5) >= the shutter's first end-of-tick shut + 27 on every wake; the 14:15 requirement (ironspec 17:28 (5)): a margin >= 1 on the convention placement, >= 3 off it; this run {}: >= {bar}): {terms} leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged); against C + 20 (tick-exact 17:52: NEAREST_HOSTILE's clear at worst C + 19 after the shutter's flip C): {} gt", if on_conv { "on the convention" } else { "off the convention" }, -delta_ruled, -delta_ruled + 7);
+            if -delta_ruled < bar {
+                failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (the 14:15 requirement here: >= {bar})", -delta_ruled));
             }
         } else if waker_wakes > 0 {
             // (G1's N2: wakes with no (-2,0,5) entry after a close: the hold delta NOT JUDGED fails)
@@ -6515,6 +6722,22 @@ struct SkipTotals {
     ad_close: Vec<i64>,
     ad_rls: Vec<i64>,
     ad_park: Vec<i64>,
+    /// (G1 17:33) per visit: its entry speed and the park's rest (the first of the cart's 10 still
+    /// ticks) after ARM's edge
+    park_rest: Vec<(f64, i64)>,
+    /// (ironspec 17:32 (3)) per visit: its entry speed and (the cart's first tick in P after the
+    /// release) - (the napper's boarding-cooldown end)
+    board_cd: Vec<(f64, i64)>,
+    /// (ironspec 17:41: COOL's inputs) per visit: the eject (the napper's landing) after ARM's edge;
+    /// the park's release to the cart's first tick in P; (17:39) the sensed park's pass to the rest
+    eject_after_arm: Vec<i64>,
+    park_to_p: Vec<i64>,
+    pass_to_rest: Vec<(f64, i64)>,
+    /// (G1 17:49 (2)(a)) visits by their count of sensed-park presses; presses after RLS
+    sense_presses: std::collections::BTreeMap<usize, usize>,
+    sense_after_rls: usize,
+    /// (G1 17:40) per visit: the window's first open tick less the lie-down
+    open_after_lie: Vec<(f64, i64)>,
     ad_no_open: usize,
     ad_no_rls: usize,
     idle_targets: std::collections::BTreeMap<[i32; 3], usize>,
