@@ -46,13 +46,16 @@ pub struct Path {
     pub reached: bool,
     /// The object's identity (Java compares paths by reference: `this.path != newPath`).
     pub uid: u64,
+    /// (G1 Nov 14 03:33 (i)) Each node's type and malus when the search accepted the link to it, in
+    /// `nodes` order (the finder's record; empty for a path built elsewhere).
+    pub accepted: Vec<(PathType, f32)>,
 }
 
 impl Path {
     /// A path found by the finder, its identity `uid` drawn from its world ([`World::next_path_uid`]).
     pub fn new(nodes: Vec<PathNode>, target: BlockPos, reached: bool, uid: u64) -> Path {
         let dist_to_target = nodes.last().map(|n| n.distance_manhattan(target)).unwrap_or(f32::MAX);
-        Path { nodes, next_node_index: 0, target, dist_to_target, reached, uid }
+        Path { nodes, next_node_index: 0, target, dist_to_target, reached, uid, accepted: Vec::new() }
     }
 
     pub fn advance(&mut self) {
