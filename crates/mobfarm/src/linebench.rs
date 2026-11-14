@@ -139,12 +139,179 @@ fn table(sp: &FarmSpec, inputs: &[Input], expect: &[(String, bool)], read: P, se
     Ok(rows)
 }
 
+/// (day-1's drive-lines slice, Nov 14 11:34) The PULSE rows' options: each input driven as a pulse of `width` gt;
+/// `reload` adds a world open at every game tick of the pulse in every reload row; `target_at` (the interface's time of
+/// the consumer's rise, e.g. 67 for REL + 67) prints the back-computed time the input must rise at.
+#[derive(Clone, Copy, Debug)]
+pub struct PulseOpts {
+    pub width: i64,
+    pub reload: bool,
+    pub target_at: Option<i64>,
+}
+
+/// One pulse run's record: the consumer powered before the pulse, its rises and falls (game ticks counted from the
+/// settle's end: the tick in which it changed), and the world open's evidence when the run restarted.
+struct Pulse {
+    before: bool,
+    rises: Vec<i64>,
+    falls: Vec<i64>,
+    ev: Option<crate::liveness::RestartEvidence>,
+}
+
+/// One PULSE run, keyed on GAME time as ctlfeed's (a world open's idle ticks advance game time with nothing ticking):
+/// the inputs at `enable` but input `k` at its disabling state, settled `settle` gt; input `k` at its enabling state
+/// from game tick `t0` (counted from the settle's end; switched before that tick runs) until `t0 + width`; a world open
+/// `restart` at its game tick (a switch the open's idle ticks skip over happens before the first tick after them); the
+/// consumer read after every tick.
+#[allow(clippy::too_many_arguments)]
+fn pulse_run(sp: &FarmSpec, inputs: &[Input], enable: &[bool], k: usize, read: P, settle: i64, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<Pulse, String> {
+    let mut state = enable.to_vec();
+    state[k] = !enable[k];
+    let (before, mut run) = settled(sp, inputs, &state, read, settle)?;
+    let inp = &inputs[k];
+    let cell = BlockPos::new(inp.cell[0], inp.cell[1], inp.cell[2]);
+    let lit = block(if enable[k] { &inp.on } else { &inp.off })?;
+    let dark = block(if enable[k] { &inp.off } else { &inp.on })?;
+    let g0 = run.world.time;
+    let mut out = Pulse { before, rises: Vec::new(), falls: Vec::new(), ev: None };
+    let (mut lit_done, mut dark_done, mut rs_done, mut was) = (false, false, false, before);
+    loop {
+        let t = run.world.time - g0;
+        if t >= t0 + width + settle {
+            break;
+        }
+        if let Some((rt, how)) = restart
+            && !rs_done
+            && t >= rt
+        {
+            rs_done = true;
+            out.ev = Some(crate::liveness::restart_ev(&mut run.world, how)?);
+        }
+        let t = run.world.time - g0;
+        if !lit_done && t >= t0 {
+            lit_done = true;
+            run.world.set_block(cell, lit.clone(), redsim::world::flags::ALL);
+        }
+        if !dark_done && t >= t0 + width {
+            dark_done = true;
+            run.world.set_block(cell, dark.clone(), redsim::world::flags::ALL);
+        }
+        run.tick();
+        let t = run.world.time - g0 - 1;
+        let now = powered(&run, read)?;
+        if now && !was {
+            out.rises.push(t);
+        }
+        if !now && was {
+            out.falls.push(t);
+        }
+        was = now;
+    }
+    Ok(out)
+}
+
+/// (day-1's drive-lines slice, Nov 14 11:34, the pass bars: "each line's rise at its target against the interface's
+/// timing, at every phase; a world reload at every phase of each pulse") Each input driven as a PULSE of `o.width` gt
+/// (the other inputs at their enabling states) at `phases` phases: the consumer rises once and falls once at every
+/// phase, at one latency L (the gt from the input's change to the consumer's, the latency rows' k + 1), its pulse as
+/// wide as the input's; `o.target_at` prints the back-computed time the input must rise at. With `o.reload`, a world open
+/// (each `liveness::Restart::rows()` row: the save order, its reverse and 8 seeded orders, each with 1 and 2 idle ticks)
+/// at every game tick from the pulse's start through the consumer's fall + 1: one rise and one fall, each shifted by
+/// 0 ..= the open's idle ticks (nothing ticks in them, so a scheduled tick due inside them fires at the first ticking
+/// tick: ironspec 23:23), and every open's own evidence that it happened. Controls: the positive control's world never
+/// powers the consumer; a no-op restart's evidence reads "not happened".
+#[allow(clippy::too_many_arguments)]
+fn pulse_rows(sp: &FarmSpec, csp: &FarmSpec, inputs: &[Input], enable: &[bool], read: P, settle: i64, phases: i64, label: &str, o: &PulseOpts, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+    use std::collections::BTreeMap;
+    if o.width < 1 {
+        return Err(format!("--pulse {}: at least 1 gt", o.width));
+    }
+    let h = |m: &BTreeMap<i64, u32>| m.iter().map(|(k, n)| format!("{k}:{n}")).collect::<Vec<_>>().join(" ");
+    let mut lines = Vec::new();
+    for (k, inp) in inputs.iter().enumerate() {
+        let (mut rise_d, mut fall_d) = (BTreeMap::<i64, u32>::new(), BTreeMap::<i64, u32>::new());
+        let mut odd: Vec<String> = Vec::new();
+        for ph in 0..phases {
+            let p = pulse_run(sp, inputs, enable, k, read, settle, ph, o.width, None)?;
+            match (p.before, &p.rises[..], &p.falls[..]) {
+                (false, [r], [f]) => {
+                    *rise_d.entry(r - ph + 1).or_default() += 1;
+                    *fall_d.entry(f - ph - o.width + 1).or_default() += 1;
+                }
+                _ => odd.push(format!("phase {ph}: {}rises {:?}, falls {:?}", if p.before { "powered before the pulse; " } else { "" }, p.rises, p.falls)),
+            }
+        }
+        let once = v.bar_n(&format!("{label}: {}'s {}-gt pulse: the consumer rises once and falls once at every phase", inp.name, o.width), phases as usize, odd.is_empty());
+        let one = v.bar(&format!("{label}: {}'s pulse: one rise latency and one fall latency at every phase", inp.name), rise_d.len() == 1 && fall_d.len() == 1);
+        let wide = v.bar(&format!("{label}: the consumer's pulse as wide as {}'s ({} gt)", inp.name, o.width), rise_d.len() == 1 && rise_d.keys().eq(fall_d.keys()));
+        let d = if rise_d.len() == 1 { rise_d.keys().next().copied() } else { None };
+        let back = match (o.target_at, d) {
+            (Some(t), Some(d)) => format!("; the back-computation: the consumer's rise at {t} needs {}'s rise at {t} - {d} = {}", inp.name, t - d),
+            (Some(t), None) => format!("; the back-computation for {t}: no single latency (FAIL above)"),
+            _ => String::new(),
+        };
+        lines.push(format!(
+            "  the {}-gt PULSE of {} at {phases} phases (the other inputs enabling; L = the gt from the input's change to the consumer's, the latency rows' k + 1: the stand-in switched before tick t0, the consumer changed after tick t0 + L - 1): rise L (L:phases) {}, fall L {} (once per phase: {once}; one latency: {one}; as wide: {wide}){}{back}",
+            o.width,
+            inp.name,
+            h(&rise_d),
+            h(&fall_d),
+            if odd.is_empty() { String::new() } else { format!("; odd phases: {}", odd.join("; ")) }
+        ));
+        let mut live = 0usize;
+        for ph in 0..phases {
+            let p = pulse_run(csp, inputs, enable, k, read, settle, ph, o.width, None)?;
+            live += usize::from(p.before || !p.rises.is_empty());
+        }
+        let cw = v.control(&format!("{label}: the positive control kills {}'s pulse at every phase", inp.name), phases as usize, live == 0);
+        lines.push(format!("    the positive control's world: the consumer powered in {live} of {phases} phases ({cw})"));
+        if !o.reload {
+            continue;
+        }
+        let (Some(dr), Some(df)) = (d, if fall_d.len() == 1 { fall_d.keys().next().copied() } else { None }) else {
+            v.fail(&format!("{label}: {}'s world opens: NOT JUDGED: no single baseline pulse to compare", inp.name));
+            lines.push("    the world opens: NOT JUDGED: no single baseline pulse to compare (FAIL)".to_string());
+            continue;
+        };
+        let (rise_t, fall_t) = (dr - 1, o.width + df - 1);
+        let rows = crate::liveness::Restart::rows();
+        let (mut runs, mut not_open) = (0usize, 0usize);
+        let mut wrong: Vec<String> = Vec::new();
+        let mut shifts = BTreeMap::<(i64, i64), u32>::new();
+        for how in &rows {
+            let n = how.load_ticks();
+            for rt in 0..=fall_t + 1 {
+                let p = pulse_run(sp, inputs, enable, k, read, settle, 0, o.width, Some((rt, *how)))?;
+                runs += 1;
+                not_open += usize::from(!p.ev.as_ref().is_some_and(|e| e.happened()));
+                match (p.before, &p.rises[..], &p.falls[..]) {
+                    (false, [r], [f]) if (0..=n).contains(&(r - rise_t)) && (0..=n).contains(&(f - fall_t)) => *shifts.entry((r - rise_t, f - fall_t)).or_default() += 1,
+                    _ => wrong.push(format!("{} at tick {rt}: rises {:?}, falls {:?}", how.label(), p.rises, p.falls)),
+                }
+            }
+        }
+        let ww = v.bar_n(&format!("{label}: a world open at every tick of {}'s pulse in every reload row: one rise and one fall, each shifted by at most the open's idle ticks", inp.name), runs, wrong.is_empty());
+        let wo = v.bar_n(&format!("{label}: every world open in {}'s rows happened (chunks out and back, every scheduled tick back)", inp.name), runs, not_open == 0);
+        let noop = crate::liveness::with_noop_restart(|| pulse_run(sp, inputs, enable, k, read, settle, 0, o.width, Some((rise_t, rows[0]))))?;
+        let nc = v.control(&format!("{label}: a no-op restart in {}'s pulse reads not happened", inp.name), 1, !noop.ev.as_ref().is_some_and(|e| e.happened()));
+        lines.push(format!(
+            "    the world opens ({} reload rows x game ticks 0..={} of the pulse = {runs} runs; the baseline's rise in tick {rise_t}, fall in tick {fall_t}): (rise shift, fall shift):runs {}; {} wrong ({ww}); every open happened: {wo} (CONTROL a no-op restart: {nc}){}",
+            rows.len(),
+            fall_t + 1,
+            shifts.iter().map(|((a, b), n)| format!("({a},{b}):{n}")).collect::<Vec<_>>().join(" "),
+            wrong.len(),
+            if wrong.is_empty() { String::new() } else { format!("; the first wrong: {}", wrong.iter().take(5).cloned().collect::<Vec<_>>().join("; ")) }
+        ));
+    }
+    Ok(lines)
+}
+
 fn row_text(inputs: &[Input], state: &[bool]) -> String {
     inputs.iter().zip(state).map(|(i, &s)| format!("{}{}", if s { "" } else { "!" }, i.name)).collect::<Vec<_>>().join(" ")
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P, String)], control: &[(P, String)], expect: &str, probes: &[P], reach: &[P], declared: &[P], settle: i64, phases: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P, String)], control: &[(P, String)], expect: &str, probes: &[P], reach: &[P], declared: &[P], settle: i64, phases: i64, pulse: Option<&PulseOpts>, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let ex = parse_expect(expect);
     for (name, _) in &ex {
         if !inputs.iter().any(|i| &i.name == name) {
@@ -333,5 +500,57 @@ pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P
         cov_w.join("; "),
         crows.len()
     ));
+    if let Some(o) = pulse {
+        lines.extend(pulse_rows(&sp, &csp, inputs, &enable, read, settle, phases, label, o, v)?);
+    }
     Ok(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A two-repeater line: the stand-in A (0,1,0) -> repeater[facing=west] (1,1,0) -> dust (2,1,0) -> repeater[facing=west]
+    /// (3,1,0) -> its strongly powered slime (4,1,0) -> the powered rail (4,2,0) on it (the drive lines' line A in small).
+    fn line() -> FarmSpec {
+        let b = BlockPos::new;
+        let mut cells: Vec<(BlockPos, &str)> = (-1..=6).map(|x| (b(x, 0, 0), "minecraft:stone")).collect();
+        cells.push((b(1, 1, 0), "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"));
+        cells.push((b(2, 1, 0), "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"));
+        cells.push((b(3, 1, 0), "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"));
+        cells.push((b(4, 1, 0), "minecraft:slime_block"));
+        cells.push((b(4, 2, 0), "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]"));
+        let blocks = cells.iter().map(|(p, s)| (*p, Block::parse(s).unwrap())).collect();
+        FarmSpec { blocks, entities: Vec::new(), output: b(6, 3, 1), lo: b(-2, -1, -2), hi: b(7, 4, 2), block_entities: Vec::new(), rock: false, nether: None, land: false }
+    }
+
+    fn a() -> Vec<Input> {
+        vec![parse_input("A=0,1,0=redstone_block/air").unwrap()]
+    }
+
+    /// (day-1's drive-lines slice, Nov 14 11:34) The 12-gt pulse reaches the rail once per phase at one latency (two
+    /// repeaters: 4 gt), as wide as the input's; the back-computation prints 67 - 4; a world open at every tick of the
+    /// pulse in every reload row keeps one rise and one fall, each shifted by at most the open's idle ticks; the
+    /// controls bite (the dust removed kills the pulse; a no-op restart reads not happened).
+    #[test]
+    fn a_pulse_reaches_the_consumer_once_at_one_latency_and_every_world_open_keeps_it() {
+        let mut v = crate::verdict::Verdict::new("t");
+        let o = PulseOpts { width: 12, reload: true, target_at: Some(67) };
+        let lines = bench(&line(), "t", &a(), [4, 2, 0], &[], &[([2, 1, 0], "air".to_string())], "A", &[], &[], &[], 20, 3, Some(&o), &mut v).unwrap();
+        let all = lines.join("\n");
+        assert!(v.fails().is_empty(), "{:?}\n{all}", v.fails());
+        assert!(all.contains("rise L (L:phases) 4:3, fall L 4:3"), "{all}");
+        assert!(all.contains("needs A's rise at 67 - 4 = 63"), "{all}");
+        assert!(all.contains("= 340 runs") && all.contains("0 wrong (pass)"), "{all}");
+        assert!(all.contains("(CONTROL a no-op restart: the control bites)"), "{all}");
+    }
+
+    /// The width bar can fail: a 1-gt pulse comes out of a delay-1 repeater 2 gt wide.
+    #[test]
+    fn a_pulse_shorter_than_a_repeater_fails_the_width_bar() {
+        let mut v = crate::verdict::Verdict::new("t");
+        let o = PulseOpts { width: 1, reload: false, target_at: None };
+        let lines = bench(&line(), "t", &a(), [4, 2, 0], &[], &[([2, 1, 0], "air".to_string())], "A", &[], &[], &[], 20, 3, Some(&o), &mut v).unwrap();
+        assert!(v.fails().iter().any(|f| f.contains("as wide as A's (1 gt)")), "{:?}\n{}", v.fails(), lines.join("\n"));
+    }
 }

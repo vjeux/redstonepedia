@@ -297,6 +297,21 @@ pub enum MobfarmCmd {
         /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
         #[arg(long)]
         report_only: bool,
+        /// (day-1's drive-lines slice, Nov 14 11:34: "each line's rise at its target against the interface's timing, at
+        /// every phase") Drive each input as a PULSE of this many gt (the other inputs enabling) at --phases phases: the
+        /// consumer rises once and falls once per phase, at one latency, its pulse as wide as the input's; the positive
+        /// control's world must never power it.
+        #[arg(long)]
+        pulse: Option<i64>,
+        /// (the same slice: "a world reload at every phase of each pulse") With --pulse: a world open at every game tick
+        /// from the pulse's start through the consumer's fall + 1 in every reload row (10 load orders x 1 and 2 idle
+        /// ticks): one rise and one fall, each shifted by at most the open's idle ticks; every open happened.
+        #[arg(long)]
+        reload: bool,
+        /// With --pulse: the interface's time of the consumer's rise (e.g. 67 for REL + 67): prints the time the input
+        /// must rise at (the back-computation through the line's measured latency).
+        #[arg(long)]
+        target_at: Option<i64>,
     },
     /// (ironspec 15:23 (3), 18:06 (3), 18:40 (4)/(5)) The cycle start's least REL-to-REL interval and phase lock
     /// (`ctlchain.rs`): P from the golem pulse or the watchdog; the chain as built, B held 100 gt with a
@@ -13885,7 +13900,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::LineBench { design, label, input, read, set, control, expect, probe, reach, settle, phases, declare, report_only } => {
+        MobfarmCmd::LineBench { design, label, input, read, set, control, expect, probe, reach, settle, phases, declare, report_only, pulse, reload, target_at } => {
+            anyhow::ensure!(pulse.is_some() || (!reload && target_at.is_none()), "--reload and --target-at judge a pulse: give --pulse W");
+            let pulse = pulse.map(|width| crate::linebench::PulseOpts { width, reload, target_at });
             let (_c, spec) = load(version, &design)?;
             let inputs: Vec<crate::linebench::Input> = input.iter().map(|s| crate::linebench::parse_input(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let read = crate::linebench::parse_cell(&read).map_err(|e| anyhow::anyhow!(e))?;
@@ -13897,7 +13914,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let declared = cells(&declare)?;
             println!("{}", design.display());
             let mut v = crate::verdict::Verdict::new("line-bench");
-            for l in crate::linebench::bench(&spec, &label, &inputs, read, &sets, &control, &expect, &probes, &reach, &declared, settle, phases, &mut v).map_err(|e| anyhow::anyhow!(e))? {
+            for l in crate::linebench::bench(&spec, &label, &inputs, read, &sets, &control, &expect, &probes, &reach, &declared, settle, phases, pulse.as_ref(), &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
