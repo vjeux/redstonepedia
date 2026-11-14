@@ -363,33 +363,39 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
                 p.nodes.len(),
                 p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
             ));
-            // (ironspec Nov 14 00:48: each step's height between the nodes' floors, the largest rise and drop,
-            // and the last step: a final drop over 1.125 no walker climbs back. A node's floor: 26.3's
-            // getFloorLevel (the top of the shape in the cell below, its y when that cell is empty), except
-            // a node whose own cell holds a shape up to its top (a top-half trapdoor cap), walked on that top)
-            let floor_of = |n: &redsim::entity::mob::ai::path::path::PathNode| -> f64 {
+            // (ironspec Nov 14 00:48, G1 01:07: each step's height between the nodes' floors, two ways: the
+            // PATHFINDER's floor, 26.3's getFloorLevel (the top of the shape in the cell below, that cell's own
+            // y when it is empty; the node's own cell ignored), which the search used; and the PHYSICAL
+            // standing height (a node whose own cell holds a shape stands on that shape's top: a top-half
+            // trapdoor cap the evaluator types TRAPDOOR, a slab), what a villager can actually stand at;
+            // every node where the two differ is flagged "pathfinder-only")
+            let pf_floor = |n: &redsim::entity::mob::ai::path::path::PathNode| -> f64 {
                 let c = BlockPos::new(n.x, n.y, n.z);
-                let own = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
-                if own >= 16 {
-                    return n.y as f64 + 1.0;
-                }
-                if own > 0 {
-                    return n.y as f64 + own as f64 / 16.0;
-                }
                 let below = redsim::behavior::collision_boxes(&w.get(c.below())).iter().map(|b| b[3]).max().unwrap_or(0);
                 (n.y - 1) as f64 + below as f64 / 16.0
             };
-            let floors: Vec<f64> = p.nodes.iter().map(floor_of).collect();
-            let steps: Vec<f64> = floors.windows(2).map(|f| f[1] - f[0]).collect();
-            if !steps.is_empty() {
+            let phys_floor = |n: &redsim::entity::mob::ai::path::path::PathNode| -> f64 {
+                let own = redsim::behavior::collision_boxes(&w.get(BlockPos::new(n.x, n.y, n.z))).iter().map(|b| b[3]).max().unwrap_or(0);
+                if own > 0 { n.y as f64 + own as f64 / 16.0 } else { pf_floor(n) }
+            };
+            let say_steps = |floors: &[f64]| -> (String, f64, f64, f64) {
+                let steps: Vec<f64> = floors.windows(2).map(|f| f[1] - f[0]).collect();
                 let rise = steps.iter().copied().fold(f64::MIN, f64::max);
                 let drop = steps.iter().copied().fold(f64::MAX, f64::min);
-                let last = steps[steps.len() - 1];
+                (steps.iter().map(|s| format!("{s:+.4}")).collect::<Vec<_>>().join(" "), rise, drop, steps.last().copied().unwrap_or(0.0))
+            };
+            if p.nodes.len() >= 2 {
+                let pf: Vec<f64> = p.nodes.iter().map(pf_floor).collect();
+                let ph: Vec<f64> = p.nodes.iter().map(phys_floor).collect();
+                let (s1, r1, d1, l1) = say_steps(&pf);
+                let (s2, r2, d2, l2) = say_steps(&ph);
+                lines.push(format!("  steps, the pathfinder's floors (26.3 getFloorLevel, what the search used): {s1}; the largest rise {r1:+.4}, the largest drop {d1:+.4}; the last step {l1:+.4}"));
                 lines.push(format!(
-                    "  steps (floor to floor): {}; the largest rise {rise:+.4}, the largest drop {drop:+.4}; the last step {last:+.4}{}",
-                    steps.iter().map(|s| format!("{s:+.4}")).collect::<Vec<_>>().join(" "),
-                    if -last > 1.125 { " (a drop over 1.125: no walker climbs back)" } else { "" }
+                    "  steps, the physical standing heights: {s2}; the largest rise {r2:+.4}, the largest drop {d2:+.4}; the last step {l2:+.4}{}",
+                    if -l2 > 1.125 { " (a drop over 1.125)" } else { "" }
                 ));
+                let only: Vec<String> = p.nodes.iter().zip(pf.iter().zip(&ph)).filter(|(_, (a, b))| (*a - *b).abs() > 1e-9).map(|(n, (a, b))| format!("{},{},{} (pathfinder {a:.4}, physical {b:.4})", n.x, n.y, n.z)).collect();
+                lines.push(format!("  pathfinder-only nodes (the two floors differ: the search's reach there may not be physical): {}", if only.is_empty() { "none".to_string() } else { only.join(", ") }));
             }
         }
     }
@@ -10356,7 +10362,7 @@ mod gate_tests {
         };
         let (lb, rb) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(matches!(rb, super::Reach::Reached { .. }) && lb[1].contains("REACHED"), "the bed-top step-up: {lb:?}");
-        assert!(lb.iter().any(|l| l.starts_with("  steps (floor to floor):") && l.contains("the largest rise +0.5625")), "the step's height: {lb:?}");
+        assert!(lb.iter().any(|l| l.starts_with("  steps, the physical standing heights:") && l.contains("the largest rise +0.5625")) && lb.iter().any(|l| l == "  pathfinder-only nodes (the two floors differ: the search's reach there may not be physical): none"), "the step's height: {lb:?}");
         // (part 32) a top-half trapdoor cap the path crosses is walked on its top: a corridor (walls 3 high)
         // with a closed top-half trapdoor in it: up 1.0 onto its top, down 1.0 off it
         let mut cb = Vec::new();
@@ -10373,7 +10379,13 @@ mod gate_tests {
         cb.push((b(3, 1, 2), p("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
         let cap = redsim::entity::mob::farm::FarmSpec { blocks: cb, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
         let (lc, rc) = super::standing_path_probe(&cap, v(1.5, 1.0, 2.5), b(5, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
-        assert!(matches!(rc, super::Reach::Reached { .. }) && lc.iter().any(|l| l.starts_with("  steps (floor to floor):") && l.contains("the largest rise +1.0000, the largest drop -1.0000")), "over the cap: {lc:?}");
+        assert!(
+            matches!(rc, super::Reach::Reached { .. })
+                && lc.iter().any(|l| l.starts_with("  steps, the pathfinder's floors") && l.contains("the largest rise +0.0000, the largest drop +0.0000"))
+                && lc.iter().any(|l| l.starts_with("  steps, the physical standing heights:") && l.contains("the largest rise +1.0000, the largest drop -1.0000"))
+                && lc.iter().any(|l| l.contains("pathfinder-only nodes") && l.contains("3,1,2 (pathfinder 1.0000, physical 2.0000)")),
+            "over the cap: {lc:?}"
+        );
         let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(rg == super::Reach::Unreachable && lg[1].contains("PROVED UNREACHABLE"), "a full block two above the head: {lg:?}");
         // (tick-exact Nov 14 00:21: the bounds overridden) the step-up under follow range 16 / 256 too, the
