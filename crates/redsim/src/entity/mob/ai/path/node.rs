@@ -70,11 +70,15 @@ pub struct Node {
     pub walked_distance: f32,
     pub cost_malus: f32,
     pub ty: PathType,
+    /// (G1 Nov 14 03:33 (i)) The type and malus the node had when the search last accepted a link to it
+    /// (its `cameFrom` set); not in 26.3's `Node`: a record for the statics.
+    pub acc_ty: PathType,
+    pub acc_malus: f32,
 }
 
 impl Node {
     pub fn new(x: i32, y: i32, z: i32) -> Node {
-        Node { x, y, z, hash: create_hash(x, y, z), heap_idx: -1, g: 0.0, h: 0.0, f: 0.0, came_from: NONE, closed: false, walked_distance: 0.0, cost_malus: 0.0, ty: PathType::Blocked }
+        Node { x, y, z, hash: create_hash(x, y, z), heap_idx: -1, g: 0.0, h: 0.0, f: 0.0, came_from: NONE, closed: false, walked_distance: 0.0, cost_malus: 0.0, ty: PathType::Blocked, acc_ty: PathType::Blocked, acc_malus: 0.0 }
     }
 
     /// `distanceTo(Node)`: the float distance.

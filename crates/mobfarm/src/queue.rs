@@ -12697,7 +12697,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     && let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind
                     && let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref())
                     && x.mem.walk_target.is_some()
-                    && x.mem.path.as_ref().is_some_and(|p| p.reached)
+                    && x.mem.path.as_ref().is_some_and(crate::fleecheck::completes)
                 {
                     let rp = run.world.entities.list[i].pos;
                     let near = carts.iter().filter(|id| pos_of(&run.world, **id).is_some_and(|p| ((p.x - rp.x).powi(2) + (p.z - rp.z).powi(2)).sqrt() < 1.05 && (p.y - rp.y).abs() < 1.2)).count();
@@ -13238,7 +13238,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     exposed.push(format!("e{k} at {:.1},{:.1},{:.1} ({streak} gt)", p.x, p.y, p.z));
                     if tm.exposure_log {
                         let path = match &x.mem.path {
-                            Some(pp) if pp.reached => "reaching",
+                            Some(pp) if crate::fleecheck::completes(pp) => "reaching",
                             Some(_) => "partial",
                             None => "none",
                         };
@@ -13264,7 +13264,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             for (i, home, cell) in probe {
                 let reach = redsim::entity::mob::ai::with_nav(&mut run.world, i, |w, nm, nav, arena| {
                     let mut copy = nav.clone();
-                    copy.create_path_positions(w, nm, &[home], 1, arena).is_some_and(|p| p.reached)
+                    copy.create_path_positions(w, nm, &[home], 1, arena).is_some_and(|p| crate::fleecheck::completes(&p))
                 });
                 if reach && let Some(e) = expose_map.get_mut(&cell) {
                     e.3 += 1;
