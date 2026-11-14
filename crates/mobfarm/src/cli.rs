@@ -17868,10 +17868,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if chest || how.is_some() || !meta.is_empty() {
                 let text = std::fs::read_to_string(&design)?;
                 let out = crate::layouts::edit_meta(&text, chest, how.as_deref(), &meta)?;
-                // (part 58) the meta path keeps every `#` line, else the edit fails by name
-                let lost = crate::layouts::lost_comment_lines(&text, &out, false);
-                anyhow::ensure!(lost.is_empty(), "edit (meta): {} `#` line(s) not carried (nothing silently dropped): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
-                std::fs::write(&design, out)?;
+                // (G1 Nov 14 09:47 (1), part 70) the meta path reads back what it writes inside `edit_meta` (each key as
+                // set, cells / ports / entities unchanged, every untouched line at its place); the written file read back
+                std::fs::write(&design, &out)?;
+                let back = std::fs::read_to_string(&design)?;
+                anyhow::ensure!(back == out, "edit (meta): the written file differs from the composed text");
             }
             println!("{}", design.display());
         }

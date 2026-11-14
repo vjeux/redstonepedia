@@ -122,17 +122,18 @@ pub enum BlankRows {
     Air,
 }
 
-/// One design line, read the same way by [`Design::parse_with`] and [`interior_blank_rows`] (one
-/// classifier, so the parser and the scan can't drift; G1's note on a02552068): whitespace only;
-/// a comment only ('#' starts a comment except on an indented line inside a layer, where it can
-/// be a palette char); or text, its comment cut off.
-enum LineKind<'a> {
+/// One design line, read the same way by [`Design::parse_with`], [`interior_blank_rows`] and `mobfarm edit`'s
+/// in-place patch (one classifier, so the parser and its readers can't drift; G1's note on a02552068, G1 Nov 14 09:47):
+/// whitespace only; a comment only ('#' starts a comment except on an indented line inside a layer, where it can be a
+/// palette char); or text, its comment cut off.
+pub enum LineKind<'a> {
     Blank,
     Comment,
     Text(&'a str),
 }
 
-fn line_kind(raw: &str, in_layer: bool) -> LineKind<'_> {
+/// The classifier of [`LineKind`]: `in_layer` when the line sits in a layer or a Nether layer.
+pub fn line_kind(raw: &str, in_layer: bool) -> LineKind<'_> {
     if raw.trim().is_empty() {
         return LineKind::Blank;
     }

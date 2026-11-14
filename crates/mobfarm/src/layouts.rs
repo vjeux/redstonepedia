@@ -4,6 +4,9 @@
 use mctas::design::{Design, EntitySpec};
 use std::collections::BTreeMap;
 
+// (G1 Nov 14 09:47, part 70) the in-place edit, with the parser's own line classifier: `editpatch`
+pub use crate::editpatch::{Patched, patch_cells, readback_patch};
+
 /// A design under construction.
 pub struct Builder {
     pub d: Design,
@@ -117,71 +120,11 @@ pub fn edit(text: &str, chest: bool, how: Option<&str>) -> anyhow::Result<String
 /// [`edit`], and each `key=value` of `meta` set as a meta line (`sample=village-edge`: judge a
 /// void design in that terrain sample; an empty value removes the line).
 pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) -> anyhow::Result<String> {
-    // (G1 Nov 14 08:52 (1), part 68) the meta path edits the text IN PLACE: a key's own line replaced (its inline
-    // `# note` kept), removed for an empty value, or a new line added after the head's last key line; the chest set by
-    // `patch_cells`; nothing re-serialized, every other line kept byte for byte where it was
-    let mut lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
-    let head_end = lines.iter().position(|l| {
-        let t = l.trim_end();
-        t == "palette:" || t.starts_with("origin:") || t.starts_with("layer ") || t.starts_with("nether layer ")
-    });
-    let head_end = head_end.unwrap_or(lines.len());
-    let mut kvs: Vec<(String, String)> = Vec::new();
-    for kv in meta {
-        let (k, v) = kv.split_once('=').ok_or_else(|| anyhow::anyhow!("--meta {kv:?}: not key=value"))?;
-        kvs.push((k.trim().to_string(), v.trim().to_string()));
-    }
-    if let Some(h) = how {
-        kvs.push(("how".to_string(), h.to_string()));
-    }
-    for (k, v) in &kvs {
-        anyhow::ensure!(!k.is_empty() && !k.contains(':') && !k.starts_with('#') && k != "name" && k != "origin" && !k.starts_with("port ") && k != "entity" && k != "nbt", "--meta {k}: not a meta key this path edits");
-        let is_key = |l: &str| !l.starts_with(' ') && !l.trim_start().starts_with('#') && l.split_once(':').is_some_and(|(lk, _)| lk.trim() == k);
-        let at = lines[..head_end.min(lines.len())].iter().position(|l| is_key(l));
-        match (at, v.is_empty()) {
-            (Some(i), true) => {
-                lines.remove(i);
-            }
-            (Some(i), false) => {
-                let note = lines[i].find('#').map(|j| format!(" {}", lines[i][j..].trim_end())).unwrap_or_default();
-                lines[i] = format!("{k}: {v}{note}");
-            }
-            (None, true) => anyhow::bail!("--meta {k}=: the design has no `{k}:` line to remove"),
-            (None, false) => {
-                let end = lines.iter().position(|l| {
-                    let t = l.trim_end();
-                    t == "palette:" || t.starts_with("origin:") || t.starts_with("layer ") || t.starts_with("nether layer ")
-                });
-                let end = end.unwrap_or(lines.len());
-                let last_key = lines[..end].iter().rposition(|l| !l.starts_with(' ') && !l.trim_start().starts_with('#') && !l.trim().is_empty() && l.contains(':'));
-                lines.insert(last_key.map(|i| i + 1).unwrap_or(end), format!("{k}: {v}"));
-            }
-        }
-    }
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    if chest {
-        let d = Design::parse(&out)?;
-        let port = *d.ports.get("output").ok_or_else(|| anyhow::anyhow!("no `port output` for the chest"))?;
-        match d.blocks.get(&port) {
-            None => {
-                let mut want = d.blocks.clone();
-                want.insert(port, CHEST.to_string());
-                let p = patch_cells(&out, &[(port, CHEST.to_string())])?;
-                readback_patch(&out, &p, &want)?;
-                out = p.text;
-            }
-            Some(s) if s.trim_start_matches("minecraft:").starts_with("chest[") => {}
-            Some(s) => anyhow::bail!("port output {port:?} holds {s}"),
-        }
-    }
-    // (part 68) the meta path keeps every `#` line, read back
-    let lost = lost_comment_lines(text, &out, false);
-    anyhow::ensure!(lost.is_empty(), "edit (meta): {} `#` line(s) not carried: {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
-    Ok(out)
+    // (G1 Nov 14 08:52 (1) / 09:47 (1), parts 68 / 70) the meta path edits the text IN PLACE with the parser's own
+    // classifier (a key's LAST line, as the parser reads it), reads back what it wrote (`editpatch::edit_meta_text`)
+    crate::editpatch::edit_meta_text(text, chest, how, meta, CHEST)
 }
+
 
 /// (ironspec Nov 13 23:53: V judged with a re-laid part; G1 Nov 14 00:40b P1 / P4) A composed part swapped
 /// in a design's cells: every cell `old` holds, moved by `off`, is cleared where the design still holds
@@ -502,23 +445,30 @@ pub fn edit_swap(original: &str, swaps: &[(String, String, [i32; 3])]) -> anyhow
         let (o, rep, touched) = swap_declarations(&out, new_text, &old_cells, *off).map_err(|e| anyhow::anyhow!(e))?;
         lines.push(format!("declarations: {} dropped (the old part's), {} carried (the new part's, moved by {},{},{})", rep.iter().filter(|l| l.starts_with("  dropped")).count(), rep.iter().filter(|l| l.starts_with("  carried")).count(), off[0], off[1], off[2]));
         lines.extend(rep);
+        // (G1 09:47 (1), part 70) the declarations step read back LINE BY LINE: the text after it is the text before it
+        // with exactly the reported lines replaced or removed and the new ones put in, every other line kept in order
+        let mut have: BTreeMap<&str, usize> = BTreeMap::new();
+        for l in out.lines() {
+            *have.entry(l).or_insert(0) += 1;
+        }
+        let written: Vec<String> = o
+            .lines()
+            .filter(|l| match have.get_mut(l) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    false
+                }
+                _ => true,
+            })
+            .map(|l| l.to_string())
+            .collect();
+        crate::editpatch::check_declarations_step(&out, &o, &touched, &written)?;
         touched_all.extend(touched);
         out = o;
     }
-    // (G1 08:52 (3), part 68) every `#` line of the original is carried but exactly the declaration lines the swap
-    // reports it rewrote or dropped
-    let mut waived = touched_all.clone();
-    let lost: Vec<String> = lost_comment_lines(original, &out, false)
-        .into_iter()
-        .filter(|l| match waived.iter().position(|w| w == l) {
-            Some(i) => {
-                waived.remove(i);
-                false
-            }
-            None => true,
-        })
-        .collect();
-    anyhow::ensure!(lost.is_empty(), "edit --swap-part: {} `#` line(s) not carried that the swap didn't rewrite (nothing silently dropped): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
+    // (G1 08:52 (3) / 09:47, parts 68 / 70) every `#` line of the original is carried but exactly the declaration lines
+    // the swap reports it rewrote or dropped
+    crate::editpatch::check_carried(original, &out, &touched_all)?;
     let back = Design::parse(&out)?;
     anyhow::ensure!(back.blocks == d.blocks, "swap read-back: the composed text's cells differ from the composed cells");
     for (old_d, new_d, off) in &parts {
@@ -634,6 +584,7 @@ mod swap_part_tests {
 /// followed in `orig` (that line's same occurrence in `new`; the leading caption at the top); a
 /// run whose line is gone from `new` goes after the caption, counted as moved. Returns the text,
 /// the comment lines kept in place and those moved.
+#[cfg(test)]
 pub fn keep_comments(orig: &str, new: &str) -> (String, usize, usize) {
     // (each comment run: the non-comment line before it and that line's occurrence index)
     let mut runs: Vec<(Option<(String, usize)>, Vec<&str>)> = Vec::new();
@@ -705,6 +656,7 @@ pub fn keep_comments(orig: &str, new: &str) -> (String, usize, usize) {
 
 /// (ironspec / G1 Nov 14 07:31r, part 58) A design text's palette, in its file order: (char, state) from the
 /// `palette:` block's indented lines.
+#[cfg(test)]
 fn palette_of(text: &str) -> Vec<(char, String)> {
     let mut out = Vec::new();
     let mut inp = false;
@@ -733,6 +685,8 @@ fn palette_of(text: &str) -> Vec<(char, String)> {
 /// characters kept: each state the original names keeps its character (in the original's order), a new state takes
 /// a character the original doesn't use, and every layer row is re-lettered to match, so an edit leaves every row of
 /// a layer it doesn't touch byte for byte as it was (the plain re-serialization re-letters the whole palette).
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn stable_palette(original: &str, generated: &str) -> String {
     let orig = palette_of(original);
     let gen_p = palette_of(generated);
@@ -829,6 +783,7 @@ pub fn stable_palette(original: &str, generated: &str) -> String {
 
 /// (ironspec 08:00r, part 58) The head lines (before `origin:` / `palette:`, `#` lines aside) of `original` that `out`
 /// still holds but in another order: a gratuitous re-ordering (the re-serializer sorts the meta) fails by name.
+#[cfg(test)]
 pub fn reordered_head(original: &str, out: &str) -> Vec<String> {
     let head = |t: &str| -> Vec<String> {
         let end = t.lines().position(|l| l.starts_with("origin:") || l.trim_end() == "palette:").unwrap_or(0);
@@ -852,7 +807,9 @@ pub fn reordered_head(original: &str, out: &str) -> Vec<String> {
 /// rows, the palette's other entries) is kept byte for byte, in place. A cell outside the design's layers (the edit
 /// would move its origin or add a layer) or in a Nether layer is refused by name. Returns the text and the lines it
 /// changed (0-based, in the result).
-pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Result<Patched> {
+#[cfg(test)]
+#[allow(dead_code)]
+fn patch_cells_v68(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Result<Patched> {
     let lines: Vec<String> = original.lines().map(|l| l.to_string()).collect();
     let comment = |l: &str| l.trim_start().starts_with('#') && !l.starts_with("  ");
     // the origin and the palette (char -> state, first char per state; the last entry's line)
@@ -1024,16 +981,6 @@ pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Re
     Ok(Patched { text: out, changed, inserted, removed })
 }
 
-/// (part 68) A text [`patch_cells`] wrote: the rows it changed and the lines it inserted (0-based in `text`: new
-/// palette entries, a grown layer's rows, a new layer), and the original lines it removed (0-based in the original: a
-/// palette entry the edit left unused).
-pub struct Patched {
-    pub text: String,
-    pub changed: Vec<usize>,
-    pub inserted: Vec<usize>,
-    pub removed: Vec<usize>,
-}
-
 /// (ironspec / G1 Nov 14 07:31r, part 58; G1 08:52, part 68) `mobfarm edit --set`'s text edit, as one function the CLI
 /// and the tests share: each `x,y,z=state` applied (an edit that leaves its cell as it was is refused, ironspec Nov 13
 /// 04:07) IN PLACE by [`patch_cells`] (never re-serialized: every `#` line, inline note, head line and untouched row
@@ -1075,7 +1022,9 @@ pub fn edit_set_text(original: &str, sets: &[String]) -> anyhow::Result<(String,
 /// (G1 Nov 14 08:52 (2)/(4), part 68) A patched text read back: its cells equal `want`, and, the inserted palette lines
 /// skipped, every line equals the original's at the same place unless it is a row the patch changed; else the edit
 /// fails by name.
-pub fn readback_patch(original: &str, p: &Patched, want: &BTreeMap<[i32; 3], String>) -> anyhow::Result<()> {
+#[cfg(test)]
+#[allow(dead_code)]
+fn readback_patch_v68(original: &str, p: &Patched, want: &BTreeMap<[i32; 3], String>) -> anyhow::Result<()> {
     let back = Design::parse(&p.text)?;
     anyhow::ensure!(&back.blocks == want, "edit read-back: the written text's cells differ from the composed ones ({} vs {} cells)", back.blocks.len(), want.len());
     let orig: Vec<&str> = original.lines().enumerate().filter(|(i, _)| !p.removed.contains(i)).map(|(_, l)| l).collect();
@@ -1089,6 +1038,7 @@ pub fn readback_patch(original: &str, p: &Patched, want: &BTreeMap<[i32; 3], Str
 
 /// (ironspec / G1 Nov 14 07:31r, part 58) `mobfarm edit --set`'s former text edit (re-serialized), kept for the guards'
 /// own controls.
+#[cfg(test)]
 #[allow(dead_code)]
 fn edit_set_text_reserialized(original: &str, sets: &[String]) -> anyhow::Result<(String, Vec<String>)> {
     let mut d = Design::parse(original)?;
@@ -1141,6 +1091,7 @@ fn edit_set_text_reserialized(original: &str, sets: &[String]) -> anyhow::Result
 /// (ironspec / G1 Nov 14 07:31r, part 58) The `#` lines of `original` that `out` no longer holds (a multiset), but the
 /// declaration lines a part swap rewrites (`# <key>:` for a key of [`crate::declkeys::COMMENT_KEYS`]): the meta and
 /// swap paths' guard.
+#[cfg(test)]
 pub fn lost_comment_lines(original: &str, out: &str, allow_declarations: bool) -> Vec<String> {
     let mut have: BTreeMap<&str, usize> = BTreeMap::new();
     for l in out.lines().filter(|l| l.starts_with('#')) {
@@ -1270,11 +1221,15 @@ mod edit_integrity_tests {
         // the read-back fails by name on a writer bug: an untouched line changed, or the wrong cell
         let d = mctas::design::Design::parse(original).unwrap();
         let mut bad = super::patch_cells(original, &[([1, 0, 1], "minecraft:glass".to_string())]).unwrap();
-        bad.text = bad.text.replace("circuit: mob-farm iron_ingot", "circuit: mob-farm iron");
+        bad.text = bad.text.replace("# the last line", "# the LAST line");
         let mut want = d.blocks.clone();
         want.insert([1, 0, 1], "minecraft:glass".to_string());
         let e1 = super::readback_patch(original, &bad, &want).err().map(|e| e.to_string()).unwrap_or_default();
-        assert!(e1.contains("changed though the edit doesn't touch it: \"circuit: mob-farm iron_ingot\" -> \"circuit: mob-farm iron\""), "{e1}");
+        assert!(e1.contains("changed though the edit doesn't touch it: \"# the last line\" -> \"# the LAST line\""), "{e1}");
+        let mut bad_meta = super::patch_cells(original, &[([1, 0, 1], "minecraft:glass".to_string())]).unwrap();
+        bad_meta.text = bad_meta.text.replace("circuit: mob-farm iron_ingot", "circuit: mob-farm iron");
+        let e1b = super::readback_patch(original, &bad_meta, &want).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e1b.contains("the written text's header (meta, ports, entities, nbt) differs from the original's"), "{e1b}");
         let good = super::patch_cells(original, &[([1, 0, 1], "minecraft:glass".to_string())]).unwrap();
         let e2 = super::readback_patch(original, &good, &d.blocks).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(e2.contains("the written text's cells differ from the composed ones"), "{e2}");
@@ -1283,6 +1238,7 @@ mod edit_integrity_tests {
 /// holds (as a multiset), but those it may change: the palette block's lines, the rows and headers of the layers
 /// at `layers` (the y's its cells touch), and, when the edit moves the design's origin, every layer row. An empty
 /// result: every other line kept byte for byte.
+#[cfg(test)]
 pub fn lost_lines(original: &str, out: &str, layers: &[i32]) -> Vec<String> {
     let origin = |t: &str| t.lines().find(|l| l.starts_with("origin:")).map(|l| l.to_string());
     let moved = origin(original) != origin(out);
