@@ -5094,9 +5094,37 @@ pub fn source_classes(spec: &FarmSpec) -> Vec<SourceClass> {
 /// declares it in `switches:`. The bar: an UNDECLARED T inside an OPERATING source's footprint
 /// FAILS (its shape can flip at runtime); a declared one is by design. Returns the lines and the
 /// fails.
+/// (G1 Nov 13 14:36 (ii), ironspec 14:37 (1)) A composed-row citation in a declaration's reason: a
+/// `row:` / `rows:` part as its own token (at the reason's start or after "; ") naming a FILE (a word
+/// with a `.` or a `/`), a TICK RANGE (`t A..B` or `tA..B`, or `ticks A..B`) and a CART (`cart N`), as
+/// `row: record7f13t.txt t 120..180 cart 3`. Returns the cited part; a reason that only mentions
+/// "row:" (an "arrow:", or a part lacking one of the three) cites nothing.
+pub fn row_citation(why: &str) -> Option<String> {
+    let range = |w: &str| -> bool {
+        let w = w.trim_end_matches([',', ';', ')']);
+        w.split_once("..").is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && b.chars().all(|c| c.is_ascii_digit()))
+    };
+    for part in std::iter::once(why).chain(why.match_indices("; ").map(|(i, _)| &why[i + 2..])) {
+        let part = part.trim_start();
+        let Some(rest) = part.strip_prefix("rows:").or_else(|| part.strip_prefix("row:")) else { continue };
+        let rest = rest.split("; ").next().unwrap_or("");
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let file = words.iter().any(|w| {
+            let w = w.trim_end_matches([',', ';']);
+            (w.contains('.') && !range(w) && w.chars().any(|c| c.is_alphabetic())) || w.contains('/')
+        });
+        let ticks = words.windows(2).any(|p| (p[0] == "t" || p[0] == "ticks") && range(p[1])) || words.iter().any(|w| w.strip_prefix('t').is_some_and(&range));
+        let cart = words.windows(2).any(|p| p[0].trim_end_matches(',') == "cart" && !p[1].trim_end_matches([',', ';', ')']).is_empty());
+        if file && ticks && cart {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
+}
+
 /// (onechunk / farmopt Nov 13 13:54, ironspec 13:54) The `update-only:` sources checked against
-/// their own update footprints (`source_classes`: a detector's is checkPressed's n6(D) ∪
-/// n6(D.below)): each entry's source must exist, and the Ts its footprint reaches must match what
+/// their own update footprints (`source_classes`, the game's: a detector's is n6(D) ∪ n6(D.below()),
+/// plus n6(D.above()) for an ascending one, tick-exact 14:04): each entry's source must exist, and the Ts its footprint reaches must match what
 /// the entry says. An entry whose reason says `reaches no T` asserts an empty reach; any other
 /// entry asserts the source updates a T (the key's meaning: its updates only re-settle a switched T
 /// to its own power's shape), and each T it reaches must be declared in `switches:`. A mismatch
@@ -5315,6 +5343,23 @@ pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)], integrity: &
     let dead: Vec<String> = classes.iter().filter(|k| k.why.starts_with("DEAD TORCH")).map(|k| format!("  DEAD TORCH {},{},{} ({}): {}", k.pos.x, k.pos.y, k.pos.z, k.block.trim_start_matches("minecraft:"), k.why)).collect();
     fails += dead.len();
     lines.extend(dead.iter().cloned());
+    // (ironspec Nov 13 15:05 (c): the tripwire hook, the design's own source kind (the hold strings,
+    // the awake guard's string, the slot-1 strings), named wherever its footprint holds a T so
+    // redsim's T tests pin that kind; none in reach of any T is printed too, and the pin skipped)
+    let hooks: Vec<String> = classes
+        .iter()
+        .filter(|k| k.kind == "tripwire hook")
+        .filter_map(|k| {
+            let reached: Vec<String> = ts.iter().filter(|(c, _)| k.reach.contains(c)).map(|(c, _)| format!("{},{},{}", c.x, c.y, c.z)).collect();
+            (!reached.is_empty()).then(|| format!("{},{},{} ({}) reaches T(s) {}", k.pos.x, k.pos.y, k.pos.z, if k.operating { "OPERATING" } else { "CONSTANT" }, reached.join(" ")))
+        })
+        .collect();
+    let n_hooks = classes.iter().filter(|k| k.kind == "tripwire hook").count();
+    lines.push(if hooks.is_empty() {
+        format!("  TRIPWIRE HOOKS in reach of a T: none ({n_hooks} hook(s) in the design; redsim's hook-kind T pin is skipped, ironspec 15:05 (c))")
+    } else {
+        format!("  TRIPWIRE HOOKS in reach of a T (ironspec 15:05 (c): redsim's T tests pin this kind): {}", hooks.join("; "))
+    });
     lines.insert(
         0,
         format!(
@@ -6028,7 +6073,7 @@ impl<'a> Track<'a> {
             // (G1 Nov 13 13:56: a `travel` line confirms its moves only when it cites a composed row
             // (file, tick range, cart) as `row:` / `rows:` in its reason; an uncited one still orients
             // the walk but its moves stay unconfirmed, listed with the inferred links)
-            let cited = why.contains("row:") || why.contains("rows:");
+            let cited = row_citation(why).is_some();
             for w in path.windows(2) {
                 let (a, b) = (rail(&w[0]), rail(&w[1]));
                 if e.contains(&(a, b)) {
@@ -6209,9 +6254,9 @@ impl<'a> Track<'a> {
         inferred_links.sort();
         for l in &inferred_links {
             if l.contains("(UNCITED)") {
-                out.push(format!("  UNCONFIRMED LINK {l}: its `travel` line cites no composed row (G1 13:56: `row: file, tick range, cart` in its reason); until then the late verdict is NOT JUDGED"));
+                out.push(format!("  UNCONFIRMED LINK {l}: its `travel` line cites no composed row (G1 13:56 / 14:36: `row: FILE t A..B cart N` as its own part of the reason); until then the late verdict is NOT JUDGED"));
             } else {
-                out.push(format!("  INFERRED LINK {l}: unconfirmed (confirm it with a `# travel:` line naming the move and citing the composed row that shows it, `row: file, tick range, cart`; until then the late verdict is NOT JUDGED)"));
+                out.push(format!("  INFERRED LINK {l}: unconfirmed (confirm it with a `# travel:` line naming the move and citing the composed row that shows it, `row: FILE t A..B cart N`; until then the late verdict is NOT JUDGED)"));
             }
         }
         let inferred_keep = inferred_links;
@@ -6969,7 +7014,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
             // (G1 Nov 13 10:38 (a): a late PASS leaning on an exemption is PENDING until the runs
             // that judge its conditions pass; ironspec 13:50 (c): a cited run's exemption cites the
             // composed rows showing its three conditions, a `rows:` part of its reason)
-            let uncited = late_exempt_hits.values().filter(|(why, _, _)| !why.contains("rows:")).count();
+            let uncited = late_exempt_hits.values().filter(|(why, _, _)| row_citation(why).is_none()).count();
             format!(
                 "0 failing, PENDING: it leans on {} declared late-exempt draw cell(s) whose conditions are NOT JUDGED here{}",
                 late_exempt_hits.len(),
@@ -6984,7 +7029,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     for ((x, y, z), (why, n, dt)) in &late_exempt_hits {
         lines.push(format!(
             "  EXEMPT (declared late-exempt: {why}) drawn at {x},{y},{z}: {n} (draw, later node) pairs, the first {dt:.1} gt later; information, not a failing node; its conditions are NOT JUDGED here (G1 Nov 13 10:38 (a): the composed runs judge them, and the late result leaning on this exemption stays PENDING until they pass): a napper-only position (every entity seated there printed), the stamp erased at the napper's lie-down (SleepInBed.start: before / after printed), arming -> lie-down under 1,000 gt with no SetWalkTargetFromBlockMemory run at >= 1,000 between{}",
-            if why.contains("rows:") { "; the composed rows it cites are in its reason (ironspec 13:50 (c))".to_string() } else { "; it cites NO composed rows (ironspec 13:50 (c): add `rows: <file:line or artifact>` showing the three conditions; until then a run leaning on it is not citable)".to_string() }
+            if row_citation(why).is_some() { "; the composed rows it cites are in its reason (ironspec 13:50 (c))".to_string() } else { "; it cites NO composed rows (ironspec 13:50 (c): add `rows: FILE t A..B cart N` showing the three conditions; until then a run leaning on it is not citable)".to_string() }
         ));
     }
     let mut lt: Vec<_> = late.into_iter().collect();
@@ -7388,6 +7433,21 @@ mod orient_tests {
         let mut tu = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
         let lu = tu.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "a run shows it".into())], &[], false);
         assert!(tu.inferred_links.iter().any(|l| l.starts_with("0,0,2 > 1,0,2 (declared (UNCITED))")) && lu.iter().any(|l| l.starts_with("  UNCONFIRMED LINK 0,0,2 > 1,0,2")), "{lu:?}");
+        // (G1 14:36 (ii), ironspec 14:37 (1): the citation is parsed, `row:` / `rows:` as their own
+        // token with a file, a tick range and a cart; a mere mention, an "arrow:", or a part missing
+        // one of the three cites nothing)
+        assert!(super::row_citation("row: record7f13t.txt t 120..180 cart 3").is_some());
+        // (7b90c3f1's emitter form, 14:41)
+        assert!(super::row_citation("a batch cart on the split row enters J(-1) from the west (onechunk's composed t14 night, 11b888a04256); row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt t 2854..2855 cart 46").is_some());
+        assert!(super::row_citation("the composed night; rows: onechunk/t14-n2.txt ticks 4400..4480, cart 7").is_some());
+        assert!(super::row_citation("seen in row: record7f13t.txt t120..180 cart 3").is_none(), "not at a part's start");
+        assert!(super::row_citation("the arrow: record7f13t.txt t 120..180 cart 3").is_none());
+        assert!(super::row_citation("row: record7f13t.txt cart 3").is_none(), "no tick range");
+        assert!(super::row_citation("row: t 120..180 cart 3").is_none(), "no file");
+        assert!(super::row_citation("row: record7f13t.txt t 120..180").is_none(), "no cart");
+        let mut tm = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        let lm = tm.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "a run; row: somewhere".into())], &[], false);
+        assert!(tm.inferred_links.iter().any(|l| l.contains("(UNCITED)")), "a half citation confirms nothing: {lm:?}");
         let mut t = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
         let lines = t.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "a run".into()), (vec![BlockPos::new(1, 0, 2), BlockPos::new(0, 0, 2)], "another".into())], &[], false);
         let a = t.allowed.clone().expect("oriented");
@@ -7622,8 +7682,8 @@ mod gate_tests {
         planted.blocks.push((b(-3, 0, 0), redsim::block::Block::parse("minecraft:stone").unwrap()));
         let (l2, n2, _) = super::flee_candidates_at(&planted, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx, false).unwrap();
         assert!(n2 > 0 && header(&l2, "the FLEE's").ends_with("(FAIL)") && l2.iter().any(|x| x.contains("FLEE CANDIDATE -3,1,0")), "{l2:?}");
-        // (ironspec Nov 13 13:50 (a): with the zombie beyond the flee's 6 (6.5 away), or hidden
-        // behind a glass wall, the flee never runs: the same candidate is printed and counts nothing)
+        // (ironspec Nov 13 13:50 (a): with the zombie beyond the flee's 6 (6.04 away), or hidden
+        // behind a stone wall, the flee never runs: the same candidate is printed and counts nothing)
         let far = redsim::entity::Vec3::new(6.0, 1.0, 3.0);
         let (lf, nf, _) = super::flee_candidates_at(&planted, b(0, 1, 0), None, far, 1.74, &[], &[], &[], bx, false).unwrap();
         let hf = header(&lf, "the FLEE's");
@@ -7813,6 +7873,15 @@ mod gate_tests {
         det.push((b(0, -1, -1), p("minecraft:stone")));
         det.push((b(0, 0, -1), p("minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]")));
         let (l8, f8) = super::t_exposure(&mk(det.clone()), &[], &[]).unwrap();
+        // (ironspec 15:05 (c): a tripwire hook whose footprint holds a T is named; with none, "none")
+        let mut hk = blocks.clone();
+        hk.retain(|(q, _)| *q != b(0, 1, 2));
+        hk.push((b(0, 1, 2), p("minecraft:stone")));
+        hk.push((b(0, 1, 1), p("minecraft:tripwire_hook[attached=false,facing=north,powered=false]")));
+        let (lh, _) = super::t_exposure(&mk(hk), &[(b(0, 1, 0), "the T's own line".to_string())], &[]).unwrap();
+        assert!(lh.iter().any(|x| x.starts_with("  TRIPWIRE HOOKS in reach of a T (ironspec 15:05 (c)") && x.contains("0,1,1 (") && x.contains("reaches T(s) 0,1,0")), "{lh:?}");
+        let (lnh, _) = super::t_exposure(&mk(blocks.clone()), &[], &[]).unwrap();
+        assert!(lnh.iter().any(|x| x.starts_with("  TRIPWIRE HOOKS in reach of a T: none")), "{lnh:?}");
         assert!(f8 == 1 && l8.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("0,0,-1 detector rail")), "{l8:?}");
         let (l8d, f8d) = super::t_exposure(&mk(det), &[(b(0, 1, 0), "J: its lever".to_string())], &[]).unwrap();
         assert!(f8d == 0 && l8d.iter().any(|x| x.contains("DECLARED T 0,1,0")), "{l8d:?}");
