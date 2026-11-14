@@ -143,6 +143,95 @@ pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) ->
     Ok(keep_comments(text, &d.to_text()).0)
 }
 
+/// (ironspec Nov 13 23:53: V judged with a re-laid part) A composed part swapped in a design's cells:
+/// every cell `old` holds, moved by `off`, is cleared where the design still holds old's block there (a
+/// cell holding another block is another owner's by the compose's precedence: kept and named); then
+/// every cell `new` holds is set (an air cell of `new` clears it), and a cell the design still holds with
+/// a different block is a clash: an error naming every one. Returns the summary lines and how many cells
+/// of the design changed.
+pub fn swap_part(blocks: &mut BTreeMap<[i32; 3], String>, old: &BTreeMap<[i32; 3], String>, new: &BTreeMap<[i32; 3], String>, off: [i32; 3]) -> Result<(Vec<String>, usize), String> {
+    let before = blocks.clone();
+    let mv = |p: &[i32; 3]| [p[0] + off[0], p[1] + off[1], p[2] + off[2]];
+    let air = |s: &str| s == "minecraft:air";
+    let (mut cleared, mut kept) = (0usize, Vec::new());
+    for (p, s) in old.iter().filter(|(_, s)| !air(s)) {
+        let q = mv(p);
+        match blocks.get(&q) {
+            Some(b) if b == s => {
+                blocks.remove(&q);
+                cleared += 1;
+            }
+            Some(b) => kept.push(format!("{},{},{} {}", q[0], q[1], q[2], b.trim_start_matches("minecraft:"))),
+            None => {}
+        }
+    }
+    let mut clashes = Vec::new();
+    for (p, s) in new {
+        let q = mv(p);
+        match blocks.get(&q) {
+            Some(b) if b != s && !air(s) => clashes.push(format!("{},{},{} holds {} (the new part's {})", q[0], q[1], q[2], b.trim_start_matches("minecraft:"), s.trim_start_matches("minecraft:"))),
+            _ if air(s) => {
+                blocks.remove(&q);
+            }
+            _ => {
+                blocks.insert(q, s.clone());
+            }
+        }
+    }
+    if !clashes.is_empty() {
+        return Err(format!("{} clash(es) with cells another owner holds: {}", clashes.len(), clashes.join("; ")));
+    }
+    let (mut added, mut removed, mut changed) = (0usize, 0usize, 0usize);
+    for (q, s) in blocks.iter() {
+        match before.get(q) {
+            None => added += 1,
+            Some(b) if b != s => changed += 1,
+            _ => {}
+        }
+    }
+    for q in before.keys() {
+        if !blocks.contains_key(q) {
+            removed += 1;
+        }
+    }
+    let mut lines = vec![format!(
+        "swap: the old part's {} cell(s) at offset {},{},{}: {cleared} cleared, {} held by another owner (kept){}; the new part's {} cell(s) set; the design: {added} added, {removed} removed, {changed} changed",
+        old.values().filter(|s| !air(s)).count(),
+        off[0],
+        off[1],
+        off[2],
+        kept.len(),
+        if kept.is_empty() { String::new() } else { format!(": {}", kept.join(", ")) },
+        new.len()
+    )];
+    lines.push(format!("swap: {} cell(s) of the design changed", added + removed + changed));
+    Ok((lines, added + removed + changed))
+}
+
+#[cfg(test)]
+mod swap_part_tests {
+    /// (ironspec Nov 13 23:53) A part swapped: its old cells cleared where the design holds them, the new
+    /// ones set; a cell another owner holds is kept and named; a new cell on another owner's block is a
+    /// clash; an unchanged cell isn't counted.
+    #[test]
+    fn swap_clears_sets_keeps_and_clashes() {
+        let m = |v: &[([i32; 3], &str)]| v.iter().map(|(p, s)| (*p, format!("minecraft:{s}"))).collect::<std::collections::BTreeMap<_, _>>();
+        let old = m(&[([0, 0, 0], "stone"), ([1, 0, 0], "glass"), ([2, 0, 0], "glass")]);
+        let new = m(&[([0, 0, 0], "stone"), ([3, 0, 0], "redstone_lamp[lit=false]")]);
+        // (the design at offset 10,0,0: the old part's cells, but 12,0,0 holds another owner's dirt)
+        let mut d = m(&[([10, 0, 0], "stone"), ([11, 0, 0], "glass"), ([12, 0, 0], "dirt"), ([20, 0, 0], "sand")]);
+        let (l, n) = super::swap_part(&mut d, &old, &new, [10, 0, 0]).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(n, 2, "11 removed, 13 added: {l:?}");
+        assert!(!d.contains_key(&[11, 0, 0]) && d.get(&[13, 0, 0]).is_some_and(|s| s.contains("lamp")) && d.get(&[12, 0, 0]).is_some_and(|s| s.contains("dirt")) && d.contains_key(&[20, 0, 0]), "{d:?}");
+        assert!(l[0].contains("2 cleared, 1 held by another owner (kept): 12,0,0 dirt"), "{l:?}");
+        // a new cell on another owner's block: a clash
+        let new2 = m(&[([10, 0, 0], "glass")]);
+        let mut d2 = m(&[([20, 0, 0], "sand")]);
+        let e = super::swap_part(&mut d2, &m(&[]), &new2, [10, 0, 0]).err().unwrap_or_default();
+        assert!(e.contains("1 clash") && e.contains("20,0,0 holds sand"), "{e}");
+    }
+}
+
 /// (9fc3155f, farmopt / ironspec Nov 13 01:08: `mobfarm edit` dropped every `#` line of a design it
 /// rewrote, so a variant lost its `# switches:` / `# update-only:` declarations) The regenerated
 /// text `new` with every `#` line of `orig` put back: each run of comment lines after the line it

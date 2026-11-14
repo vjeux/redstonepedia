@@ -996,6 +996,13 @@ pub enum MobfarmCmd {
         /// removes the cell): a fault copy of a farm (the bed removed, say).
         #[arg(long)]
         set: Vec<String>,
+        /// (ironspec Nov 13 23:53: V with a re-laid part) Swap a composed part: `OLD=NEW@dx,dy,dz`
+        /// (repeatable): every cell OLD's design holds, moved by the offset, is cleared where the
+        /// design still holds OLD's block there (a cell another owner holds is kept and counted),
+        /// then every cell NEW's design holds is set; a cell another owner holds with a different
+        /// block is a clash and fails; a swap that changes nothing fails. Applied before --set.
+        #[arg(long, allow_hyphen_values = true)]
+        swap_part: Vec<String>,
     },
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), standing and asleep on its bed (bed + 0.8875), as built and with every
@@ -17115,10 +17122,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{x} {y} {z}: {}", w.get(at(x, y, z)));
             }
         }
-        MobfarmCmd::Edit { design, chest, how, meta, set } => {
-            if !set.is_empty() {
+        MobfarmCmd::Edit { design, chest, how, meta, set, swap_part } => {
+            if !set.is_empty() || !swap_part.is_empty() {
                 let original = std::fs::read_to_string(&design)?;
                 let mut d = mctas::design::Design::parse(&original)?;
+                for sw in &swap_part {
+                    let (pair, off) = sw.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--swap-part OLD=NEW@dx,dy,dz, not {sw:?}"))?;
+                    let (old, new) = pair.split_once('=').ok_or_else(|| anyhow::anyhow!("--swap-part OLD=NEW@dx,dy,dz, not {sw:?}"))?;
+                    let o: Vec<i32> = off.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(o.len() == 3, "--swap-part OLD=NEW@dx,dy,dz, not {sw:?}");
+                    let (old_d, new_d) = (mctas::design::Design::parse(&std::fs::read_to_string(old)?)?, mctas::design::Design::parse(&std::fs::read_to_string(new)?)?);
+                    let (lines, changed) = crate::layouts::swap_part(&mut d.blocks, &old_d.blocks, &new_d.blocks, [o[0], o[1], o[2]]).map_err(|e| anyhow::anyhow!("--swap-part {sw}: {e}"))?;
+                    for l in &lines {
+                        println!("{l}");
+                    }
+                    anyhow::ensure!(changed > 0, "NO-OP --swap-part {sw}: no cell changes");
+                }
                 for s in &set {
                     let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
                     let v: Vec<i32> = c.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
