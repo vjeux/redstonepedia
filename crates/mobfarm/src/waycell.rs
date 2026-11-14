@@ -636,6 +636,16 @@ pub fn schedule_fluids(w: &mut redsim::world::World, chunk: [i32; 4]) -> usize {
     n
 }
 
+/// (G1's W7 on R2) [`schedule_fluids`] for a bench that lays its cells raw: the chunk's water given its
+/// tick, the count printed beside the world's water cells; water in the world with none scheduled is
+/// a FAIL (the bench's water would stand frozen). Returns (the line, ok).
+pub fn fluids_line(w: &mut redsim::world::World, chunk: [i32; 4], what: &str) -> (String, bool) {
+    let n = schedule_fluids(w, chunk);
+    let all = world_water_cells(w);
+    let ok = !(all > 0 && n == 0);
+    (format!("({what}) {n} water cell(s) of the chunk given their tick, of {all} in the world{}", if ok { "" } else { ": the water stands FROZEN (none scheduled): FAIL" }), ok)
+}
+
 /// (ironspec 10:42 / 10:58) one declared contact cell's figures over a run's bar rows: the bounded
 /// form's reference (ticks, events as maximal consecutive runs, the most ticks in one event and events
 /// in one row, the largest clipped amount per axis, the horizontal speed into and out of its ticks,
@@ -668,6 +678,120 @@ pub fn rekey_row(row: u32, hits: Vec<crate::contacts::Hit>) -> impl Iterator<Ite
 /// slime / torch / glass (9,-25..-27,-1), the roll (8..4,-25,-5) to the stop's entry (3,-25,-5), the
 /// R1 levers (4..6,-12..-13,-1..-2), with a cell's margin; the stop (A) (x <= -1) lies outside it.
 pub const RIDE_SCOPE: ([i32; 3], [i32; 3]) = ([2, -27, -8], [9, -11, 3]);
+
+/// (G1's W8 on R2) The shapes of a way-cell run's mode flags: each field the flag given (or its value
+/// count), for [`way_cell_mode`].
+#[derive(Default, Clone, Debug)]
+pub struct ModeFlags {
+    pub write: bool,
+    pub post: bool,
+    pub water_search: bool,
+    pub water_scan: bool,
+    pub scan_box: usize,
+    pub path_probe: bool,
+    pub visit: bool,
+    pub leg: usize,
+    pub hold: usize,
+    pub bed: usize,
+    pub ride_to: usize,
+    pub leg_day: bool,
+    pub release_sweep: bool,
+    pub wait: usize,
+    /// --release-phases, --restart-at, --restart-every or --freeze-every given (the ride rows)
+    pub rows: bool,
+    /// --release-pulse given (the boost-margin row; with --ride-to, --south, --r1-built)
+    pub release_pulse: usize,
+    /// --launch-speeds given (the rail end's least launch speed)
+    pub launch_speeds: usize,
+    pub south: bool,
+    pub r1_built: bool,
+}
+
+/// (G1's W8 on R2) The run's mode from its primary flag: at most one mode a run, each with its
+/// companion flags present and well-shaped; a mis-shaped mode is an error, never a fall-through into
+/// another mode. No primary flag: the queue-cell checks.
+pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
+    let mut modes: Vec<&'static str> = Vec::new();
+    if f.write {
+        modes.push("write");
+    }
+    if f.water_search {
+        modes.push("water search");
+    }
+    if f.water_scan && !f.water_search {
+        modes.push("water scan");
+    }
+    if f.path_probe {
+        modes.push("path probe");
+    }
+    if f.visit {
+        modes.push("visit");
+    }
+    if f.release_sweep {
+        modes.push("sweep");
+    }
+    if f.release_pulse > 0 {
+        modes.push("release pulse");
+    }
+    if f.launch_speeds > 0 {
+        modes.push("launch speed");
+    }
+    if (f.ride_to > 0 || f.rows) && !f.visit && !f.release_sweep && !f.water_search && f.release_pulse == 0 {
+        modes.push(if f.rows { "ride rows" } else { "ride" });
+    }
+    if f.wait > 0 && !f.release_sweep {
+        modes.push("wait");
+    }
+    if f.leg > 0 && !f.visit {
+        modes.push("leg");
+    }
+    if modes.len() > 1 {
+        return Err(format!("one mode a run: {} given together", modes.join(", ")));
+    }
+    let m = modes.first().copied().unwrap_or("queue cell");
+    let need = |ok: bool, what: &str| -> Result<(), String> { if ok { Ok(()) } else { Err(format!("the {m} mode needs {what}")) } };
+    match m {
+        "write" => need(f.post, "--post")?,
+        "water search" => {
+            need(f.scan_box == 6, "--scan-box x0,y0,z0,x1,y1,z1")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+            need(f.ride_to == 3, "--ride-to x,y,z")?;
+        }
+        "water scan" => need(f.scan_box == 6, "--scan-box x0,y0,z0,x1,y1,z1")?,
+        "path probe" => need(f.bed == 3, "--bed x,y,z")?,
+        "visit" => {
+            need(f.leg == 6, "--leg x,y,z,vx,vy,vz")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+            need(f.ride_to == 3, "--ride-to x,y,z")?;
+            need(f.leg_day, "--leg-day")?;
+        }
+        "sweep" => {
+            need(f.wait == 2, "--wait START,TICKS")?;
+            need(f.post, "--post")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+            need(f.ride_to == 3, "--ride-to x,y,z")?;
+        }
+        "ride rows" | "ride" => need(f.ride_to == 3, "--ride-to x,y,z")?,
+        "release pulse" => {
+            need(f.release_pulse == 2, "--release-pulse A,B")?;
+            need(f.ride_to == 3, "--ride-to x,y,z")?;
+            need(f.south && f.r1_built, "--south --r1-built (the built R1 gate)")?;
+        }
+        "launch speed" => need(f.launch_speeds == 3, "--launch-speeds A,B,STEP")?,
+        "wait" => {
+            need(f.wait == 2, "--wait START,TICKS")?;
+            need(f.post, "--post")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+        }
+        "leg" => {
+            need(f.leg == 6, "--leg x,y,z,vx,vy,vz")?;
+            need(f.hold == 3, "--hold x,y,z")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+        }
+        _ => {}
+    }
+    Ok(m)
+}
 
 /// (ironspec 10:42 / 10:58, G1 14:51 (4)) the design's bounded `# contacts:` / `# stops:` declarations
 /// whose cells lie in `scope`, read STRICTLY by main's `contacts::declared_contacts_bounded` (a malformed
@@ -1039,6 +1163,11 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
     // (G1 (6)) the override rule's before -> after lines kept, not discarded
     let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
     settle_r1(&mut run.world, o)?;
+    // (G1's W7 on R2) the chunk's water given its tick; frozen water refuses this information mode
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "ride");
+    if !fluid_ok {
+        return Err(fluid_line);
+    }
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     // settle on the braked rail, then release
     for _ in 0..40 {
@@ -1092,10 +1221,146 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
         format!("(ride) left the queue cell at t {left:?}, on the departure detector at t {dep:?}, at the stop's entry {entry:?} at t {at_entry:?}; the rider {} seated up to the entry", if seated { "stayed" } else { "did NOT stay" }),
         format!("(ride) the speed the tick before the entry {}, on the entry {}; the least speed on the way {least:.4} b/t", speed(before), speed(on_entry)),
         format!("(ride) the cells: {:?}", path.iter().take(60).collect::<Vec<_>>()),
+        fluid_line,
     ]
     .into_iter()
     .chain(override_lines)
     .collect())
+}
+
+/// (ironspec 17:38: THE BOOST-MARGIN ROW) The built R1 gate's RELEASE level held for only `k` gt, k in
+/// `pulses`: the cart settled 40 gt on the braked queue rail, the release (NOT-ready's lever OFF), and
+/// after k gt NOT-ready back ON (the rail's boost cut once R1's repeaters carry it); then followed up
+/// to `ticks` gt: where the cart left the queue cell, whether it reached the shaft (9,·,-1) below the
+/// rail end and the stop's entry, else where it ended and at what speed (a stall). The stated minimum:
+/// the least k from which every longer pulse reaches the entry. Needs --south --r1-built.
+pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, pulses: (u32, u32)) -> Result<(Vec<String>, bool), String> {
+    if !(o.south && o.r1_built) {
+        return Err("--release-pulse cuts the built R1 gate's release (NOT-ready's lever): it needs --south --r1-built".to_string());
+    }
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 60, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o)?);
+    let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
+    settle_r1(&mut run.world, o)?;
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "release pulse");
+    if !fluid_ok {
+        return Err(fluid_line);
+    }
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
+    for _ in 0..40 {
+        run.tick();
+    }
+    let lever = BlockPos::new(8, -14, -5);
+    let ready_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
+    let mut out = vec![fluid_line, format!("(release pulse) the cart held 40 gt on the braked queue rail; per pulse k: the release (NOT-ready's lever {lever} OFF) at t 0 and the lever back ON at t k")];
+    let mut reached: Vec<(u32, bool)> = Vec::new();
+    for k in pulses.0..=pulses.1 {
+        let mut r = run.clone();
+        release(&mut r.world, o)?;
+        let (mut left, mut shaft, mut at_entry) = (None::<u32>, None::<u32>, None::<u32>);
+        let mut last: Option<([i32; 3], f64)> = None;
+        for t in 0..ticks {
+            if t == k {
+                r.world.set_block(lever, ready_on.clone(), redsim::world::flags::ALL);
+            }
+            r.tick();
+            let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+            let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+            last = Some((c, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
+            if left.is_none() && c != q {
+                left = Some(t);
+            }
+            if shaft.is_none() && c[0] == 9 && c[2] == -1 && c[1] <= -16 {
+                shaft = Some(t);
+            }
+            if c == entry {
+                at_entry = Some(t);
+                break;
+            }
+        }
+        reached.push((k, at_entry.is_some()));
+        out.push(format!(
+            "(release pulse) k {k} gt: left the queue cell at t {left:?}, in the shaft at t {shaft:?}, at the stop's entry {entry:?} at t {at_entry:?}{}",
+            if at_entry.is_some() { String::new() } else { last.map_or("; the cart gone".to_string(), |(c, v)| format!("; it ENDS at {c:?} at {v:.4} b/t after {ticks} gt")) }
+        ));
+    }
+    // the stated minimum: the least k from which every longer pulse of the sweep reaches the entry
+    let min_k = (0..reached.len()).find(|&i| reached[i..].iter().all(|(_, ok)| *ok)).map(|i| reached[i].0);
+    let pass = min_k.is_some();
+    out.push(format!(
+        "(release pulse) the stated minimum over k {}..{}: {}",
+        pulses.0,
+        pulses.1,
+        match min_k {
+            Some(k) => format!("{k} gt (every pulse of {k} gt or more reaches the entry)"),
+            None => "NONE: the longest pulse swept doesn't reach the entry".to_string(),
+        }
+    ));
+    Ok((override_lines.into_iter().chain(out).collect(), pass))
+}
+
+/// (G1 17:28: the design margin for the fault notes) The least speed at which a cart leaving the rail
+/// end (9,-15,-2) still clears into the shaft: per speed v, a cart (with a rider) set on the rail end's
+/// centre moving south at v, followed 60 gt: in the shaft (9,·,-1) below y -16, or held where (resting
+/// on the rail end's support, the cell's stored motion). The least v that clears, against the designed
+/// launch's 0.4000.
+pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64]) -> Result<(Vec<String>, bool), String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 120, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
+    let end = BlockPos::new(9, -15, -2);
+    if !run.world.get(end).to_string().contains("rail") {
+        return Err(format!("--launch-speeds: no rail at the rail end {end}"));
+    }
+    let mut out = vec![format!("(launch speed) a cart with a rider set on the rail end {end}'s centre moving south (+z) at each speed, followed 60 gt")];
+    let mut least_clear: Option<f64> = None;
+    let mut all_above_clear = true;
+    for &v in speeds {
+        let mut r = run.clone();
+        let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [9.5, -15.0, -1.5], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
+        let mut fell = None;
+        let mut last = None;
+        for t in 0..60u32 {
+            r.tick();
+            let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+            last = Some((e.pos, e.delta_movement));
+            if fell.is_none() && e.pos.y < -16.0 && e.pos.z.floor() as i32 == -1 {
+                fell = Some(t);
+            }
+        }
+        let clears = fell.is_some();
+        if clears && least_clear.is_none() {
+            least_clear = Some(v);
+        }
+        if least_clear.is_some() && !clears {
+            all_above_clear = false;
+        }
+        out.push(format!(
+            "(launch speed) v {v:.4} b/t: {}",
+            match (fell, last) {
+                (Some(t), _) => format!("CLEARS into the shaft (below y -16 at t {t})"),
+                (None, Some((p, dm))) => format!("HELD at ({:.4}, {:.4}, {:.4}), stored motion ({:.4}, {:.4}, {:.4}) after 60 gt", p.x, p.y, p.z, dm.x, dm.y, dm.z),
+                (None, None) => "the cart gone".to_string(),
+            }
+        ));
+    }
+    let pass = least_clear.is_some() && all_above_clear;
+    out.push(format!(
+        "(launch speed) the least speed that clears: {} (the designed launch 0.4000; every faster speed swept clears: {})",
+        least_clear.map_or("NONE in the sweep".to_string(), |v| format!("{v:.4} b/t, margin x{:.1}", 0.4 / v)),
+        if all_above_clear { "yes" } else { "NO" }
+    ));
+    Ok((override_lines.into_iter().chain(out).collect(), pass))
 }
 
 /// (ironspec 12:44, the drop-and-roll's conditions (1)-(2)) The ride from the queue in rows, the
@@ -1892,7 +2157,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
 /// post's zombie in place: HOME at every tick, its activity tick by tick, the calm REST ticks
 /// (REST active, not PANIC) and their distance to the bed's head, its CANT_REACH stamp's age
 /// (the most, and the most at a calm REST tick: the bar 1,000).
-pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P, stamp: Option<i64>, follow: u32) -> Result<Vec<String>, String> {
+pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P, stamp: Option<i64>, follow: u32) -> Result<(Vec<String>, bool), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + follow + 10, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
@@ -1908,13 +2173,17 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     // (G1 (6)) the override rule's before -> after lines kept, not discarded
     let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
     settle_r1(&mut run.world, o)?;
+    // (G1's W7 on R2) the chunk's water given its tick (the cells were laid raw)
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "wait");
+    // (G1's W6 on R2) the day set BEFORE the summon, the summoned rider's activity asserted on it
+    run.world.mob.day_offset = start - run.world.time;
     redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
         "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
         bed[0], bed[1], bed[2]
     );
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some(&nbt))?;
-    run.world.mob.day_offset = start - run.world.time;
+    let summon_act = assert_summon_activity(&run.world, cart, start)?;
     let head = Vec3::new(bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5);
     let mut acts: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     let (mut home_lost, mut left, mut calm_rest, mut stamp_max, mut stamp_calm_max) = (None, None, 0u32, 0i64, 0i64);
@@ -1925,6 +2194,7 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     // calm REST tick after the release, HOME there, the stamp's age at every calm REST tick)
     let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id).ok_or("no rider in the queue cart")?;
     let (mut armed, mut cleared_at) = (stamp.is_none(), None);
+    let mut no_exact = 0u32;
     let (mut released_at, mut first_calm_after, mut home_at_first_calm, mut stamp_after_max) = (None::<u32>, None::<u32>, None::<bool>, 0i64);
     let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     for t in 0..ticks + follow {
@@ -1945,6 +2215,8 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
             home_lost = Some((t, w.day_time()));
         }
         if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            // (G1's W12 on R2) a tick without the exact brain is counted, not skipped silently
+            no_exact += 1;
             continue;
         }
         if !armed {
@@ -1983,9 +2255,16 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
         }
         *acts.entry(act).or_default() += 1;
     }
+    // (G1's W3 on R2) the wait's verdict: calm REST ticks judged (> 0), the stamp bar at them, an armed
+    // stamp cleared within 100 gt, the fluids scheduled
+    let stamp_ok = calm_rest > 0 && stamp_calm_max <= 1000;
+    let cleared_ok = stamp.is_none() || cleared_at.is_some_and(|t| t <= 100);
+    let pass = stamp_ok && cleared_ok && fluid_ok;
     let mut out = vec![
+        fluid_line,
+        format!("(wait) the summoned rider's activity at the summon (the day set first): {summon_act}"),
         format!(
-            "(wait) the rider held on the queue rail from day time {start} for {ticks} gt (its HOME the bed at {bed:?}{}): HOME {}; the rider {}; first PANIC at t {first_panic:?}",
+            "(wait) the rider held on the queue rail from day time {start} for {ticks} gt (its HOME the bed at {bed:?}{}): HOME {}; the rider {}; first PANIC at t {first_panic:?}; {no_exact} tick(s) without the exact brain (counted, not judged)",
             stamp.map_or(String::new(), |a| format!(", arriving with its stamp armed {a} gt before")),
             match home_lost {
                 None => "kept at every tick".to_string(),
@@ -2000,14 +2279,14 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
         format!(
             "(wait) calm REST ticks {calm_rest}{}; the stamp's age: most {stamp_max}, most at a calm REST tick {stamp_calm_max} (bar 1,000, inherited: the 1,200 tooLongUnreachable with margin: {})",
             if calm_rest > 0 { format!(" at {d_min:.2}..{d_max:.2} from the bed's head (inside 16: the 16-block rule)") } else { String::new() },
-            if stamp_calm_max <= 1000 { "PASS" } else { "FAIL" }
+            if calm_rest == 0 { "NOT JUDGED (0 calm REST ticks): FAIL" } else if stamp_calm_max <= 1000 { "PASS" } else { "FAIL" }
         ),
     ];
     if stamp.is_some() {
         out.push(format!("(wait) the armed stamp cleared at t {cleared_at:?} ({})", match cleared_at {
             Some(t) if t <= 100 => "within 100 gt of the arrival (inherited: ironspec 14:47): PASS".to_string(),
             Some(_) => "LATER than 100 gt (inherited: ironspec 14:47): FAIL".to_string(),
-            None => "NEVER cleared".to_string(),
+            None => "NEVER cleared: FAIL".to_string(),
         }));
     }
     if follow > 0 {
@@ -2022,7 +2301,8 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
         ));
     }
     // (G1 (6)) the override rule's before -> after lines kept
-    Ok(override_lines.into_iter().chain(out).collect())
+    out.push(format!("(wait) the verdict (calm REST ticks judged, the stamp bar, an armed stamp cleared within 100 gt, the water scheduled): {}", if pass { "PASS" } else { "FAIL" }));
+    Ok((override_lines.into_iter().chain(out).collect(), pass))
 }
 
 /// (ironspec 14:58 (2)) The queue's release at every phase: the rider waits `ticks` gt (from day
@@ -2048,13 +2328,17 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
     cells.extend(r1_cells(o)?);
     let override_lines = place_overrides(&mut base.world, o.extra.len(), &cells)?;
     settle_r1(&mut base.world, o)?;
+    // (G1's W7 on R2) the chunk's water given its tick (the cells were laid raw)
+    let (fluid_line, fluid_ok) = fluids_line(&mut base.world, o.chunk, "sweep");
+    // (G1's W6 on R2) the day set BEFORE the summon, the summoned rider's activity asserted on it
+    base.world.mob.day_offset = start - base.world.time;
     redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
         "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
         bed[0], bed[1], bed[2]
     );
     let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some(&nbt))?;
-    base.world.mob.day_offset = start - base.world.time;
+    let summon_act = assert_summon_activity(&base.world, cart0, start)?;
     let rider = base.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart0)).map(|e| e.id).ok_or("no rider in the queue cart")?;
     let idx = |w: &redsim::world::World, id: u32| w.entities.list.iter().position(|e| !e.removed && e.id == id);
     let mut armed = stamp.is_none();
@@ -2262,10 +2546,13 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
         entry_ages,
         if armed_after_n == 0 && home_lost_n == 0 && reached_n as usize == n_rows { "PASS (0 armings, HOME kept)" } else { "FAIL" }
     ));
-    // (G1 07:00 / 08:12) the sweep's verdict returned beside its lines (the exit status)
-    let pass = armed_after_n == 0 && home_lost_n == 0 && reached_n as usize == n_rows && n_rows > 0;
-    // (G1 (6)) the override rule's before -> after lines kept
-    Ok((override_lines.into_iter().chain(out).collect(), pass))
+    // (G1 07:00 / 08:12) the sweep's verdict returned beside its lines (the exit status); (W7) the water
+    // scheduled
+    let pass = armed_after_n == 0 && home_lost_n == 0 && reached_n as usize == n_rows && n_rows > 0 && fluid_ok;
+    // (G1 (6)) the override rule's before -> after lines kept; (W6 / W7) the summon's activity and the
+    // fluids first
+    let head = vec![fluid_line, format!("(sweep) the summoned rider's activity at the summon (the day set first): {summon_act}")];
+    Ok((override_lines.into_iter().chain(head).chain(out).collect(), pass))
 }
 
 /// (ironspec 16:37: the held partial runs) A whole visit, from the split row's end to A6's entry:
@@ -2507,6 +2794,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     cells.extend(r1_cells(o)?);
     let override_lines = place_overrides(&mut base.world, o.extra.len(), &cells)?;
     settle_r1(&mut base.world, o)?;
+    // (G1's W7 on R2) the chunk's water given its tick (the cells were laid raw): in the verdict
+    let (fluid_line, fluid_ok) = fluids_line(&mut base.world, o.chunk, "visit");
     if let Some(p) = post {
         redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     }
@@ -2560,6 +2849,11 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // ((i)), rows followed into A6 ((ii) is judged on the stamped-at-entry ones, (iii) and (v) on
     // all of them)
     let (mut i_samples, mut followed_n) = (0u32, 0u32);
+    // (G1 16:06 / ironspec 16:24) the riders' stamp arms and clears by cause over every row, the rows
+    // whose walk-target path completed at some tick, and the oldest stamp
+    let mut stamp_arms: std::collections::BTreeMap<&'static str, u32> = std::collections::BTreeMap::new();
+    let mut stamp_clears: std::collections::BTreeMap<&'static str, u32> = std::collections::BTreeMap::new();
+    let (mut rows_path_complete, mut oldest_stamp) = (0u32, 0i64);
     // rows with a seat panic, and the latest sleep after the entry (a stall shows as a late sleep)
     let (mut seat_panic_rows, mut sleep_latest, mut never_slept) = (0u32, 0u32, 0u32);
     // path computations after the release: in the descent (before A6's entry) and partial there
@@ -2588,7 +2882,13 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // WINDOW lengths (the running sink's ticks left at the release in those rows)
     let mut carried_n = 0u32;
     let mut windows: Vec<i64> = Vec::new();
+    // (G1's W4 / W5 on R2) every expected row accounted: a phase whose cart never reaches the arrival
+    // detector loses all its rows, a row whose cart never reaches the stop's entry (the CART's cell)
+    // is a miss, and the held walk's condition is a bar of its own
+    let rows_per_phase = holds.len() * (1 + restart_ticks.len() * crate::liveness::Restart::rows().len() + o.visit_skip.len());
+    let (mut expected_rows, mut missed_arrival_rows, mut missed_entry_rows, mut held_fail_rows) = (0u32, 0u32, 0u32, 0u32);
     for k in 0..phases {
+        expected_rows += rows_per_phase as u32;
         // the leg and the shaft down to the arrival detector, shared by this phase's rows
         let mut w0 = base.clone();
         for _ in 0..k {
@@ -2660,7 +2960,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             }
         }
         let Some(t_arr) = t_arr else {
-            out.push(format!("(visit) phase +{k}: the cart never reached the arrival detector"));
+            out.push(format!("(visit) phase +{k}: the cart never reached the arrival detector: its {rows_per_phase} row(s) MISSED (W4)"));
+            missed_arrival_rows += rows_per_phase as u32;
             continue;
         };
         let i = idx(&w0.world, rider).ok_or("the rider lost")?;
@@ -2708,6 +3009,12 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 // the previous tick's observation for the proxy (the row starts as if a walk target were
                 // held: its first tick is never an after-no-target sample)
                 let mut prev_obs = ProxyObs { wt: true, stamp: None, rest: false, sink_running: false };
+                // (G1 16:06 / ironspec 16:24, night check 1) the rider's stamp arms and clears this row,
+                // each with its cause read at the tick, and whether a walk-target path completed
+                let mut row_path_complete = false;
+                // the stamp at the row's previous judged tick (None until the first: a stamp carried in
+                // from the arrival is no arm of this row)
+                let mut prev_stamp_seen: Option<Option<i64>> = None;
                 // (ironspec 08:15) per row: the record's run ticks and branches, its first failing tick,
                 // and the proxy's sample ticks (compared at the row's end)
                 let (mut row_rec, mut row_proxy_ticks): (RowRecord, Vec<i64>) = (RowRecord::default(), Vec::new());
@@ -2881,6 +3188,40 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                     let sink_running = redsim::entity::mob::ai::brain::has_exact(&r.world, i)
                         && redsim::entity::mob::ai::brain::ex(&r.world, i).nodes.iter().any(|n| matches!(n.kind, redsim::entity::mob::ai::brain::tree::Kind::MoveToTargetSink { .. }) && n.running);
                     let now_obs = ProxyObs { wt, stamp: since, rest: act.contains("Rest"), sink_running };
+                    // (G1 16:06 / ironspec 16:24) the stamp's arm / clear this tick and its cause: the
+                    // lie-down (SleepInBed's start sets LAST_SLEPT this tick), the walk target reached
+                    // (MoveToTargetSink's erase: the target gone with the stamp), a reaching path (its
+                    // path search reached the target; while PANIC, a flee path), else other
+                    {
+                        let x = redsim::entity::mob::ai::brain::ex(&r.world, i);
+                        let path_reached = x.mem.path.as_ref().map(|p| p.reached);
+                        row_path_complete |= path_reached == Some(true);
+                        match (prev_stamp_seen.unwrap_or(since), since) {
+                            (None, Some(_)) => {
+                                let cause = match path_reached {
+                                    Some(false) => "a partial path",
+                                    None => "no path",
+                                    Some(true) => "re-armed beside a reaching path",
+                                };
+                                *stamp_arms.entry(cause).or_default() += 1;
+                            }
+                            (Some(_), None) => {
+                                let slept = redsim::entity::mob::ai::brain::brain(&r.world, i).last_slept == Some(r.world.time);
+                                let cause = if slept {
+                                    "the lie-down (SleepInBed)"
+                                } else if prev_obs.wt && !wt {
+                                    "the walk target reached (MoveToTargetSink)"
+                                } else if path_reached == Some(true) {
+                                    if act.contains("Panic") { "a reaching flee path (PANIC)" } else { "a reaching path" }
+                                } else {
+                                    "other"
+                                };
+                                *stamp_clears.entry(cause).or_default() += 1;
+                            }
+                            _ => {}
+                        }
+                        prev_stamp_seen = Some(since);
+                    }
                     if let Some(p) = proxy_sample(&prev_obs, home_prev, &now_obs, r.world.time) {
                         swt_samples += 1;
                         row_proxy_ticks.push(r.world.time);
@@ -3004,10 +3345,13 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                             first_calm = Some(format!("+{} gt {}", t - h, probe(&mut r, i)));
                         }
                         let p = r.world.entities.list[i].pos;
+                        let _ = p;
                         if let Some(c) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) {
                             cart_last = Some(([c.pos.x.floor() as i32, c.pos.y.floor() as i32, c.pos.z.floor() as i32], (c.delta_movement.x.powi(2) + c.delta_movement.z.powi(2)).sqrt()));
                         }
-                        if [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32] == entry && at_entry.is_none() {
+                        // (G1's W5 on R2) the stop's entry detected on the CART's cell (as the ride rows
+                        // read it), not the rider's (a seated rider's cell can sit a block above)
+                        if cart_last.map(|c| c.0) == Some(entry) && at_entry.is_none() {
                             at_entry = Some(t - h);
                             entry_v = cart_last.map(|c| c.1);
                             stamp_entry = Some(since.map(|s| r.world.time - s));
@@ -3104,6 +3448,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 not_cleared_n += (!ii_ok) as u32;
                 escaped_n += esc as u32;
                 let held_ok = i_ok && ii_ok && !esc && armed_after.is_empty() && a6_armed.is_empty() && home_entry == Some(true) && a6_home != Some(false);
+                held_fail_rows += (!held_ok) as u32;
                 i_samples += had_stamp as u32;
                 followed_n += a6_home.is_some() as u32;
                 seat_panic_rows += (seat_panic > 0) as u32;
@@ -3168,6 +3513,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 // (G1 (1) / (14)) HOME LOST and FARM-STOP's samples are the rows that reached A6; the
                 // farm-stop counted by condition (never lay down / lay down but no HOME at the end)
                 reached_a6_n += at_entry.is_some() as u32;
+                missed_entry_rows += at_entry.is_none() as u32;
+                rows_path_complete += row_path_complete as u32;
+                oldest_stamp = oldest_stamp.max(stamp_max);
                 stop_never_n += (at_entry.is_some() && a6_sleep.is_none()) as u32;
                 stop_homeless_n += (at_entry.is_some() && a6_sleep.is_some() && !home_end) as u32;
                 if !home_events.is_empty() || o.visit_plant_erase || o.visit_plant_stamp.is_some() || farm_stop {
@@ -3243,7 +3591,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // contributing to the exit status (NOT JUDGED fails); HOME LOST and FARM-STOP sampled over the
     // rows that reached A6
     let mut bars: Vec<(String, u32, u32, String)> = vec![
-        ("(i) the stamp's largest age over the visit < 1,000 gt (ironspec 22:10 (2))".to_string(), rows_n, over_1000_n, String::new()),
+        ("(i) the stamp's largest age over the visit <= 1,000 gt (ironspec 22:10 (2); W11: the code's bar, at most 1,000)".to_string(), rows_n, over_1000_n, format!("{i_samples} row(s) carried a stamp at some tick; the others hold the bar at age 0")),
         (
             "(ii) the AT-ENTRY bar: the stamp under 1,000 gt at every run of SetWalkTargetFromBlockMemory toward HOME, from redsim's RECORD of its runs (the tick, the branch, the stamp age it SAW; ironspec 08:13)".to_string(),
             tally.samples,
@@ -3272,6 +3620,24 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         farm_stop_n,
         format!("never lay down {stop_never_n}, lay down but without its bed as HOME at the end {stop_homeless_n}{}", if follow >= FOLLOW_BOUND { "" } else { "; the window under its bound: NOT JUDGED" }),
     ));
+    // (G1's W4 on R2) every expected row reached the arrival detector and the stop's entry (the cart's
+    // cell): a missed row fails, it never passes the other bars by being absent
+    bars.push((
+        format!("every expected row ({phases} phase(s) x {rows_per_phase} row(s)) reached the arrival detector and the stop's entry (the cart's cell, W4 / W5)"),
+        expected_rows,
+        missed_arrival_rows + missed_entry_rows,
+        format!("{missed_arrival_rows} row(s) of phases that never reached the arrival detector, {missed_entry_rows} row(s) whose cart never reached the entry"),
+    ));
+    // (G1's W5 on R2) the held walk's condition (i), (ii), no escape, no arming after the release or in
+    // A6, HOME at the entry and in A6, as a bar over every row run
+    bars.push((
+        "the held walk in every row: (i) the stamp <= 1,000, (ii) an entry stamp cleared in A6, no escape, no arming after the release or in A6, HOME at the entry and in A6 (W5)".to_string(),
+        rows_n,
+        held_fail_rows,
+        String::new(),
+    ));
+    // (G1's W7 on R2) the water given its tick
+    bars.push((format!("the chunk's water scheduled (W7): {fluid_line}"), 1, (!fluid_ok) as u32, String::new()));
     let mut pass = true;
     for (name, samples, fails, note) in &bars {
         let verdict = if *samples == 0 {
@@ -3285,6 +3651,13 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         out.push(format!("(visit) BAR {name}: {verdict}{}", if note.is_empty() { String::new() } else { format!(" ({note})") }));
     }
     // priced, not barred (ironspec 06:24 / 07:30): the strand events and the time at the stop
+    out.push(format!(
+        "(visit) the rider's CANT_REACH stamps over the {rows_n} rows (G1 16:06 / ironspec 16:24, night check 1): the oldest {oldest_stamp} gt; arms {} ({}); clears {} ({}); a walk-target path that completed (reached its target) at some tick in {rows_path_complete} of {rows_n} rows",
+        stamp_arms.values().sum::<u32>(),
+        if stamp_arms.is_empty() { "none".to_string() } else { stamp_arms.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ") },
+        stamp_clears.values().sum::<u32>(),
+        if stamp_clears.is_empty() { "none".to_string() } else { stamp_clears.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ") },
+    ));
     out.push(format!(
         "(visit) PRICED: HOME RELEASED (any erasure of the napper's HOME, every source) in {home_erased_rows} of {rows_n} rows (with a Released event: {home_released_n}); the leg's stamp at A6's entry in {entry_stamped_n} rows, cleared in A6 in {}; the rows on one world (its seed fixed; the rows differ in the arrival phase and the hold)",
         entry_stamped_n - not_cleared_n.min(entry_stamped_n)
@@ -3436,8 +3809,11 @@ pub fn water_restart_rows(ticks: &[i64], how: crate::liveness::Restart) -> Resul
 /// (ironspec 19:12 (c): containment) The module with the extra cells (the way-in's water) run for
 /// `ticks` gt: every water cell in the box `lo..=hi` that isn't a waterlogged rail (flowing or source
 /// water outside the rails), at checkpoints and at the end; the bar: none.
-pub fn water_scan_lines(spec: &FarmSpec, o: &Opts, ticks: u32, lo: P, hi: P) -> Result<Vec<String>, String> {
-    Ok(water_scan(spec, o, ticks, lo, hi)?.2)
+pub fn water_scan_lines(spec: &FarmSpec, o: &Opts, ticks: u32, lo: P, hi: P) -> Result<(Vec<String>, bool), String> {
+    // (G1's W2 on R2) the verdict reaches the caller: PASS only with water judged (samples > 0) and no
+    // loose water cell at any checkpoint
+    let (scheduled, worst, lines) = water_scan(spec, o, ticks, lo, hi)?;
+    Ok((lines, scheduled > 0 && worst == 0))
 }
 
 /// [`water_scan_lines`]'s run: (the water cells given their tick (the samples), the most loose
@@ -3730,6 +4106,11 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
     // (G1 (6)) the override rule's before -> after lines kept, not discarded
     let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
     settle_r1(&mut run.world, o)?;
+    // (G1's W7 on R2) the chunk's water given its tick; frozen water refuses this information mode
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "leg");
+    if !fluid_ok {
+        return Err(fluid_line);
+    }
     // (ironspec 14:58: the real arrival stamp per visit) with `day`, the rider carries its HOME (the
     // bed) and the ride starts at that day time: a calm REST rider computes its HOME walk from the
     // falling cart, partial, and may arrive with its stamp armed
@@ -3871,6 +4252,7 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
         // (G1 08:12) the leg rows are INFORMATION: no bar is judged here (their exposure and stamps are
         // priced by the composed runs and the visit rows' bars), so they set no exit status
         "(leg) INFORMATION ONLY: no bar is judged by the leg rows (exit 0 by design; the visit rows carry the bars)".to_string(),
+        fluid_line,
         format!("(leg) on the HOLD detector {hold:?} at t {on_hold:?}; within 16 of the bed's head at t {ball:?} (HOLD's lead {lead}); at the arrival detector at t {at_arrival:?}; at rest on the queue rail at t {at_queue:?}"),
         format!(
             "(leg) the fall ({} airborne ticks before the arrival): the cart's box x {:.3}..{:.3}, z {:.3}..{:.3}; |vx| at most {vmax:.6}; ticks with the box in a full block {contacts} ({})",
@@ -3879,7 +4261,7 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
             fx.1,
             fz.0,
             fz.1,
-            if contacts == 0 && vmax < 1e-9 { "PASS: x fixed, vx 0, no contact" } else { "FAIL" }
+            if contacts == 0 && vmax < 1e-9 { "x fixed, vx 0, no box in a full block" } else { "x moved, vx not 0 or a box in a full block (information)" }
         ),
         format!("(leg) the fall tick by tick: {}", runs.join("; ")),
         format!(
@@ -4446,5 +4828,30 @@ mod tests {
         assert!(e.contains("would pop"), "{e}");
         assert!(place_checked(&mut w, &[(BlockPos::new(2, 2, 2), g), (BlockPos::new(1, 2, 2), g), (BlockPos::new(1, 3, 2), r)]).is_err(), "no rigid top under (1,3,2): (1,2,2) is glass, its high side (2,3,2) is air");
         assert!(place_checked(&mut w, &[(BlockPos::new(2, 3, 2), g), (BlockPos::new(1, 3, 2), r)]).is_ok());
+    }
+
+    /// (G1's W8 on R2) one mode a run, its companion flags present: a mis-shaped mode is an error, never
+    /// a fall-through; two modes together refused; no primary flag is the queue-cell checks.
+    #[test]
+    fn one_mode_a_run_with_its_companion_flags() {
+        let base = ModeFlags::default();
+        assert_eq!(way_cell_mode(&base), Ok("queue cell"));
+        // the visit without --leg-day is refused, not run as another mode
+        let visit = ModeFlags { visit: true, leg: 6, bed: 3, ride_to: 3, ..base.clone() };
+        assert!(way_cell_mode(&visit).unwrap_err().contains("--leg-day"));
+        assert_eq!(way_cell_mode(&ModeFlags { leg_day: true, ..visit.clone() }), Ok("visit"));
+        // the sweep without --post, the wait without --bed, the leg without --hold
+        assert!(way_cell_mode(&ModeFlags { release_sweep: true, wait: 2, bed: 3, ride_to: 3, ..base.clone() }).unwrap_err().contains("--post"));
+        assert!(way_cell_mode(&ModeFlags { wait: 2, post: true, ..base.clone() }).unwrap_err().contains("--bed"));
+        assert!(way_cell_mode(&ModeFlags { leg: 6, bed: 3, ..base.clone() }).unwrap_err().contains("--hold"));
+        // a mis-shaped --wait (one value) is refused
+        assert!(way_cell_mode(&ModeFlags { wait: 1, post: true, bed: 3, ..base.clone() }).unwrap_err().contains("--wait"));
+        // two modes at once: the water scan with a path probe
+        assert!(way_cell_mode(&ModeFlags { water_scan: true, scan_box: 6, path_probe: true, bed: 3, ..base.clone() }).unwrap_err().contains("one mode a run"));
+        // the ride rows need --ride-to; the release pulse needs the built R1 gate
+        assert!(way_cell_mode(&ModeFlags { rows: true, ..base.clone() }).unwrap_err().contains("--ride-to"));
+        assert!(way_cell_mode(&ModeFlags { release_pulse: 2, ride_to: 3, ..base.clone() }).unwrap_err().contains("--r1-built"));
+        assert_eq!(way_cell_mode(&ModeFlags { release_pulse: 2, ride_to: 3, south: true, r1_built: true, ..base.clone() }), Ok("release pulse"));
+        assert_eq!(way_cell_mode(&ModeFlags { launch_speeds: 3, ..base.clone() }), Ok("launch speed"));
     }
 }

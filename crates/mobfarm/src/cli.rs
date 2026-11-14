@@ -1959,6 +1959,15 @@ pub enum MobfarmCmd {
         /// `contacts::reference_check` mismatches fail it (printed only without this flag)
         #[arg(long)]
         reference_run: bool,
+        /// (ironspec 17:38: the boost-margin row) with --ride-to, --south, --r1-built: the release held
+        /// for k gt, k in A..=B (NOT-ready's lever back ON at t k), each cart followed to the entry or
+        /// its end; the stated minimum pulse
+        #[arg(long, value_delimiter = ',')]
+        release_pulse: Vec<u32>,
+        /// (G1 17:28) the rail end's least launch speed: speeds A..=B by STEP (b/t south), each cart
+        /// followed 60 gt off the rail end (9,-15,-2): into the shaft, or held
+        #[arg(long, value_delimiter = ',')]
+        launch_speeds: Vec<f64>,
         /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
         /// no leg, the rows start at once; a hold past the row's end never releases.
         #[arg(long)]
@@ -8362,7 +8371,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, release_pulse, launch_speeds, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -8497,6 +8506,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 o.rail = true;
             }
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
+            // (G1's W8 on R2) one mode a run, its companion flags present: a mis-shaped mode flag is an
+            // error, never a fall-through into another mode
+            let mode = crate::waycell::way_cell_mode(&crate::waycell::ModeFlags {
+                write: write.is_some(),
+                post: o.post.is_some(),
+                water_search: water_search.is_some(),
+                water_scan: water_scan.is_some(),
+                scan_box: scan_box.len(),
+                path_probe: path_probe.is_some(),
+                visit: visit > 0,
+                leg: leg.len(),
+                hold: hold.len(),
+                bed: bed.len(),
+                ride_to: ride_to.len(),
+                leg_day: leg_day.is_some(),
+                release_sweep: release_sweep > 0,
+                wait: wait.len(),
+                rows: release_phases > 0 || !restart_at.is_empty() || !restart_every.is_empty() || !freeze_every.is_empty(),
+                release_pulse: release_pulse.len(),
+                launch_speeds: launch_speeds.len(),
+                south: o.south,
+                r1_built: o.r1_built,
+            })
+            .map_err(|e| anyhow::anyhow!(e))?;
+            anyhow::ensure!(restart_every.is_empty() || restart_every.len() == 2, "--restart-every A,B (two ticks)");
+            anyhow::ensure!(freeze_every.is_empty() || freeze_every.len() == 2, "--freeze-every A,B (two ticks)");
+            println!("(mode) {mode}");
             if let (Some(out), Some(p)) = (&write, o.post) {
                 for l in crate::waycell::write_layout(&design, out, &o, p).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
@@ -8563,9 +8599,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            if let (Some(n), 6) = (water_scan, scan_box.len()) {
-                for l in crate::waycell::water_scan_lines(&spec, &o, n, [scan_box[0], scan_box[1], scan_box[2]], [scan_box[3], scan_box[4], scan_box[5]]).map_err(|e| anyhow::anyhow!(e))? {
+            // (ironspec 17:38) the boost-margin row: the stated minimum release pulse
+            if let (&[a, b], 3) = (&release_pulse[..], ride_to.len()) {
+                anyhow::ensure!(a <= b, "--release-pulse A,B with A <= B");
+                let (lines, pass) = crate::waycell::release_pulse_lines(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, (a, b)).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
                     println!("{l}");
+                }
+                if !pass {
+                    println!("way-cell release pulse: no stated minimum in the sweep{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            // (G1 17:28) the rail end's least launch speed
+            if let [a, b, step] = launch_speeds[..] {
+                anyhow::ensure!(a > 0.0 && a <= b && step > 0.0, "--launch-speeds A,B,STEP with 0 < A <= B and STEP > 0");
+                let n = ((b - a) / step).round() as usize;
+                let speeds: Vec<f64> = (0..=n).map(|i| a + step * i as f64).collect();
+                let (lines, pass) = crate::waycell::launch_speed_lines(&spec, &o, &speeds).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
+                    println!("{l}");
+                }
+                if !pass {
+                    println!("way-cell launch speed: no clear threshold in the sweep{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            if let (Some(n), 6) = (water_scan, scan_box.len()) {
+                let (lines, pass) = crate::waycell::water_scan_lines(&spec, &o, n, [scan_box[0], scan_box[1], scan_box[2]], [scan_box[3], scan_box[4], scan_box[5]]).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
+                    println!("{l}");
+                }
+                // (G1's W2 on R2) the water scan's verdict is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell water scan: FAIL or NOT JUDGED{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
                 }
                 return Ok(());
             }
@@ -8650,8 +8726,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 return Ok(());
             }
             if let (2, Some(p), 3) = (wait.len(), o.post, bed.len()) {
-                for l in crate::waycell::wait_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]], stamp, follow).map_err(|e| anyhow::anyhow!(e))? {
+                let (lines, pass) = crate::waycell::wait_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]], stamp, follow).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
                     println!("{l}");
+                }
+                // (G1's W3 on R2) the wait's verdict is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell wait: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
                 }
                 return Ok(());
             }
@@ -8661,11 +8745,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
+            // (G1's W1 on R2) the default mode's verdict reaches the exit: the villager positions and the
+            // seat's draws must exist (with none, (a) and (b) iterate nothing and the draws' share is NaN)
+            anyhow::ensure!(!o.positions.is_empty(), "the queue-cell checks need villager positions (--positions): with none, (a) and (b) judge nothing");
+            anyhow::ensure!(o.post.is_none() || draws > 0, "--draws 0: the seat check's PANIC draws judge nothing");
             let (a, lines) = crate::waycell::summon_box_lines(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in lines {
                 println!("{l}");
             }
-            match o.post {
+            let pass = match o.post {
                 Some(p) => {
                     let (ok, lines) = crate::waycell::post_lines(&spec, &o, p).map_err(|e| anyhow::anyhow!(e))?;
                     for l in lines {
@@ -8676,11 +8764,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         println!("{l}");
                     }
                     println!("the queue cell: {}", if a && ok && seat { "every check PASS" } else { "FAIL" });
+                    a && ok && seat
                 }
                 None => {
                     for l in crate::waycell::scan(&spec, &o).map_err(|e| anyhow::anyhow!(e))? {
                         println!("{l}");
                     }
+                    // (W1) the scan lists the candidate posts; its own judged check is the summon box (a)
+                    println!("the queue cell's summon box (a): {}", if a { "PASS" } else { "FAIL" });
+                    a
+                }
+            };
+            if !pass {
+                println!("way-cell queue cell: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                if !report_only {
+                    std::process::exit(1);
                 }
             }
         }
