@@ -30,6 +30,7 @@ mud	2	1	0.3	dirt splashed with a water bottle (one bottle refilled over a stack;
 redstone	0	2	0.5	dust: on day 1 only in the redstone fork, where the player already holds it (the iron pickaxe counts as a tool); mined with an iron pickaxe later
 string	15	3	1	a spider at night or a cobweb cut with a sword
 wool	10	3	1	a sheep (killed, or sheared once shears exist)
+leather	12	3	1	a cow killed with a sword (0..2 leather each, 1 on average; the walk to the village's herd included); a cow farm by the middle game
 slime_ball	-	15	2	a slime in a swamp or slime chunk
 blaze_rod	-	20	3	a Nether fortress
 water	1	1	1	placing a source from a bucket refilled at any water (an infinite source): one refill per placed source

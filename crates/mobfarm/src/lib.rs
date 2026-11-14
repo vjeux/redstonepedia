@@ -49,6 +49,7 @@ pub mod settle;
 pub mod verdict;
 pub mod oddtap;
 pub mod ctlring;
+pub mod ctlring8;
 pub mod parts;
 pub mod placing;
 pub mod queue;
