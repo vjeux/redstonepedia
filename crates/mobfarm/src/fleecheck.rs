@@ -116,6 +116,37 @@ pub fn blocked_after_start(p: &redsim::entity::mob::ai::path::path::Path) -> Vec
         .collect()
 }
 
+/// (ironspec Nov 14 04:30 (1), part 47; factored in part 48) The accepted-types line of a found path: every
+/// node's type and malus when the search accepted the link to it (`Path.accepted`).
+pub fn accepted_line(p: &redsim::entity::mob::ai::path::path::Path) -> String {
+    format!(
+        "  accepted (each node's type and malus when its link was accepted): {}",
+        p.nodes
+            .iter()
+            .enumerate()
+            .map(|(k, n)| match p.accepted.get(k) {
+                Some((t, m)) => format!("{},{},{} {:?} {}", n.x, n.y, n.z, t, m),
+                None => format!("{},{},{} not recorded", n.x, n.y, n.z),
+            })
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    )
+}
+
+/// (G1 Nov 14 05:17, part 48) Each pinned node (its cell and its expected "Type malus") must appear as that
+/// node's own entry in an `accepted_line`; the first that doesn't is named.
+pub fn accepted_pins(line: &str, pins: &[(BlockPos, &str)]) -> Result<(), String> {
+    let steps: Vec<&str> = line.split(": ").nth(1).unwrap_or("").split(" -> ").collect();
+    for (c, want) in pins {
+        let key = format!("{},{},{} {}", c.x, c.y, c.z, want);
+        if !steps.iter().any(|s| *s == key) {
+            let got = steps.iter().find(|s| s.starts_with(&format!("{},{},{} ", c.x, c.y, c.z))).copied().unwrap_or("absent");
+            return Err(format!("{},{},{} does not read \"{}\" (it reads \"{}\")", c.x, c.y, c.z, want, got));
+        }
+    }
+    Ok(())
+}
+
 /// (G1 Nov 14 03:33 (i), tick-exact's pin, part 46) Each of `blocked_after_start`'s nodes with its final type
 /// and its type and malus at acceptance: "x,y,z (final T, accepted T' malus M)".
 pub fn blocked_detail(p: &redsim::entity::mob::ai::path::path::Path) -> Vec<String> {
@@ -454,18 +485,7 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
             ));
             // (ironspec Nov 14 04:30 (1), part 47) every node's type and malus when the search accepted the link
             // to it (the neighbour's own snapshot, `Path.accepted`), beside the final types above
-            lines.push(format!(
-                "  accepted (each node's type and malus when its link was accepted): {}",
-                p.nodes
-                    .iter()
-                    .enumerate()
-                    .map(|(k, n)| match p.accepted.get(k) {
-                        Some((t, m)) => format!("{},{},{} {:?} {}", n.x, n.y, n.z, t, m),
-                        None => format!("{},{},{} not recorded", n.x, n.y, n.z),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" -> ")
-            ));
+            lines.push(accepted_line(p));
             // (ironspec Nov 14 02:58 (1), part 42; tick-exact 03:23, part 45) a REACHED through BLOCKED-typed
             // nodes: the game completes it too (a/1157402463303382): printed, not a refusal; (G1 03:33 (i),
             // part 46) each with its final type and its type and malus at acceptance
@@ -11014,12 +11034,25 @@ mod gate_tests {
         );
         // (G1 Nov 14 03:33 (i), part 46) each BLOCKED node printed with its type and malus at acceptance
         assert!(got[2].0.iter().any(|l| l.starts_with("  BLOCKED-typed nodes after the start: 2 (") && l.contains("(final Blocked, accepted Blocked malus -1)")), "the acceptance record: {:?}", got[2]);
-        // (ironspec Nov 14 04:30 (1), part 47) the record is each node's OWN snapshot, not its parent's: the
-        // first node after the BLOCKED chain (on the floor, its parent BLOCKED) reads "Walkable 0"
+        // (ironspec Nov 14 04:30 (1), part 47; G1 05:17, part 48) the record is each node's OWN snapshot, not its
+        // parent's, pinned by coordinates: the chain's last node (2,2,2) reads "Blocked -1" and the first floor
+        // node (1,1,1) "Walkable 0" (a parent-shifted record would read "Blocked -1" at (1,1,1))
         let acc = got[2].0.iter().find(|l| l.starts_with("  accepted (each node's type and malus when its link was accepted): ")).unwrap_or_else(|| panic!("no accepted line: {:?}", got[2]));
-        let steps: Vec<&str> = acc.split(": ").nth(1).unwrap_or("").split(" -> ").collect();
-        let last_blocked = steps.iter().rposition(|s| s.contains(" Blocked ")).unwrap_or_else(|| panic!("no Blocked step: {acc}"));
-        assert!(last_blocked >= 1 && steps.get(last_blocked + 1).is_some_and(|s| s.ends_with(" Walkable 0")), "a walkable node after a BLOCKED one reads its own type: {acc}");
+        let pins = [(b(3, 10, 3), "Blocked -1"), (b(3, 6, 2), "Blocked -1"), (b(2, 2, 2), "Blocked -1"), (b(1, 1, 1), "Walkable 0")];
+        assert!(super::accepted_pins(acc, &pins).is_ok(), "the chain's own acceptance types: {acc}");
+        // the planted control: the same path with each node's record shifted to its parent's FAILS BY NAME at the
+        // first floor node
+        use redsim::entity::mob::ai::path::path::{Path, PathNode};
+        use redsim::entity::mob::ai::path::path_type::PathType;
+        let node = |x: i32, y: i32, z: i32, ty: PathType| PathNode { x, y, z, ty };
+        let mut shifted = Path::new(vec![node(3, 10, 3, PathType::Blocked), node(3, 6, 2, PathType::Blocked), node(2, 2, 2, PathType::Blocked), node(1, 1, 1, PathType::Walkable)], b(1, 1, 1), true, 1);
+        shifted.accepted = vec![(PathType::Blocked, -1.0), (PathType::Blocked, -1.0), (PathType::Blocked, -1.0), (PathType::Blocked, -1.0)];
+        let line = super::accepted_line(&shifted);
+        let err = super::accepted_pins(&line, &pins).err().unwrap_or_default();
+        assert!(err.starts_with("1,1,1 does not read \"Walkable 0\""), "a parent-shifted record fails by name: {err:?} ({line})");
+        let mut own = shifted.clone();
+        own.accepted[3] = (PathType::Walkable, 0.0);
+        assert!(super::accepted_pins(&super::accepted_line(&own), &pins).is_ok(), "the own-snapshot twin passes");
     }
 
     /// (G1 Nov 14 03:33 N1 / N2 / N4 / N3, part 46) The NIGHT class on REAL beds through `check()`, each rail
