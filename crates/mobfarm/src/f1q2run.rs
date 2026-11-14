@@ -3099,6 +3099,8 @@ struct Rec {
     /// (G1 16:37 (2)) the previous tick's cell and the passes through the lift foot (-4,2,7)
     prev_cell: Option<[i32; 3]>,
     foot_passes: u32,
+    /// (G1 16:47) VILLAGER_HOSTILES' scan phase mod 20
+    hostile_phase: Option<i64>,
     calm_rest_ticks: i64,
     over_1000: i64,
     clears: Vec<String>,
@@ -7084,6 +7086,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.class_peak[cls] = (age, now - t0, c);
                 }
             }
+            // (G1 16:47, tick-exact 16:50: the hostile sensor's phase mod 20 is fixed per villager in normal
+            // operation) VILLAGER_HOSTILES' scan phase (its timeToTick, SENSORS index 5)
+            if r.hostile_phase.is_none() {
+                let b = redsim::entity::mob::ai::brain::brain(w, i);
+                r.hostile_phase = Some((now + b.sensors[5]).rem_euclid(20));
+            }
             // (G1 16:37 (2)) the lift foot (-4,2,7): each pass of a rider through the cell counted
             if c == [-4, 2, 7] && r.prev_cell != Some(c) {
                 r.foot_passes += 1;
@@ -7117,6 +7125,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.nap_stamps.push(format!("at its first clear after R (t {}) {} gt", now - t0, now - ps));
                 }
                 let napped = sleeping || last_slept == Some(now);
+                // (ironspec 16:50 (3), 7b90c3f1 / G1 16:51) a panic clear's trigger: NEAREST_HOSTILE (its id and
+                // distance) or HURT_BY (its age), so the lane's panic basis can be classified
+                let trigger = {
+                    let b = redsim::entity::mob::ai::brain::brain(w, i);
+                    match (b.nearest_hostile, b.hurt_by) {
+                        (Some(h), _) => {
+                            let d = w.entities.list.iter().find(|e| e.id == h).map(|e| {
+                                let (p, q) = (dpos(e.pos), dpos(w.entities.list[i].pos));
+                                ((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt()
+                            });
+                            format!(" [panic trigger: NEAREST_HOSTILE #{h}{}]", d.map_or(String::new(), |d| format!(" at {d:.1}")))
+                        }
+                        (None, Some(t)) => format!(" [panic trigger: HURT_BY {} gt ago]", now - t),
+                        _ => " [panic trigger: none held]".to_string(),
+                    }
+                };
                 let what = match r.prev_target {
                     Some(t) => {
                         let tc = [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32];
@@ -7125,7 +7149,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     None => clearing_source(r.prev_stamp, stamp, napped, None, c, "").unwrap_or_default(),
                 };
-                r.clears.push(format!("t {} at {:?}: {what}", now - t0, c));
+                r.clears.push(format!("t {} at {:?}: {what}{}", now - t0, c, if panic { trigger.as_str() } else { "" }));
                 if let Some(a) = r.arm_open.take() {
                     let place = ["the pocket", "the lane", "the siding", "elsewhere"][place_of(c)];
                     r.arm_pairs.push((a, Some(now - t0), format!("{what} at {c:?} ({place})")));
@@ -10169,9 +10193,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         };
         let mut by_lane: BTreeMap<String, (i64, String, [u32; 5], u32)> = BTreeMap::new();
+        let mut phases: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut triggers: BTreeMap<String, [u32; 3]> = BTreeMap::new();
         let (mut foot_passes, mut foot_clears_flee, mut foot_clears_own, mut foot_clears_other) = (0u32, 0u32, 0u32, 0u32);
         for (id, r) in recs.iter() {
             let ln = lane_of(r);
+            phases.entry(ln.clone()).or_default().push(format!("#{id} {}", r.hostile_phase.map_or("-".to_string(), |p| p.to_string())));
+            let tg = triggers.entry(ln.clone()).or_insert([0; 3]);
+            for c in &r.clears {
+                if c.contains("[panic trigger: NEAREST_HOSTILE") {
+                    tg[0] += 1;
+                } else if c.contains("[panic trigger: HURT_BY") {
+                    tg[1] += 1;
+                } else if c.contains("[panic trigger: none held]") {
+                    tg[2] += 1;
+                }
+            }
             let e = by_lane.entry(ln).or_insert((0, String::new(), [0; 5], 0));
             e.3 += 1;
             for (a, b, place) in &r.arm_pairs {
@@ -10223,6 +10260,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s.push_str(&format!(
             "the lift foot (-4,2,7) as a clearer (G1 16:37 (2): its 3-5-tick pass clears by cadence): {foot_passes} rider passes, clears there: {foot_clears_own} by the rider's own path home, {foot_clears_flee} by a flee path, {foot_clears_other} other; the per-pass own-path clear rate {}\n",
             if foot_passes == 0 { "-".to_string() } else { format!("{:.3}", foot_clears_own as f64 / foot_passes as f64) }
+        ));
+        s.push_str(&format!(
+            "the panic clears' triggers per lane (7b90c3f1 / G1 16:51: NEAREST_HOSTILE held, HURT_BY held, none) and each villager's VILLAGER_HOSTILES scan phase mod 20 (G1 16:47, ironspec 16:50 (3)): {}\n",
+            triggers
+                .iter()
+                .map(|(l, t)| format!("{l}: NEAREST_HOSTILE {}, HURT_BY {}, none {}; phases {}", t[0], t[1], t[2], phases.get(l).map_or(String::new(), |v| v.join(" "))))
+                .collect::<Vec<_>>()
+                .join(" | ")
         ));
     }
     // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class: per
