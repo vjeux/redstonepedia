@@ -1878,6 +1878,11 @@ impl Ctl {
             if lane3_pick {
                 self.rt_writes.push((now + if self.a_stop { 8 } else { 6 }, 3, false));
                 self.rt_log.push(format!("t {now}: D(-1) pressed: J(-1) off; lane 3's pick: the emulated D(3) at t {} (J(3) never armed)", now + 2));
+                // (ironspec 17:28 platform (1): SEEN3 is set by D(3), real OR G11-emulated) the lane-3 pick's
+                // emulated D(3) sets SEEN3 (t23's smoke: without it a lane-3-pick batch never re-armed)
+                if self.a_stop && self.seen[1].is_none() {
+                    self.seen[1] = Some(now + 2);
+                }
             } else {
                 self.rt_j3_latch = true;
                 if !self.rt_hold3 {
