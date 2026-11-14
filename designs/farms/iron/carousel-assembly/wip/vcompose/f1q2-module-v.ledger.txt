@@ -914,7 +914,8 @@ R3 `waker-places:` -3,-27,3=asleep in the bed, woken by F (2.04) (carried from p
 R3 `waker-places:` -2,-27,3=standing up on the pickup cell and seated there (3.03) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0): its cell is cleared
 R3 `waker-places:` -2,-27,4+0,-27,4+1,-27,4+1,-28,4+2,-28,4=riding out past the hatch to R (3.08..6.66) (58f770cc's A6 27bfc5dcd, its local cells + (0,-27,-1)) (carried from part : its cell is cleared
 R3 `waker-places:` -3,-27,3=asleep in the bed, woken by F (6.36 eye to eye; the window open only from F to the wake edge) (carried from part A, moved by 0,-27,-1): its cell is cleared
-## reserve clashes acknowledged (0 lines)
+## reserve clashes acknowledged (1 lines)
+-4,2,7 (reserved GATEG (for ironfarm, item gate G detector rail, next26 row 30 (ruled, unlanded: R-n pending next27)), held by LIFT: minecraft:rail[shape=east_west,waterlogged=false]; resolved by next26 row 30: the lift file holds a plain east_west rail there until ironfarm lays the detector (ironspec 03:40))
 ## stand-in supports (6 lines)
 stand-in -1,26,9: support=-1,27,9 held
 stand-in 3,26,9: support=3,27,9 held
