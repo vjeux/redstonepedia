@@ -29,7 +29,10 @@ Files (this directory):
   artifact 1485301936870056 (md5 f97bad1379c5).
 
 The module for every row is rev 3: `designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-record7f13b.txt`
-on explore/onechunk 685729e50, md5 3d7ed77b4bf3. Its pads are its overworld `nether_portal` cells: two
+on explore/onechunk 685729e50, md5 3d7ed77b4bf3. NOT FOR BUILD: loaderlay's pinned run input; superseded
+when the loader is re-judged on V rev 3.1 (its v-nonrail positions file exists). It is a TEST FIXTURE
+(ironspec 10:59a (7), 9fc3155f 11:05): composed from /tmp inputs, it carries the (A) stop's bench
+stand-ins, and `designs/settle-scope.txt` lists it as a `fixture:` line. Its pads are its overworld `nether_portal` cells: two
 10 × 3 portals, axis x, at local x -2..7, y -8..-6, z -5 and -2. Its 16-cell Nether part is the pads'
 2 × 3 twin placeholder (nether layers 64..68, y base 64). loaderlay claimed that part for these
 layouts (farmopt 22:35).
@@ -160,7 +163,8 @@ V's item.
 
 - module: rev 3, committed in this tree at onechunk's path
   `designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-record7f13b.txt` (md5
-  3d7ed77b4bf3, blob 88eea3fa1d7c: explore/onechunk 685729e50's, byte for byte);
+  3d7ed77b4bf3, blob 88eea3fa1d7c: explore/onechunk 685729e50's, byte for byte); not for build:
+  loaderlay's pinned run input, a test fixture (the module section above);
 - loader-x8.txt md5 15fa75750894, loader-clock-x8.txt md5 c2cd0f8674c2,
   control/loader-clock-1641.txt md5 f97bad1379c5.
 
