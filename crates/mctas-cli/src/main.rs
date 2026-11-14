@@ -211,6 +211,17 @@ fn main() -> Result<()> {
         match mobfarm::provenance::check(&std::env::current_dir()?, cli.cite.as_deref(), cli.not_evidence) {
             Ok((header, citable)) => {
                 println!("{header}");
+                // (G1 Nov 14 07:53 (A)(1): every file the command line names is inside the worktree, tracked and
+                // not ignored, listed with its blob; else REFUSED by name (NOT EVIDENCE under --not-evidence))
+                let args: Vec<String> = std::env::args().collect();
+                match mobfarm::provenance::evidence_inputs(&std::env::current_dir()?, &args) {
+                    Ok(v) => println!("evidence inputs (the command line's files, each tracked in the worktree): {}", if v.is_empty() { "none".to_string() } else { v.iter().map(|(p, b)| format!("{p} {}", &b[..b.len().min(12)])).collect::<Vec<_>>().join(", ") }),
+                    Err(why) if cli.not_evidence => println!("NOT EVIDENCE (--not-evidence): {why}"),
+                    Err(why) => {
+                        println!("{why}");
+                        finish(Exit::Refused);
+                    }
+                }
                 citable
             }
             Err(refusal) => {

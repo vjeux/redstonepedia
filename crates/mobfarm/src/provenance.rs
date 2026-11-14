@@ -32,6 +32,78 @@ pub const BUILT_FROM: Option<&str> = option_env!("MCTAS_SOURCE_TREE");
 pub use mctas::buildinputs::{FIXED_INPUTS, build_inputs, commit_build_tree, worktree_build_tree, worktree_tree};
 use mctas::buildinputs::{git_in, toplevel};
 
+/// The output flags whose values name files the run WRITES (never an input): skipped by
+/// [`evidence_inputs`].
+pub const OUTPUT_FLAGS: &[&str] = &["--out", "--output"];
+
+/// THE EVIDENCE INPUTS (G1 Nov 14 07:53 (A)(1), ironspec 06:43 / 06:54: one loader, default-deny): every
+/// command-line argument of an evidence run that names an existing file (a whole token, a `--flag=VALUE`'s
+/// value, or a part of a comma / semicolon list) must be inside the worktree, tracked and not ignored;
+/// each is returned with its blob (the header lists them). One outside, untracked or ignored refuses the
+/// run by name. (Reads the run makes of repository paths it names itself are inside the worktree by
+/// construction and covered by the worktree-tree check; a source scan pins that no evidence crate reads
+/// an absolute or home path.)
+pub fn evidence_inputs(dir: &Path, args: &[String]) -> Result<Vec<(String, String)>, String> {
+    let root = mctas::buildinputs::toplevel(dir)?;
+    let croot = root.canonicalize().map_err(|e| format!("{}: {e}", root.display()))?;
+    let mut ok: Vec<(String, String)> = Vec::new();
+    let mut bad: Vec<String> = Vec::new();
+    let mut skip_next = false;
+    for a in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if OUTPUT_FLAGS.contains(&a.as_str()) {
+            skip_next = true;
+            continue;
+        }
+        if OUTPUT_FLAGS.iter().any(|f| a.starts_with(&format!("{f}="))) {
+            continue;
+        }
+        let mut cands: Vec<&str> = vec![a.as_str()];
+        if let Some((_, v)) = a.strip_prefix("--").and_then(|r| r.split_once('=')) {
+            cands.push(v);
+        }
+        let parts: Vec<&str> = cands.iter().flat_map(|c| c.split([',', ';'])).collect();
+        cands.extend(parts);
+        for c in cands {
+            let p = dir.join(c);
+            if c.is_empty() || !p.is_file() {
+                continue;
+            }
+            let cp = match p.canonicalize() {
+                Ok(cp) => cp,
+                Err(e) => {
+                    bad.push(format!("{c} ({e})"));
+                    continue;
+                }
+            };
+            let Ok(rel) = cp.strip_prefix(&croot) else {
+                bad.push(format!("{c}: outside the worktree {}", croot.display()));
+                continue;
+            };
+            let rel = rel.to_string_lossy().to_string();
+            if ok.iter().any(|(r, _)| *r == rel) {
+                continue;
+            }
+            if mctas::buildinputs::git_in(&root, None, &["check-ignore", "-q", "--", &rel], None).is_ok() {
+                bad.push(format!("{c}: ignored by git ({rel})"));
+                continue;
+            }
+            if mctas::buildinputs::git_in(&root, None, &["ls-files", "--error-unmatch", "--", &rel], None).is_err() {
+                bad.push(format!("{c}: untracked ({rel})"));
+                continue;
+            }
+            match mctas::buildinputs::git_in(&root, None, &["hash-object", "--", &rel], None) {
+                Ok(b) => ok.push((rel, b)),
+                Err(e) => bad.push(format!("{c}: {e}")),
+            }
+        }
+    }
+    if bad.is_empty() { Ok(ok) } else { Err(format!("REFUSED: an evidence input outside the worktree, untracked or ignored (G1 Nov 14 07:53 (A)(1)): {}", bad.join("; "))) }
+}
+
 /// The provenance header for a run in `dir` citing commit `cite` (None: HEAD, only when clean), or the
 /// refusal naming every tree. `Ok((header, citable))`: `citable` false under `--not-evidence`.
 pub fn check(dir: &Path, cite: Option<&str>, not_evidence: bool) -> Result<(String, bool), String> {
@@ -162,6 +234,69 @@ mod tests {
     fn commit_all(d: &Path, msg: &str) {
         git_in(d, None, &["add", "-A"], None).unwrap();
         git_in(d, None, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg], None).unwrap();
+    }
+
+    /// G1 Nov 14 07:53 (A)(1): the evidence inputs: a tracked file passes with its blob; an out-of-tree, an
+    /// untracked and an ignored one each refuse by name; an output flag's value is skipped.
+    #[test]
+    fn an_evidence_input_outside_untracked_or_ignored_is_refused_by_name() {
+        let d = scratch_repo("evin");
+        std::fs::write(d.join(".gitignore"), "*.log\n").unwrap();
+        commit_all(&d, "ignore logs");
+        let a = |v: &[&str]| -> Vec<String> { std::iter::once("mctas").chain(v.iter().copied()).map(|s| s.to_string()).collect() };
+        let ok = evidence_inputs(&d, &a(&["mobfarm", "return-bench", "--record", "designs/d.txt", "--offsets", "0,17,27"])).unwrap();
+        assert_eq!(ok.len(), 1, "{ok:?}");
+        assert_eq!(ok[0].0, "designs/d.txt");
+        assert_eq!(ok[0].1, git_in(&d, None, &["rev-parse", "HEAD:designs/d.txt"], None).unwrap(), "the blob is the tracked one");
+        let outside = std::env::temp_dir().join(format!("mctas-prov-outside-{}.txt", std::process::id()));
+        std::fs::write(&outside, "out of tree\n").unwrap();
+        let e = evidence_inputs(&d, &a(&["--record", outside.to_str().unwrap()])).unwrap_err();
+        assert!(e.contains("outside the worktree"), "{e}");
+        let e = evidence_inputs(&d, &a(&[&format!("--record={}", outside.display())])).unwrap_err();
+        assert!(e.contains("outside the worktree"), "a --flag=VALUE too: {e}");
+        std::fs::write(d.join("designs/new.txt"), "untracked\n").unwrap();
+        let e = evidence_inputs(&d, &a(&["--record", "designs/new.txt"])).unwrap_err();
+        assert!(e.contains("untracked"), "{e}");
+        std::fs::write(d.join("designs/run.log"), "ignored\n").unwrap();
+        let e = evidence_inputs(&d, &a(&["--push-grid", "designs/run.log"])).unwrap_err();
+        assert!(e.contains("ignored"), "{e}");
+        assert!(evidence_inputs(&d, &a(&["--out", outside.to_str().unwrap()])).is_ok(), "an output flag's value is never an input");
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    /// The source scan behind the loader (G1 07:53 (A)(1)): no evidence crate (mobfarm, mobai) reads an
+    /// absolute or home path it names itself; the planted line is caught.
+    #[test]
+    fn no_evidence_crate_reads_an_absolute_or_home_path() {
+        let bad = |text: &str| -> Vec<String> {
+            let mut v = Vec::new();
+            for (i, l) in text.lines().enumerate() {
+                for call in ["read_to_string(\"", "fs::read(\"", "File::open(\"", "read_dir(\""] {
+                    if let Some(j) = l.find(call) {
+                        let rest = &l[j + call.len()..];
+                        if rest.starts_with('/') || rest.starts_with('~') {
+                            v.push(format!("line {}: {}", i + 1, l.trim()));
+                        }
+                    }
+                }
+            }
+            v
+        };
+        assert_eq!(bad("let t = std::fs::read_to_string(\"/home/x/rec.txt\")?;").len(), 1, "the planted line");
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("the crates directory");
+        let mut found = Vec::new();
+        for c in ["mobfarm", "mobai"] {
+            let src = crates.join(c).join("src");
+            for e in std::fs::read_dir(&src).unwrap().flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "rs") && p.file_name().is_some_and(|n| n != "provenance.rs") {
+                    for b in bad(&std::fs::read_to_string(&p).unwrap()) {
+                        found.push(format!("{}: {b}", p.display()));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "an evidence crate reads an absolute or home path: {found:?}");
     }
 
     #[test]
