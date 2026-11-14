@@ -705,6 +705,11 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-14, G1 03:47) the hold drive's lever stand-in on at t20, off at t60
+        "hold-drive" => vec![(20, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=true]")]), (60, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=false]")])],
+        // (tickexact 2026-11-14, ironspec 02:28 (1)) the linker (#2), holding HOME and the bed's ticket by its own claim,
+        // moved to the floor 30 below the stop at t400
+        "relaid-stop-dawn-other" => vec![(400, vec![([0, 0, 0], "tp:id2:40.5:41:40.5".to_string())])],
         // (tickexact 2026-11-14, G1 01:04) rider (A)'s glass box opens at t200
         "seated-stamp" => {
             let mut cells = Vec::new();
@@ -5942,6 +5947,145 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([2, 62, 3], [8, 66, 9]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, G1 01:07: is a REACHED through a trapdoor's cell physical?) four 1-wide glass corridors
+    // (x 2..13, floor y 63, walls y 64..66, roof y 67: 3 high, so the bed's top keeps headroom) at z 6 / 9 / 12 / 15, a
+    // villager at the west end (x 3) with HOME at a bed at the east end (head (13,64,z)), day time 13000 (REST): in the
+    // corridor at x 8 a closed IRON trapdoor, (z 6) top half in the feet cell (8,64,z), (z 9) top half in the head cell
+    // (8,65,z), (z 12) bottom half in the feet cell; (z 15) none
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 20, 62, stone);
+        for x in 0..=15 {
+            for z in 0..=19 {
+                b.push(([x, 63, z], stone.to_string()));
+            }
+        }
+        for (z, td) in [(6, Some((64, "top"))), (9, Some((65, "top"))), (12, Some((64, "bottom"))), (15, None)] {
+            for x in 2..=13 {
+                for y in [64, 65, 66] {
+                    b.push(([x, y, z - 1], "minecraft:glass".to_string()));
+                    b.push(([x, y, z + 1], "minecraft:glass".to_string()));
+                }
+                b.push(([x, 67, z], "minecraft:glass".to_string()));
+            }
+            for y in [64, 65, 66] {
+                b.push(([1, y, z], "minecraft:glass".to_string()));
+                b.push(([14, y, z], "minecraft:glass".to_string()));
+            }
+            b.push(([12, 64, z], "minecraft:red_bed[facing=east,occupied=false,part=foot]".to_string()));
+            b.push(([13, 64, z], "minecraft:red_bed[facing=east,occupied=false,part=head]".to_string()));
+            if let Some((y, half)) = td {
+                b.push(([8, y, z], format!("minecraft:iron_trapdoor[facing=north,half={half},open=false,powered=false,waterlogged=false]")));
+            }
+        }
+        let mob = |z: i32| ("minecraft:villager".to_string(), [3.5, 64.0, z as f64 + 0.5], Some(format!("{{PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;13,64,{z}]}}}}}}}}}}")));
+        v.push(Scene {
+            name: "trapdoor-corridor".into(),
+            chunks: [0, 0, 0, 1],
+            blocks: b,
+            mobs: vec![mob(6), mob(9), mob(12), mob(15)],
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 4], [15, 68, 17]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, ironspec 03:04 (5) / 03:08 (3) / 9fc3155f 03:06 / G1 03:08 / cc767b78 03:08: can a rider
+    // stopped at the lift foot walk HOME?) the cells 9fc3155f's NIGHT class ran on, vendored by md5: V = V rev 1 with
+    // 58f770cc's re-laid stop swapped in (9fc3155f's scratch a/1688490282882350, md5 1edd124bb676; bed head (-3,-20,3)) and
+    // REV 3 = record7f13b rev 3 (e8ed1e0fa, md5 3d7ed77b4bf3; bed head (-3,-27,3)), each at local + (16, 40, 16), blocks
+    // only (no entities: no scarer, no other rider), and ONE villager seated in a minecart, HOME = the file's bed (NBT, no
+    // ticket), day time 13000 (REST): `-centred` the cart at rest centred in the foot cell (-4,2,7) (x -3.5: its own block
+    // can't start it, the head cell (-4,3,7) glass); `-offcentre` at rest at x -3.02 (cc767b78's stalled cart: a box corner
+    // in block -3); `-73` at rest centred on (7,0,3) (a RAIL start); `-moving` rolling west onto the climb from x -2.2 at
+    // 0.40 b/t (lift-top's (D) entry: a normal-running pass through the foot)
+    for (file, tag, bed_y) in [("v", "V", -20), ("r3", "rev 3", -27)] {
+        let text = if file == "v" { include_str!("../scenes/f1q2-v-relaid-stop-1edd124bb676.txt") } else { include_str!("../scenes/f1q2-record7f13b-rev3-3d7ed77b4bf3.txt") };
+        for (kind, at, motion) in [("centred", [-3.5, 2.0625, 7.5], 0.0), ("offcentre", [-3.02, 2.0625, 7.5], 0.0), ("73", [7.5, 0.0625, 3.5], 0.0), ("moving", [-2.2, 1.8, 7.5], -0.40)] {
+            let d = mctas::design::Design::parse(text).unwrap_or_else(|e| panic!("{tag}: {e}"));
+            let o = [16, 40, 16];
+            let b: Vec<([i32; 3], String)> = d.block_list().into_iter().map(|(p, s)| ([p[0] + o[0], p[1] + o[1], p[2] + o[2]], s)).collect();
+            let h = [-3 + o[0], bed_y + o[1], 3 + o[2]];
+            let rider = format!("{{Motion:[{motion:.2}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2]);
+            v.push(Scene {
+                name: format!("{file}-foot-{kind}"),
+                chunks: [0, 0, 2, 2],
+                blocks: b,
+                mobs: vec![("minecraft:minecart".to_string(), [at[0] + o[0] as f64, at[1] + o[1] as f64, at[2] + o[2] as f64], Some(rider))],
+                day_time: 13000,
+                difficulty: Difficulty::Normal,
+                mob_griefing: true,
+                watch: ([0, 5, 0], [40, 75, 40]),
+                player: None,
+                player_creative: false,
+                random_tick_speed: 0,
+            });
+        }
+    }
+    // (tickexact 2026-11-14, 58f770cc 02:11 (b): the dawn-to-dusk row) the RE-LAID STOP as 58f770cc's 4807aba6d lays it
+    // (bed-tier-relaid.txt, md5 f3a818710a8f, vendored as scenes/bed-tier-relaid.txt) at local + (16, 70, 16), its own
+    // entity (the scarer: a zombie in a boat), and a villager standing on sealed P (-2,0,4) with HOME = the bed head
+    // (-3,0,4) (by NBT: no ticket), from day time 0 (dawn). (ironspec 02:28 (1), the ticket TAKEN at the start)
+    // `relaid-stop-dawn-own`: the napper with no HOME, so it claims the bed itself (AcquirePoi, a CORE behaviour: its
+    // ticket taken); `relaid-stop-dawn-other`: a second villager (#2) standing on the bed foot's top with no HOME claims
+    // it (the ticket taken by a real claim) and is moved off at t400 (scene act `tp`) to the floor 30 below, holding
+    // HOME and the ticket; the napper (#3) as in `relaid-stop-dawn`
+    for (name, napper_home, linker) in [("relaid-stop-dawn", true, false), ("relaid-stop-dawn-own", false, false), ("relaid-stop-dawn-other", true, true)] {
+        let d = mctas::design::Design::parse(include_str!("../scenes/bed-tier-relaid.txt")).expect("scenes/bed-tier-relaid.txt");
+        let o = [16, 70, 16];
+        let mut b: Vec<([i32; 3], String)> = d.block_list().into_iter().map(|(p, s)| ([p[0] + o[0], p[1] + o[1], p[2] + o[2]], s)).collect();
+        floor(&mut b, 0, 48, 0, 48, 40, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), [e.pos[0] + o[0] as f64, e.pos[1] + o[1] as f64, e.pos[2] + o[2] as f64], e.nbt.clone())).collect();
+        let h = [-3 + o[0], o[1], 4 + o[2]];
+        if linker {
+            mobs.push(("minecraft:villager".to_string(), [-3.0 + o[0] as f64 + 0.5, o[1] as f64 + 0.5625, 3.0 + o[2] as f64 + 0.5], Some("{PersistenceRequired:1b}".to_string())));
+        }
+        let home = format!("{{PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}", h[0], h[1], h[2]);
+        mobs.push(("minecraft:villager".to_string(), [-2.0 + o[0] as f64 + 0.5, o[1] as f64, 4.0 + o[2] as f64 + 0.5], Some(if napper_home { home } else { "{PersistenceRequired:1b}".to_string() })));
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs,
+            day_time: 0,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: if linker { ([0, 40, 0], [40, 80, 40]) } else { ([0, 60, 0], [40, 80, 40]) },
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-14, G1 03:47: E's hold drive in the game) the station's iron-hold drive as dfb89499 lays it
+    // (explore/farmopt-station-t15 d10045e0b, f1q2-station.txt md5 e7af07931389; frame (x,16,z) -> world (4,64,z+7)): the
+    // lever stand-in at (x,16,-3) on its glass, a delay-1 repeater (x,16,-2) (block state facing=north: output south) on
+    // its glass, the SLIME (x,16,-1), the iron trapdoor (x,16,0) (facing north, bottom); the lever on at t20, off at t60
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 62, stone);
+        b.push(([4, 63, 4], "minecraft:glass".to_string()));
+        b.push(([4, 63, 5], "minecraft:glass".to_string()));
+        b.push(([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=false]".to_string()));
+        b.push(([4, 64, 5], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".to_string()));
+        b.push(([4, 64, 6], "minecraft:slime_block".to_string()));
+        b.push(([4, 64, 7], "minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]".to_string()));
+        v.push(Scene {
+            name: "hold-drive".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Peaceful,
+            mob_griefing: true,
+            watch: ([2, 62, 2], [6, 66, 9]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
