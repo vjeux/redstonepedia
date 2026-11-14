@@ -571,6 +571,7 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
     let rec_deps = recording_deps();
     let mut designs: Vec<String> = designs.to_vec();
     let mut lints: Vec<String> = Vec::new();
+    let mut deltas: Vec<String> = Vec::new();
     // every crate whose code changed: its own unit tests, beside its calibration pieces (ironspec
     // 2026-11-12 19:42 PT: every crate that has unit tests runs them when it changes; redsim's run
     // in sim:redsim-tests, TESTS_RUN_BY)
@@ -578,6 +579,13 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
     // every crate's own tests too: `--all`, "git cannot say", or a path every piece goes through
     let mut every_unit = everything || files.is_none();
     for f in files.unwrap_or(&[]) {
+        // (ironspec 09:05a / 09:09a) a V owner file (.delta) is read by its own piece: applied to its base design and
+        // judged at its cells (`design delta-check`)
+        if f.starts_with("designs/") && f.ends_with(".delta") && Path::new(f).is_file() {
+            deltas.push(f.clone());
+            out.push(format!("  {f} -> delta:{f} (applied to its `# base:` design: no rail at its cells or their neighbours would pop, every laid cell reads back)"));
+            continue;
+        }
         if f.starts_with("designs/") {
             let line = pick_design_file(f, &mut p, &rec_deps, &mut designs, &mut lints);
             out.push(line);
@@ -669,6 +677,9 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
             }
         }
     }
+    for d in &deltas {
+        pieces.push(delta_piece(d));
+    }
     if stair_lint && !lints.is_empty() {
         pieces.push(stair_lint_piece(&lints));
     } else if !lints.is_empty() {
@@ -682,6 +693,22 @@ fn is_wired_layout(path: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else { return false };
     let is_design = text.lines().any(|l| l.trim_start().starts_with("palette:")) && text.lines().any(|l| l.trim_start().starts_with("layer "));
     is_design && text.contains("minecraft:redstone_wire")
+}
+
+/// A V owner file's own piece (`delta:<file>`): `design delta-check <file>` (its `# base:` design), PASS iff its last
+/// line says PASS (no rail at the delta's cells or their neighbours would pop, every laid cell reads back as declared).
+fn delta_piece(file: &str) -> Piece {
+    let argv: Vec<String> = vec!["?design".into(), "delta-check".into(), file.to_string()];
+    let pred: crate::selftest::Pred = Box::new(|o: &[String]| {
+        let last = o[0].lines().rev().find(|l| l.starts_with("delta-check: ")).map(|l| l.to_string());
+        match last {
+            Some(l) if l == "delta-check: PASS" => Ok(o[0].lines().find(|l| l.starts_with("delta-check ")).unwrap_or("delta-check: PASS").to_string()),
+            Some(_) => Err(o[0].lines().filter(|l| l.starts_with("  ") || l.starts_with("delta-check")).collect::<Vec<_>>().join(" | ")),
+            None => Err(format!("no verdict line: {}", crate::selftest::tail(&o[0]))),
+        }
+    });
+    let check = Check { name: format!("delta:{file}"), what: "a V owner file applied to its base design: no rail at its cells or their neighbours would pop, every laid cell reads back", quick: true, jvm: false, steps: vec![argv], timeout: 300, pred };
+    Piece { check, group: "design".into(), workers: 0, cpu: 1, cost: 5, why: vec![format!("{file}: a changed V owner file")] }
 }
 
 /// The capped-climb check on the changed wired layouts as one piece: `circuit memory stair-lint`,

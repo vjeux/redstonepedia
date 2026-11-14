@@ -27,13 +27,153 @@ pub enum DesignCmd {
     /// blocks and the Nether part are each pasted raw into their own world. A rail beside a block
     /// redsim can't parse is reported as unjudged, not as a pop.
     WouldPop { paths: Vec<PathBuf> },
+    /// (ironspec 09:05a / 09:09a: a design file in a train is READ by a selected piece) A V owner file (.delta: an
+    /// "x,y,z state" line lays that block, a bare "x,y,z" line clears the cell to air, `#` lines skipped) applied to its
+    /// base design (`--base`, else the delta's `# base: PATH` line): its cells laid with their updates into the base's
+    /// world, then judged on the delta's cells and their six neighbours only: no rail there would pop, and every laid cell
+    /// reads back as declared. Prints both files' md5s; exits non-zero on a failure or a missing base.
+    DeltaCheck {
+        delta: PathBuf,
+        #[arg(long)]
+        base: Option<PathBuf>,
+    },
 }
 
 pub fn run(cmd: DesignCmd) -> Result<()> {
     match cmd {
         DesignCmd::BlankRows { paths, rewrite } => blank_rows(&paths, rewrite.as_deref()),
         DesignCmd::WouldPop { paths } => would_pop(&paths),
+        DesignCmd::DeltaCheck { delta, base } => delta_check(&delta, base.as_deref()),
     }
+}
+
+/// A file's md5 as hex.
+fn md5_hex(bytes: &[u8]) -> String {
+    redsim::stems::md5(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The cells of a V owner file: laid (`Some(state)`) or cleared (`None`), in file order, and its `# base:` line.
+fn delta_cells(text: &str) -> Result<(Vec<([i32; 3], Option<String>)>, Option<String>)> {
+    let mut v = Vec::new();
+    let mut base = None;
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(b) = l.strip_prefix("# base:") {
+            base.get_or_insert(b.trim().to_string());
+            continue;
+        }
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let (p, s) = match l.split_once(char::is_whitespace) {
+            Some((p, s)) => (p, Some(s.trim().to_string())),
+            None => (l, None),
+        };
+        let c: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{l:?}: {e}"))?;
+        if c.len() != 3 {
+            bail!("{l:?}: x,y,z [state]");
+        }
+        v.push(([c[0], c[1], c[2]], s));
+    }
+    Ok((v, base))
+}
+
+fn delta_check(delta: &Path, base: Option<&Path>) -> Result<()> {
+    use redsim::pos::BlockPos;
+    let dbytes = std::fs::read(delta)?;
+    let dtext = String::from_utf8_lossy(&dbytes).to_string();
+    let (cells, header_base) = delta_cells(&dtext)?;
+    let base: PathBuf = match (base, header_base) {
+        (Some(b), _) => b.to_path_buf(),
+        (None, Some(b)) => PathBuf::from(b),
+        (None, None) => bail!("{}: no --base and no `# base: PATH` line: the delta names no design to apply to", delta.display()),
+    };
+    let Ok(bbytes) = std::fs::read(&base) else {
+        bail!("{}: its base {} is not in this tree: the delta can't be applied (FAIL)", delta.display(), base.display());
+    };
+    let btext = String::from_utf8_lossy(&bbytes).to_string();
+    let d = Design::parse(&btext).map_err(|e| anyhow::anyhow!("{}: {e}", base.display()))?;
+    // the base's world, pasted raw, one cell larger than the base and the delta together on every side
+    let mut all: BTreeMap<[i32; 3], String> = d.blocks.clone();
+    for (p, s) in &cells {
+        all.entry(*p).or_insert_with(|| s.clone().unwrap_or_else(|| "minecraft:air".to_string()));
+    }
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in all.keys() {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i]);
+            hi[i] = hi[i].max(p[i]);
+        }
+    }
+    if lo[0] > hi[0] {
+        bail!("{}: neither the base nor the delta lays a block", delta.display());
+    }
+    let mut w = redsim::world::World::new(BlockPos::new(lo[0] - 1, lo[1] - 1, lo[2] - 1), [hi[0] - lo[0] + 3, hi[1] - lo[1] + 3, hi[2] - lo[2] + 3]);
+    let mut raw = Vec::new();
+    for (p, s) in &d.blocks {
+        if let Ok(b) = redsim::block::Block::parse(s) {
+            raw.push((BlockPos::new(p[0], p[1], p[2]), b));
+        }
+    }
+    w.place_raw(&raw);
+    // the delta's cells laid with their updates, in file order
+    let mut unparsed = Vec::new();
+    for (p, s) in &cells {
+        let s = s.clone().unwrap_or_else(|| "minecraft:air".to_string());
+        match redsim::block::Block::parse(&s) {
+            Ok(b) => {
+                w.set_block(BlockPos::new(p[0], p[1], p[2]), b, redsim::world::flags::ALL);
+            }
+            Err(e) => unparsed.push(format!("{},{},{} {s}: {e}", p[0], p[1], p[2])),
+        }
+    }
+    // judged: the delta's cells and their six neighbours
+    let mut scope: BTreeSet<[i32; 3]> = BTreeSet::new();
+    for (p, _) in &cells {
+        scope.insert(*p);
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+            scope.insert([p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        }
+    }
+    let mut pops = Vec::new();
+    for p in &scope {
+        let bp = BlockPos::new(p[0], p[1], p[2]);
+        let b = w.get(bp);
+        if redsim::rails::is_rail(&b) && (redsim::rails::would_pop(&w, bp) || !redsim::behavior::can_survive(&w, &b, bp)) {
+            pops.push(format!("{},{},{} {b}", p[0], p[1], p[2]));
+        }
+    }
+    let mut mismatched = Vec::new();
+    for (p, s) in &cells {
+        let want = s.clone().unwrap_or_else(|| "minecraft:air".to_string());
+        let Ok(wb) = redsim::block::Block::parse(&want) else { continue };
+        let got = w.get(BlockPos::new(p[0], p[1], p[2]));
+        if got != wb {
+            mismatched.push(format!("{},{},{} declared {wb}, reads back {got}", p[0], p[1], p[2]));
+        }
+    }
+    let laid = cells.iter().filter(|(_, s)| s.is_some()).count();
+    println!(
+        "delta-check {} (md5 {}) on {} (md5 {}): {} cell(s) laid, {} cleared, judged on {} cell(s) (the delta's and their neighbours)",
+        delta.display(),
+        md5_hex(&dbytes),
+        base.display(),
+        md5_hex(&bbytes),
+        laid,
+        cells.len() - laid,
+        scope.len()
+    );
+    println!("  would pop: {}", if pops.is_empty() { "none".to_string() } else { pops.join("; ") });
+    println!("  read back: {}", if mismatched.is_empty() { "every laid cell as declared".to_string() } else { mismatched.join("; ") });
+    if !unparsed.is_empty() {
+        println!("  states redsim can't parse: {}", unparsed.join("; "));
+    }
+    let pass = pops.is_empty() && mismatched.is_empty() && unparsed.is_empty();
+    println!("delta-check: {}", if pass { "PASS" } else { "FAIL" });
+    if !pass {
+        std::process::exit(1);
+    }
+    Ok(())
 }
 
 /// The rails of one part (its blocks pasted raw into a world one cell larger on every side) that
