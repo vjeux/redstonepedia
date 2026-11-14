@@ -195,11 +195,14 @@ pub struct Cfg {
     pub positional_release: bool,
     /// Every lane's leg (the pick -> the second hold) shifted by these gt (the +-2 gt corners on the pops / REL).
     pub leg_shift: [i64; 3],
+    /// The napper's stop release -> its arrival at the row hold (9,0,8), gt (the record's per-tick shift time; swept until
+    /// 58f770cc / b8949c96 measure it).
+    pub arm3_trip: i64,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6], positional_release: false, leg_shift: [0; 3] }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6], positional_release: false, leg_shift: [0; 3], arm3_trip: 80 }
     }
 }
 
@@ -282,6 +285,10 @@ pub struct Out {
     pub max_nappers_out: i64,
     /// The most nappers picked and not yet ARM3'd at once (the record's stage count: cc767b78's (a') registers).
     pub max_not_arm3: usize,
+    /// The record's entries per tick: (written at, shifted at) gt; and the most alive at once (a shift at the same tick as
+    /// a write counts first: the sort puts -1 before +1).
+    pub record_spans: Vec<(i64, i64)>,
+    pub max_open_measured: i64,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
@@ -365,6 +372,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut req_armed: [bool; 3] = [cfg.t_start[0] == 0, cfg.t_start[1] == 0, cfg.t_start[2] == 0];
     // (the one-pick-per-REL forms' waits: per lane, the farm REL of its first refused REQ still pending)
     let mut refused_since: [Option<i64>; 3] = [None; 3];
+    // (the widening's state: the REL of the last lane-7 grant)
+    let mut last_g7: Option<i64> = None;
     let mut mark_fifo: [VecDeque<Option<usize>>; 3] = [VecDeque::new(), VecDeque::new(), VecDeque::new()];
     // (the hardware form: the X type a rejoin flags comes from a per-lane toggle flipped per rejoin (the nappers rejoin in
     // pick order, the X types alternate in pick order), not from reading the X: the mark's own type is the judge's check)
@@ -646,6 +655,15 @@ pub fn run(cfg: &Cfg) -> Out {
                 o.max_front_wait = o.max_front_wait.max(start - at_front);
                 bed_busy += cfg.bed_cycle;
                 bed_free = start + cfg.bed_cycle + cfg.rs_extra;
+                // (THE RECORD's entry, measured per tick (ironspec 12:47p (4)): written at the pick's REL + 2 (from G at the
+                // previous REL + 92 / + 102), shifted at REL' + 61 where REL' is the first REL whose napper hold (REL' + 67)
+                // comes at or after the napper's arrival there: its stop release (the bed free again) + the stop -> (9,0,8)
+                // trip (Cfg::arm3_trip, swept until measured))
+                {
+                    let arr = bed_free + cfg.arm3_trip;
+                    let relp = (arr - 67 + 99).div_euclid(100);
+                    o.record_spans.push((tp * 100 + 2, relp * 100 + 61));
+                }
                 let wait = start - arrive;
                 o.max_bed_wait = o.max_bed_wait.max(wait);
                 if wait > 0 {
@@ -849,8 +867,15 @@ pub fn run(cfg: &Cfg) -> Out {
                     refused_since[l].get_or_insert(t);
                     due = false;
                 }
-                if due && cfg.sensed && by_target && (cfg.grant_form == 1 || cfg.grant_form == 3) && picks_today - picks_before >= 1 {
+                if due && cfg.sensed && by_target && (cfg.grant_form == 1 || cfg.grant_form == 3 || cfg.grant_form == 4) && picks_today - picks_before >= 1 {
                     // (THE ARBITER / STATIC PRIORITY: one grant per REL, lane -1 over 3 over 7 (the lanes' order here))
+                    o.rate_deferred += 1;
+                    refused_since[l].get_or_insert(t);
+                    due = false;
+                }
+                if due && cfg.sensed && by_target && cfg.grant_form == 4 && l == 0 && last_g7 == Some(t - 1) {
+                    // (THE WIDENING (ironspec 12:47p (c)): lane -1 refused in the REL right after a lane-7 grant (that pair
+                    // alone reaches the second hold 100 + leg(-1) - leg(7) gt apart; every other consecutive pair is wider))
                     o.rate_deferred += 1;
                     refused_since[l].get_or_insert(t);
                     due = false;
@@ -906,6 +931,9 @@ pub fn run(cfg: &Cfg) -> Out {
                         nappers_out += 1;
                         o.max_nappers_out = o.max_nappers_out.max(nappers_out);
                         open_nappers.push((c, None));
+                        if l == 2 {
+                            last_g7 = Some(t);
+                        }
                         o.max_x = o.max_x.max(x_set[l].len());
                         t_slot[l] = (popped_slot + delta) % N0;
                         spacing_latch[l] = true;
@@ -1083,6 +1111,20 @@ pub fn run(cfg: &Cfg) -> Out {
         o.picks.push(picks_today);
     }
     let mut mg = (0i64, 0usize);
+    // (the record's measured depth: the most entries alive at once over the per-tick spans)
+    {
+        let mut ev: Vec<(i64, i64)> = Vec::new();
+        for &(w, s) in &o.record_spans {
+            ev.push((w, 1));
+            ev.push((s, -1));
+        }
+        ev.sort();
+        let mut cur = 0i64;
+        for (_, d) in ev {
+            cur += d;
+            o.max_open_measured = o.max_open_measured.max(cur);
+        }
+    }
     for (v, ns) in o.naps.iter().enumerate() {
         for (i, w) in ns.windows(2).enumerate() {
             if w[0] >= DAY * 100 && w[1] - w[0] > mg.0 {
@@ -1459,7 +1501,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let mut a_ok = false;
             let mut b_extra = String::new();
             let mut a_worst = 0i64;
-            for (form, fname) in [(0u8, "(a) NONE"), (2, "(b) ROTATION"), (3, "(b') STATIC PRIORITY")] {
+            for (form, fname) in [(0u8, "(a) NONE"), (2, "(b) ROTATION"), (3, "(b') STATIC PRIORITY"), (4, "(b'+w) STATIC PRIORITY + THE WIDENING (lane -1 refused in the REL after a lane-7 grant)")] {
                 let (mut multi, mut least_gap, mut wait, mut worst, mut rows, mut all, mut lost, mut out_max) = (0usize, i64::MAX, [0i64; 3], 0i64, 0usize, true, 0i64, 0i64);
                 let (mut arm3_max, mut worst_at, mut corner_gap, mut corner_worst, mut vs_ref) = (0usize, String::new(), i64::MAX, 0i64, 0usize);
                 let mut first_bad = String::new();
@@ -1490,8 +1532,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 };
                 // ((b') also runs the POSITIONAL RELEASE on every row (the simpler ring hardware) and the +-2 gt corners on
                 // EVERY row (every lane's pick -> hold leg shifted -2 / 0 / +2 gt: all 27 combinations))
-                let variants: &[bool] = if form == 3 { &[false, true] } else { &[false] };
-                let corners: Vec<[i64; 3]> = if form == 3 {
+                let variants: &[bool] = if form >= 3 { &[false, true] } else { &[false] };
+                let corners: Vec<[i64; 3]> = if form >= 3 {
                     let mut v = Vec::new();
                     for s0 in [-2i64, 0, 2] {
                         for s1 in [-2i64, 0, 2] {
@@ -1541,12 +1583,38 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     a_worst = worst;
                     b_extra = format!("; (b') at the +-2 gt corners: the least H2 gap {corner_gap} gt (margin {} over the {hold_cycle}-gt cycle), the worst interval {corner_worst} gt (margin {} under 23,000); the worst interval's row: {worst_at}; the most nappers picked and not yet ARM3'd {arm3_max} (the record's stage count); the positional release's rejoins unlike the identity rule's (with the FIFO's): {vs_ref}", corner_gap - hold_cycle, 24_000 - MARGIN - corner_worst);
                 }
+                if form == 4 {
+                    b_extra.push_str(&format!("; PRICED, (b'+w) THE WIDENING at the +-2 gt corners: the least H2 gap {corner_gap} gt (margin {} over the {hold_cycle}-gt cycle), the worst interval {corner_worst} gt (margin {} under 23,000), its row {worst_at}, every row passing: {all}; its cells: one repeater chain holding lane 7's grant one REL into lane -1's gate (a 100-gt delay line or a latch cleared at the next REL + 33)", corner_gap - hold_cycle, 24_000 - MARGIN - corner_worst));
+                }
                 form_rows.push(format!("{fname} ({rows} rows): RELs carrying two grants {multi}, the least arrival gap at the second hold {least_gap} gt (its cycle {hold_cycle} gt), the longest wait per lane from a refused REQ to its grant {:?} RELs ({:?} gt; lane 7's {} RELs: a refused T waits a ring revolution, 8 pops), the worst interval {worst} gt, villager-gt past 24,000 {lost} (golems lost per day {}), the most nappers picked and not back at their siding {out_max}, every row passing: {all}{}", wait, wait.map(|w| w * 100), wait[2], if lost == 0 { "0" } else { "> 0" }, if first_bad.is_empty() { String::new() } else { format!(" (first miss: {first_bad})") }));
             }
             let n_rows = 27 * 2 * (7 + freeze_rows.len() + (N0 * N0) as usize);
             let w = v.bar_n("ctl-pick: THE SENSED POINTER under (b') STATIC PRIORITY (lane -1 over 3 over 7, stateless: the smallest passing one-pick-per-REL form) over the sweep, true whole-farm freezes at every 3rd REL of a night and every T starting offset: the nap bars, the ring in sync, 0 golems lost, never two nappers inside one second-hold cycle", n_rows, a_ok);
             lines.push(format!("  THE ONE-PICK-PER-REL FORMS (the sensed ring; the same nap model; (b') with the positional release and the +-2 gt corners too, {n_rows} rows): {}: (b')'s worst interval {a_worst} gt{b_extra}: {w}", form_rows.join("; ")));
             let n_pts = freeze_rows.len();
+            // (THE RECORD's MEASURED DEPTH (ironspec 12:47p (4)): the most entries alive at once per tick (written at the pick's
+            // REL + 2, shifted at REL' + 61), under (b'+w), over the seven points and the true freezes, the stop -> (9,0,8)
+            // trip swept 40 / 80 / 120 gt until measured)
+            let mut depth = Vec::new();
+            for trip in [40i64, 80, 120] {
+                let mut m = 0i64;
+                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                    let mut c = sensed_cfg("the record's depth", false, cyc, extra);
+                    c.grant_form = 4;
+                    c.arm3_trip = trip;
+                    m = m.max(run(&c).max_open_measured);
+                }
+                for &fz in &freeze_rows {
+                    let mut c = sensed_cfg("the record's depth, a true freeze", false, 333, 0);
+                    c.grant_form = 4;
+                    c.arm3_trip = trip;
+                    c.freeze = vec![fz];
+                    m = m.max(run(&c).max_open_measured);
+                }
+                depth.push(format!("trip {trip} gt: {m}"));
+            }
+            let sc = v.scope("ctl-pick: the record's measured depth (picks written minus ARM3 shifts, per tick)", "cc767b78's stage count reads it; the stop -> (9,0,8) trip is swept until 58f770cc / b8949c96 measure it");
+            lines.push(format!("  THE RECORD's MEASURED DEPTH under (b'+w) (the most entries alive at once, per tick; {} rows per trip): {}: {sc}", 7 + n_pts, depth.join(", ")));
             // (THE TIMING CORNER (ironspec 12:02p (1)): every circuit entry processed after the same REL's pops (any shift of
             // an entry past a pop, 2 gt included), at every point of the sweep: the results and the ring's sync)
             let mut corner = Vec::new();
