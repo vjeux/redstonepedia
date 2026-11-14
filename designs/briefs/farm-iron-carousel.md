@@ -132,7 +132,7 @@ vjeux's stage correction (Space board README, Nov 12 04:48Z): the carousel is th
   one) (superseded Nov 14: recovery is out of scope) **and the K-mask rule** (ironspec 02:43: every K(l) masks all of D(l)'s outputs).
 - **P's dawn case,** now a fault outcome (ironspec 02:28: a missed last pickup costs that napper's naps for the
   day; its HOME is erased at dusk and re-claimed at once).
-  SUPERSEDED Nov 14 by 'Scope and critical path'
+  SUPERSEDED Nov 14 by 'Scope and critical path' (un-marks if a normal night misses the last pickup)
 
 This section carries every cell-level ruling since next25, with the commit that applied each, and the standing rules ruled since. Where it and next25 or an older paragraph disagree, this section wins. Train 14 (main 608627b31, Nov 14 01:59) applied the station's 13-block removal, the iron hold trapdoors, the R_1 track ends, F3's lanterns and the lantern price row.
 
