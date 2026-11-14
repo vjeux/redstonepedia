@@ -750,6 +750,9 @@ struct Ctl {
     a_stale: bool,
     a_stale_log: Vec<String>,
     a_rls_log: Vec<String>,
+    /// (G1 17:33) the park rest tick per visit and its margin against PARKED's ARM + 52
+    a_park_rest: Option<i64>,
+    a_park_log: Vec<String>,
     /// (G1 16:00, night check 4) each tick the bed is occupied: every awake HOME-holder within 16 of
     /// the bed head's centre (tick, villager, distance), bar 0
     exposure_16: Vec<(i64, u32, f64)>,
@@ -1906,24 +1909,23 @@ impl Ctl {
         }
         // (day-1's G8 rev 15:42) RE_ARMED: set ONLY by the ring's re-arm events (lane 7's real D(7) + 2,
         // or the lane-7 pick's D(3)-keyed emulated D(7)), reset at REL; its setters logged.
-        // (ironspec 17:29, C BOUGHT: day-1 17:22's BATCH_DONE) with the design controller RE_ARMED =
-        // D(-1) AND D(3) AND D(7), each latched since REL (SEEN_l set by lane l's D press; SEEN(7) by the
-        // real D(7) or a lane-7 pick's emulated D(7))
+        // (ironspec 17:28 platform, day-1's rev 17:30: the cheaper C) with the design controller G8:
+        // RE_ARMED's set = D(7)'s press AND SEEN3; G8a: SEEN3 set by D(3) (real, or G11-emulated), reset
+        // at REL; G10: J(-1)'s re-arm the same AND
         if self.a_stop {
-            if b0 && !self.branch_prev[0] && self.seen[0].is_none() {
-                self.seen[0] = Some(now);
-            }
             if b1 && !self.branch_prev[1] && self.seen[1].is_none() {
                 self.seen[1] = Some(now);
             }
-            if !events.is_empty() && self.seen[2].is_none() {
-                self.seen[2] = Some(now);
-            }
-            if !self.re_armed
-                && let [Some(a), Some(b), Some(c)] = self.seen
-            {
-                self.re_armed = true;
-                self.re_armed_setters.push(format!("t {now}: BATCH_DONE (D(-1) t {a}, D(3) t {b}, D(7) t {c})"));
+            if !events.is_empty() {
+                if let Some(s3) = self.seen[1] {
+                    if !self.re_armed {
+                        self.re_armed = true;
+                        self.re_armed_setters.push(format!("t {now}: D(7) ({}) AND SEEN3 (D(3) t {s3})", sources.join(" / ")));
+                    }
+                } else {
+                    self.re_armed_setters.push(format!("t {now}: D(7) ({}) WITHOUT SEEN3: RE_ARMED not set (G8a)", sources.join(" / ")));
+                    events.clear();
+                }
             }
         }
         for (e, src) in events.iter().zip(sources.iter()) {
@@ -2719,7 +2721,20 @@ impl Ctl {
             self.a_arm_at = Some(now);
             self.a_slept_once = false;
             self.a_released = false;
+            self.a_park_rest = None;
             self.a_log.push(format!("t {now}: ARM's edge (-2,-27,0)"));
+        }
+        // (G1 17:33) the park rest against PARKED's timer (ARM + 52): the tick the empty cart first rests on
+        // the park (1,-27,3), its margin printed per visit (a rest after ARM + 52 would be held unreleased)
+        if self.a_park_rest.is_none()
+            && let Some(a) = self.a_arm_at
+            && w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [1, -27, 3] && e.passengers.is_empty() && {
+                let v = dpos(e.delta_movement);
+                v.x.abs() + v.y.abs() + v.z.abs() < 1e-3
+            })
+        {
+            self.a_park_rest = Some(now);
+            self.a_park_log.push(format!("ARM t {a}: the park rest t {now} (ARM + {}), PARKED at ARM + 52: margin {}", now - a, a + 52 - now));
         }
         self.a_arm_prev = arm;
         // the bed-head observer's pulse at each occupancy change (a lie-down, a wake): rises 2 gt after
@@ -2804,9 +2819,9 @@ impl Ctl {
             if was_open {
                 self.a_shutter_writes.push((now + 2, true));
             }
-            self.release_at = Some(now + 8);
+            self.release_at = Some(now + 2);
             self.a_rls_log.push(format!("t {now}: RLS (P_STRING held since t {} through the pulse t {} + 12, PARKED)", self.a_press_start.unwrap_or(now), pulse_l.unwrap_or(now)));
-            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 8));
+            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 2));
         }
         self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
@@ -10622,7 +10637,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G5 the hold's at-most-one gate on the RETURN bits"),
             g(ds, "G6 REL_l = D_l AND string_l (a ridden cart on R_l), R = D + 34 (the feed's input at D + 26 with the stack's 8)"),
             g(ds, "G7 AWAY_l: set at the pick, reset at string_l's fall after the return; a pick skipped while set"),
-            g(ds, "G8 F1: REL = holds full (a cart on each R_1) AND RE_ARMED; G8a (ironspec 17:29, C BOUGHT; day-1 17:22): RE_ARMED = BATCH_DONE = D(-1) AND D(3) AND D(7), each latched since REL (SEEN(7) from the real D(7) or a lane-7 pick's emulated D(7)), reset at REL; the request + 6"),
+            g(ds, "G8 F1: REL = holds full (a cart on each R_1) AND RE_ARMED; G8 / G8a (ironspec 17:28 platform, day-1's rev 17:30, the cheaper C): RE_ARMED's set = D(7)'s press (real, or a lane-7 pick's emulated D(7)) AND SEEN3 (set by D(3), real or G11-emulated, reset at REL), reset at REL; the request + 6"),
             g(true, "G9 every REL-keyed timing off the gated REL"),
             g(true, "G10 the ring F2: D-keyed, J(7) on by default, no timed re-arm"),
             g(ctl.ring_timed, "G11 the no-string outbound: HOLD_3 / HOLD_7 reset at REL + L + k, latch writes + 2, J switch + 4; lane 7's emulated D(7) at lane 3's real D(3) + delta7"),
@@ -10635,7 +10650,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
             g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
             g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
-            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 8; OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
+            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 2 (ironspec 17:28 platform (5): the trim stands); OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
             g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
         ];
         let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
@@ -10684,6 +10699,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if ctl.exposure_least.0 == 0.0 { "none (the bed never occupied with an awake holder present)".to_string() } else { format!("{:.3} (t {}, #{}){}", ctl.exposure_least.0, ctl.exposure_least.1, ctl.exposure_least.2, if ctl.exposure_least.0 > 16.0 { " (PASS)" } else { " (FAIL)" }) }
             ));
             s.push_str(&format!("the (A) stop's releases (ironspec 16:00 / G1 16:02, sustained presence; G1 16:04: the close at the wake press and the release per visit): {} ({})\n", ctl.a_rls_log.len(), ctl.a_rls_log.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")));
+            s.push_str(&format!(
+                "the park rest against PARKED's timer (G1 17:33: PARKED = ARM + 52 is a timer; a cart resting after it is held unreleased; the margin per visit, bar > 0): {}{}\n",
+                if ctl.a_park_log.is_empty() { "no visit".to_string() } else { ctl.a_park_log.join(" | ") },
+                if ctl.a_park_log.iter().any(|l| l.contains("margin -") || l.ends_with("margin 0")) { " (FAIL)" } else { " (PASS)" }
+            ));
             let gaps: Vec<i64> = ctl.a_so_gaps.iter().copied().filter(|g| *g != i64::MAX).collect();
             s.push_str(&format!(
                 "the stale P_STRING check (G1 15:40: per visit, P_STRING's last release (its last press + ~10, the string's re-check) to SLEPT_ONCE's set, bar >= 2): {} visits, {} with an earlier press; the least gap {}{}\n",
