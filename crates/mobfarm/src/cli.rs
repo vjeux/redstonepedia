@@ -17525,13 +17525,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let moved = site.spec(&spec);
             // the farm after its settle (its water flowed), as the card's exposures line reads it
             let w = circuit::mobfarm::settled_world(site, &moved);
-            let summoners = {
-                let mut with = w.clone();
-                for (k, p, n) in &moved.entities {
-                    let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-                }
-                redsim::entity::mob::site::villager_cells(&with)
-            };
+            // (G1 Nov 13 21:38 H12: every design entity line must spawn here too)
+            let summoners = crate::fleecheck::design_summoners(&w, &moved, "the exposures").map_err(|e| anyhow::anyhow!(e))?;
             let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
             let ex = redsim::entity::mob::hostile::check(&w, &farm, true).map_err(|e| anyhow::anyhow!(e))?;
             println!("{} in {} at offset {:?}: {} placed + {} filled + {} sealed, {} dug (the cheapest of {} spots, block time {:.0}-{:.0} s); {} golem cells, {} interior cells", design.display(), site.sample, site.offset, site.placed, site.fills.len(), site.seals.len(), site.dug, site.spots, site.build_range.0, site.build_range.1, farm.golem_cells.len(), farm.interior.len());
@@ -17919,13 +17914,8 @@ fn exposures_of(version: &str, design: &std::path::Path, terrain: &str) -> Resul
     let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, terrain).map_err(|e| anyhow::anyhow!(e))?));
     let moved = site.spec(&spec);
     let w = circuit::mobfarm::settled_world(site, &moved);
-    let summoners = {
-        let mut with = w.clone();
-        for (k, p, n) in &moved.entities {
-            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-        }
-        redsim::entity::mob::site::villager_cells(&with)
-    };
+    // (G1 Nov 13 21:38 H12: every design entity line must spawn here too)
+    let summoners = crate::fleecheck::design_summoners(&w, &moved, "the exposures (--against)").map_err(|e| anyhow::anyhow!(e))?;
     let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
     let ex = redsim::entity::mob::hostile::check(&w, &farm, true).map_err(|e| anyhow::anyhow!(e))?;
     Ok((site.offset, farm.golem_cells.len(), farm.interior.len(), ex))

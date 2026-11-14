@@ -4865,17 +4865,29 @@ pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, red
     let afk = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
     use redsim::entity::mob::natural::{Difficulty, Natural};
     w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
-    let summoners = {
-        let mut with = w.clone();
-        for (k, p, n) in &spec.entities {
-            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-        }
-        redsim::entity::mob::site::villager_cells(&with)
-    };
+    let summoners = redsim::entity::mob::site::villager_cells(&with_design_entities(&w, spec, "the void exposures")?);
     let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
     // (a light read that failed refuses the exposures: cc767b78's light series, ironspec 16:22's list)
     let ex = redsim::entity::mob::hostile::check(&w, &farm, true)?;
     Ok((afk, farm, ex))
+}
+
+/// (G1 Nov 13 20:02, E7; ironspec 20:12: nothing silently dropped) The design's entities spawned into a
+/// copy of `w`, every line required to spawn, as `world_zombies` has it: a line redsim refuses errs by
+/// name, so no villager silently leaves a bar-0 check.
+pub fn with_design_entities(w: &redsim::World, spec: &FarmSpec, what: &str) -> Result<redsim::World, String> {
+    let mut with = w.clone();
+    for (k, p, n) in &spec.entities {
+        redsim::entity::spawn(&mut with, k, *p, n.as_deref()).map_err(|e| format!("{what}: NOT JUDGED: summoning the design's {k} at {:.2},{:.2},{:.2}: {e}", p[0], p[1], p[2]))?;
+    }
+    Ok(with)
+}
+
+/// (G1 Nov 13 21:38 H12) The design's villagers' cells (its summoners) in `w`, every entity line required
+/// to spawn (`with_design_entities`): the exposures' two CLI sites (the terrain branch of `exposures` and
+/// `exposures --against`) read their summoners through it.
+pub fn design_summoners(w: &redsim::World, spec: &FarmSpec, what: &str) -> Result<Vec<BlockPos>, String> {
+    Ok(redsim::entity::mob::site::villager_cells(&with_design_entities(w, spec, what)?))
 }
 
 /// (ironspec Nov 13 17:26, STANDING; G1 17:20 / 18:37) The golem floors any rider of the route could
@@ -4914,13 +4926,7 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     }
     // (G1 18:37 B4 / 19:23: and every villager the design itself holds, at its own `blockPosition()`:
     // the design's entities spawned into a copy of the settled world)
-    let villagers = {
-        let mut with = w.clone();
-        for (k, p, n) in &spec.entities {
-            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-        }
-        redsim::entity::mob::site::villager_cells(&with)
-    };
+    let villagers = redsim::entity::mob::site::villager_cells(&with_design_entities(&w, spec, "the route's golem floors")?);
     for v in &villagers {
         if !callers.contains(v) {
             callers.push(*v);
@@ -5014,13 +5020,7 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
     w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
     // (the farm's interior as C1 reads it: its villagers summon, so the golem cells and the two
     // above them are the farm's own space, not its outside)
-    let summoners = {
-        let mut with = w.clone();
-        for (k, p, n) in &spec.entities {
-            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-        }
-        redsim::entity::mob::site::villager_cells(&with)
-    };
+    let summoners = redsim::entity::mob::site::villager_cells(&with_design_entities(&w, spec, "the exterior spawn static")?);
     let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
     let interior: std::collections::HashSet<BlockPos> = farm.interior.iter().copied().collect();
     let design: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, redsim::block::Block::Air)).map(|(p, _)| *p).collect();
@@ -8430,9 +8430,24 @@ mod gate_tests {
         let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, -1, 2), lo: b(0, -1, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
         let (gl, _, _) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
         assert!(gl[0].contains("(2 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded, 0 villager cell(s) of the design added"), "the slope's two cells: {gl:?}");
-        let with_villager = redsim::entity::mob::farm::FarmSpec { entities: vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], None)], ..spec };
+        let with_villager = redsim::entity::mob::farm::FarmSpec { entities: vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], None)], ..spec.clone() };
         let (vl, _, _) = super::route_golem_floors(&with_villager, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
         assert!(vl[0].contains("(3 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded, 1 villager cell(s) of the design added"), "the design's villager: {vl:?}");
+        // (G1 20:02, E7; ironspec 20:12: a line redsim refuses errs by name at each callsite: the
+        // route's golem floors, the void exposures and the exterior spawn static, never a silently
+        // missing villager)
+        let refused = redsim::entity::mob::farm::FarmSpec { entities: vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], Some("{Bogus:1b}".to_string()))], ..spec };
+        let prefix = "NOT JUDGED: summoning the design's minecraft:villager at 0.50,1.00,0.50: ";
+        let e1 = super::route_golem_floors(&refused, "minecraft:plains").err().unwrap_or_default();
+        assert!(e1.starts_with("the route's golem floors: ") && e1.contains(prefix), "the golem floors: {e1}");
+        let e2 = super::void_exposures(&refused, "minecraft:plains").err().unwrap_or_default();
+        assert!(e2.starts_with("the void exposures: ") && e2.contains(prefix), "the void exposures: {e2}");
+        let e3 = super::spawn_static(&refused, "minecraft:plains", false).err().unwrap_or_default();
+        assert!(e3.starts_with("the exterior spawn static: ") && e3.contains(prefix), "the exterior spawn static: {e3}");
+        // (G1 21:38 H12: the exposures' two CLI sites read their summoners through `design_summoners`)
+        let w4 = super::settled_world_void(&refused).unwrap_or_else(|e| panic!("{e}"));
+        let e4 = super::design_summoners(&w4, &refused, "the exposures (--against)").err().unwrap_or_default();
+        assert!(e4.starts_with("the exposures (--against): ") && e4.contains(prefix), "the exposures: {e4}");
     }
 
     /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
