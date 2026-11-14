@@ -12,6 +12,8 @@
 //! - (4b) the BUILD-ORDER HAZARD: a comparator set beside an already filled hopper reads 0 until a neighbour
 //!   update;
 //! - (5) a dry dropper pulsed: nothing moves.
+//! (G1 on AE) The 16 asserts are numbered in the run's order; MCTAS_HOPPER_PIN_PLANT=<k> inverts assert k's
+//! expectation, so that run must fail at assert k by name (each run once to show every assert can fail).
 //! Step k is the k-th stepped tick after the command that made the row's edge (the server is frozen between
 //! steps; a tick scheduled at the command's game time + d runs in step d).
 
@@ -96,24 +98,30 @@ fn first(rows: &[DropStep], f: impl Fn(&DropStep) -> bool) -> Option<usize> {
     rows.iter().position(f).map(|i| i + 1)
 }
 
-/// Row (1)'s known answers. (G1's control) MCTAS_HOPPER_PIN_PLANT=1 plants a wrong expectation (cooldown 8 right
-/// after the entry): the run must then fail by name.
-fn assert_row1(r: &[DropStep]) -> Result<()> {
-    let want_cd = if std::env::var("MCTAS_HOPPER_PIN_PLANT").is_ok() { 8 } else { 7 };
-    ensure!(r.iter().all(|s| !s.trig), "(1) the dropper reads triggered after its signal was removed");
-    ensure!(first(r, |s| s.dropper == 2) == Some(4) && r[..3].iter().all(|s| s.dropper == 3), "(1) the dropper must fire at step 4 (its signal gone): items {:?}", r.iter().map(|s| s.dropper).collect::<Vec<_>>());
-    ensure!(r[3].hopper == 1 && r[3].cooldown == want_cd, "(1) right after the entry (step 4) the hopper must hold 1 with TransferCooldown {want_cd}: {} / {}", r[3].hopper, r[3].cooldown);
-    ensure!(first(r, |s| s.chest == 1) == Some(11) && r[10].hopper == 0 && r[10].cooldown == 8, "(1) the first push must land at step 11 (7 after the entry) with the cooldown 8 again");
-    ensure!(first(r, |s| s.comp == 3) == Some(6) && r[..5].iter().all(|s| s.comp == 0), "(1) the comparator must read 3 from step 6 (2 gt after the entry)");
-    ensure!(r[10..].iter().position(|s| s.comp == 0).map(|i| i + 11) == Some(13), "(1) the comparator must read 0 from step 13 (2 gt after the push)");
+/// (G1 on AE) MCTAS_HOPPER_PIN_PLANT=<k> inverts assert k's expectation (k = 1..16, numbered in the run's order):
+/// that run must fail at assert k, by name; every other run must hold.
+fn pin(k: u32, cond: bool, what: String) -> Result<()> {
+    let planted = std::env::var("MCTAS_HOPPER_PIN_PLANT").ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(k);
+    ensure!(cond != planted, "[assert {k}{}] {what}", if planted { ", PLANTED: its expectation inverted" } else { "" });
     Ok(())
 }
 
-/// Row (2)'s known answers.
+/// Row (1)'s known answers (asserts 1..6).
+fn assert_row1(r: &[DropStep]) -> Result<()> {
+    pin(1, r.iter().all(|s| !s.trig), "(1) the dropper must not read triggered after its signal was removed".into())?;
+    pin(2, first(r, |s| s.dropper == 2) == Some(4) && r[..3].iter().all(|s| s.dropper == 3), format!("(1) the dropper must fire at step 4 (its signal gone): items {:?}", r.iter().map(|s| s.dropper).collect::<Vec<_>>()))?;
+    pin(3, r[3].hopper == 1 && r[3].cooldown == 7, format!("(1) right after the entry (step 4) the hopper must hold 1 with TransferCooldown 7: {} / {}", r[3].hopper, r[3].cooldown))?;
+    pin(4, first(r, |s| s.chest == 1) == Some(11) && r[10].hopper == 0 && r[10].cooldown == 8, "(1) the first push must land at step 11 (7 after the entry) with the cooldown 8 again".into())?;
+    pin(5, first(r, |s| s.comp == 3) == Some(6) && r[..5].iter().all(|s| s.comp == 0), "(1) the comparator must read 3 from step 6 (2 gt after the entry)".into())?;
+    pin(6, r[10..].iter().position(|s| s.comp == 0).map(|i| i + 11) == Some(13), "(1) the comparator must read 0 from step 13 (2 gt after the push)".into())?;
+    Ok(())
+}
+
+/// Row (2)'s known answers (asserts 7..9).
 fn assert_row2(r: &[DropStep]) -> Result<()> {
-    ensure!(first(r, |s| s.hopper == 2) == Some(4), "(2) the insert into the holding hopper must land at step 4");
-    ensure!(r.iter().all(|s| s.cooldown <= 0), "(2) an insert into a hopper already holding an item must set no cooldown: {:?}", r.iter().map(|s| s.cooldown).collect::<Vec<_>>());
-    ensure!(first(r, |s| s.comp == 6) == Some(6), "(2) the comparator must read 6 (2 items) from step 6");
+    pin(7, first(r, |s| s.hopper == 2) == Some(4), "(2) the insert into the holding hopper must land at step 4".into())?;
+    pin(8, r.iter().all(|s| s.cooldown <= 0), format!("(2) an insert into a hopper already holding an item must set no cooldown: {:?}", r.iter().map(|s| s.cooldown).collect::<Vec<_>>()))?;
+    pin(9, first(r, |s| s.comp == 6) == Some(6), "(2) the comparator must read 6 (2 items) from step 6".into())?;
     Ok(())
 }
 
@@ -135,13 +143,13 @@ fn full_hopper_row(srv: &mut VanillaServer, base: [i32; 3]) -> Result<()> {
         println!("    step {k:>2}: hopper items {} TransferCooldown {} | top chest {} | front chest {}", row.0, row.1, row.2, row.3);
         rows.push(row);
     }
-    // (the known answer) one eject and one suck at step 1 under one cooldown 8; the next transfers at 9 and 17
-    ensure!(rows[0] == (5, 8, 1, 1), "(3) step 1 must show an eject AND a suck under one cooldown 8 (hopper 5, cooldown 8, top 1, front 1): {:?}", rows[0]);
-    ensure!(rows[8] == (5, 8, 0, 2), "(3) step 9 must show the second eject + suck: {:?}", rows[8]);
-    ensure!(rows[16] == (4, 8, 0, 3), "(3) step 17 must show the third eject with nothing to suck: {:?}", rows[16]);
+    // (the known answer, asserts 10..13) one eject and one suck at step 1 under one cooldown 8; then at 9 and 17
+    pin(10, rows[0] == (5, 8, 1, 1), format!("(3) step 1 must show an eject AND a suck under one cooldown 8 (hopper 5, cooldown 8, top 1, front 1): {:?}", rows[0]))?;
+    pin(11, rows[8] == (5, 8, 0, 2), format!("(3) step 9 must show the second eject + suck: {:?}", rows[8]))?;
+    pin(12, rows[16] == (4, 8, 0, 3), format!("(3) step 17 must show the third eject with nothing to suck: {:?}", rows[16]))?;
     let fronts: Vec<usize> = rows.iter().map(|r| r.3).collect();
     let moves: Vec<usize> = (1..fronts.len()).filter(|&i| fronts[i] != fronts[i - 1]).map(|i| i + 1).collect();
-    ensure!(moves == vec![9, 17], "(3) the front chest must change only at steps 1, 9 and 17 (its 8-gt cycle): changes after step 1 at {moves:?}");
+    pin(13, moves == vec![9, 17], format!("(3) the front chest must change only at steps 1, 9 and 17 (its 8-gt cycle): changes after step 1 at {moves:?}"))?;
     Ok(())
 }
 
@@ -161,7 +169,7 @@ fn comparator_rows(srv: &mut VanillaServer) -> Result<()> {
         vals.push(nbt_int(srv, [2 * n as i32, Y, 31], "OutputSignal")?);
     }
     println!("    comparator output by item count 0..5: {vals:?}");
-    ensure!(vals == vec![0, 3, 6, 9, 12, 15], "(4) 0..5 stack-size-1 items must read 0 / 3 / 6 / 9 / 12 / 15, read {vals:?}");
+    pin(14, vals == vec![0, 3, 6, 9, 12, 15], format!("(4) 0..5 stack-size-1 items must read 0 / 3 / 6 / 9 / 12 / 15, read {vals:?}"))?;
     // (4b) the hazard: the hopper filled first, the comparator set beside it afterwards
     set(srv, [20, Y, 30], &format!("minecraft:hopper[facing=down]{}", items(3)))?;
     srv.step(2)?;
@@ -169,7 +177,7 @@ fn comparator_rows(srv: &mut VanillaServer) -> Result<()> {
     srv.step(6)?;
     let stale = nbt_int(srv, [20, Y, 31], "OutputSignal")?;
     println!("  (4b) BUILD-ORDER HAZARD: a hopper holding 3 shears set first, a comparator set beside it after: the comparator reads {stale} (not 9) until a neighbour update");
-    ensure!(stale == 0, "(4b) the comparator set beside an already filled hopper must read 0 (the build-order hazard), read {stale}");
+    pin(15, stale == 0, format!("(4b) the comparator set beside an already filled hopper must read 0 (the build-order hazard), read {stale}"))?;
     Ok(())
 }
 
@@ -193,7 +201,7 @@ pub fn hopper_pin(version: &str) -> Result<()> {
     full_hopper_row(&mut srv, [0, Y, 20])?;
     comparator_rows(&mut srv)?;
     let r5 = dropper_row(&mut srv, "5 (dry)", [0, Y, 40], 0, "minecraft:hopper[facing=east]", 0)?;
-    ensure!(r5.iter().all(|s| s.dropper == 0 && s.hopper == 0 && s.chest == 0 && s.comp == 0), "(5) a dry dropper must move nothing");
+    pin(16, r5.iter().all(|s| s.dropper == 0 && s.hopper == 0 && s.chest == 0 && s.comp == 0), "(5) a dry dropper must move nothing".into())?;
     println!("  every known answer held: (1) fire at 4, cooldown 7 after the entry, push at 11, comparator 3 at 6 / 0 at 13; (2) no cooldown into a holding hopper; (3) eject + suck at 1 under one cooldown 8, then 9, 17; (4) 0/3/6/9/12/15; (4b) the build-order hazard reads 0; (5) a dry dropper moves nothing");
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())

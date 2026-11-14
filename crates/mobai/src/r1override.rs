@@ -39,6 +39,9 @@ const V_EDGE: f64 = 5.64;
 const CAP: u32 = 90;
 const SLOT1: f64 = 1.28;
 const PITCH: f64 = 0.79;
+/// (V3) the hold: slot 0's cart on its shut trapdoor (the scene's t0 slot-0 carts rest at frame y 16.19, z 0.49)
+const HOLD_Y: f64 = 16.19;
+const HOLD_Z: f64 = 0.49;
 
 enum Rule {
     Win(Vec<(u32, u32)>),
@@ -54,7 +57,10 @@ struct Track {
 struct Refill {
     lane: usize,
     rise: u32,
+    /// the row before the lane's next trapdoor open (the rests are read there)
     end: u32,
+    /// the row before the next rise (V1's window: the returning cart's V entry comes late on lane 7)
+    end_v: u32,
     slot1: String,
     newcart: String,
     queue: Vec<String>,
@@ -62,10 +68,27 @@ struct Refill {
     arrival: Option<u32>,
     powered: Vec<u32>,
     v_rows: Vec<(u32, String, f64, bool)>,
+    /// (V1) rows with a queue cart (the launched one aside) at z >= 5.64, and rows with a returning cart there
+    q_rows: Vec<u32>,
+    r_rows: Vec<u32>,
     pocket: Vec<(u32, String)>,
     off_rail: Vec<(u32, String)>,
     tracks: BTreeMap<String, Track>,
     last_rows: Vec<Vec<(String, f64)>>,
+    /// (V3) the launched cart's position over the last 5 rows before the lane's next trapdoor open
+    hold_rows: Vec<[f64; 3]>,
+}
+
+/// Consecutive rows as (first, last) intervals.
+fn intervals(rows: &[u32]) -> Vec<(u32, u32)> {
+    let mut v: Vec<(u32, u32)> = Vec::new();
+    for &r in rows {
+        match v.last_mut() {
+            Some(last) if last.1 + 1 == r => last.1 = r,
+            _ => v.push((r, r)),
+        }
+    }
+    v
 }
 
 pub(crate) struct R1Override {
@@ -79,6 +102,11 @@ pub(crate) struct R1Override {
     refills: Vec<Refill>,
     pub dropped: usize,
     pub dropped_expects: usize,
+    /// the previous row's cart positions (every row from the first rise on), to tell a resting queue cart in V
+    /// (depth 6) from a returning cart in transit
+    prev: Vec<(String, [f64; 3])>,
+    /// the last row watched (a refill whose next open falls after it is not judged on V3)
+    last_row: u32,
 }
 
 fn pos(srv: &mut VanillaServer, tag: &str) -> Result<Option<[f64; 3]>> {
@@ -139,7 +167,7 @@ impl R1Override {
         for s in &skip {
             ensure!(per_lane[0].contains(s), "MCTAS_REPLAY_R1_SKIP={s}: not one of the drive's rises {:?}", per_lane[0]);
         }
-        Ok(Some(Self { rule, label: spec, rises: per_lane[0].clone(), skip, opens, on_state, on: [false; 3], refills: Vec::new(), dropped: 0, dropped_expects: 0 }))
+        Ok(Some(Self { rule, label: spec, rises: per_lane[0].clone(), skip, opens, on_state, on: [false; 3], refills: Vec::new(), dropped: 0, dropped_expects: 0, prev: Vec::new(), last_row: 0 }))
     }
 
     /// Whether the drive's act at `cell` is replaced by the override.
@@ -182,13 +210,22 @@ impl R1Override {
             let all = Self::read_all(srv, carts)?;
             for lane in 0..3 {
                 let s = slope(&all, lane);
-                let queue: Vec<String> = s.iter().filter(|(_, p)| p[2] < V_EDGE).map(|(c, _)| c.clone()).collect();
+                // the queue: the lane's slope carts at rest (moved under 0.05 since the previous row, against a
+                // returning cart's 0.1+ per tick in transit; a 6th cart resting in V at depth 6 included), a cart still
+                // moving being a returning one; with no previous row (the first rise), the carts in front of V
+                let queue: Vec<String> = if self.prev.is_empty() {
+                    s.iter().filter(|(_, p)| p[2] < V_EDGE).map(|(c, _)| c.clone()).collect()
+                } else {
+                    s.iter().filter(|(c, p)| self.prev.iter().find(|(d, _)| d == c).is_some_and(|(_, q)| (q[2] - p[2]).abs() < 0.05 && (q[1] - p[1]).abs() < 0.05)).map(|(c, _)| c.clone()).collect()
+                };
                 ensure!(queue.len() >= 2, "R_1 override t{t}: lane {} has {} queue carts at its rise (needs a slot 1 and a slot 2)", lane_name(lane), queue.len());
                 let end = self.opens[lane].iter().copied().find(|o| *o > t).map(|o| o - 1).unwrap_or(t + 60);
+                let end_v = self.rises.iter().copied().find(|r| *r > t && !self.skip.contains(r)).map(|r| r - 1).unwrap_or(t + 99).max(end);
                 self.refills.push(Refill {
                     lane,
                     rise: t,
                     end,
+                    end_v,
                     slot1: queue[0].clone(),
                     newcart: queue[1].clone(),
                     depth0: queue.len(),
@@ -196,10 +233,13 @@ impl R1Override {
                     arrival: None,
                     powered: Vec::new(),
                     v_rows: Vec::new(),
+                    q_rows: Vec::new(),
+                    r_rows: Vec::new(),
                     pocket: Vec::new(),
                     off_rail: Vec::new(),
                     tracks: BTreeMap::new(),
                     last_rows: Vec::new(),
+                    hold_rows: Vec::new(),
                 });
             }
         }
@@ -219,11 +259,22 @@ impl R1Override {
     /// After iteration t's step (row t): each open refill's R_1 state, the new slot-1 cart's arrival, the queue's
     /// transient (V, pocket exit, rails), the up-slope tracker and the last rows before the next open.
     pub(crate) fn after_step(&mut self, srv: &mut VanillaServer, t: u32, carts: &[String]) -> Result<()> {
-        if !self.refills.iter().any(|f| t >= f.rise && t <= f.end) {
+        if !self.refills.iter().any(|f| t >= f.rise && t <= f.end_v) {
             return Ok(());
         }
         let all = Self::read_all(srv, carts)?;
-        for f in self.refills.iter_mut().filter(|f| t >= f.rise && t <= f.end) {
+        for f in self.refills.iter_mut().filter(|f| t >= f.rise && t <= f.end_v) {
+            let s = slope(&all, f.lane);
+            // (V1) who holds V this row: a queue cart (the launched one aside) and / or a returning cart
+            if s.iter().any(|(c, p)| f.queue.contains(c) && *c != f.slot1 && p[2] >= V_EDGE) {
+                f.q_rows.push(t);
+            }
+            if s.iter().any(|(c, p)| !f.queue.contains(c) && p[2] >= V_EDGE) {
+                f.r_rows.push(t);
+            }
+            if t > f.end {
+                continue;
+            }
             let rail = LANES[f.lane].1;
             if crate::strict::test(srv, &format!("execute if block {} {} {} minecraft:powered_rail[powered=true]", rail[0], rail[1] + DY, rail[2]))? {
                 f.powered.push(t);
@@ -234,7 +285,6 @@ impl R1Override {
             {
                 f.arrival = Some(t);
             }
-            let s = slope(&all, f.lane);
             let returning = s.iter().any(|(c, p)| !f.queue.contains(c) && p[2] >= V_EDGE);
             for (c, p) in all.iter().filter(|(c, _)| f.queue.contains(c) && *c != f.slot1) {
                 if p[2] >= V_EDGE {
@@ -259,8 +309,13 @@ impl R1Override {
             }
             if t + 5 > f.end {
                 f.last_rows.push(s.iter().map(|(c, p)| (c.clone(), p[2])).collect());
+                if let Some((_, p)) = all.iter().find(|(c, _)| *c == f.slot1) {
+                    f.hold_rows.push(*p);
+                }
             }
         }
+        self.prev = all;
+        self.last_row = t;
         Ok(())
     }
 
@@ -274,6 +329,9 @@ impl R1Override {
             if self.skip.is_empty() { String::new() } else { format!("; rises skipped (forced depth): {:?}", self.skip) }
         );
         let mut margins: Vec<i64> = Vec::new();
+        let mut v1_least: Vec<i64> = Vec::new();
+        let mut v3_bad = 0usize;
+        let mut v4: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
         for f in &self.refills {
             let last = f.powered.iter().copied().max();
             let margin = match (last, f.arrival) {
@@ -353,11 +411,120 @@ impl R1Override {
             if r_moved >= 0.001 {
                 println!("      (b′) a returning cart (r) still moving at row {}: {r_moved:.3} within the last 5 rows", f.end);
             }
+            // (V1, ironspec 20:00) V's occupancy over rise .. the row before the next rise: the least gap between the
+            // queue's tail leaving V (z <= 5.64) and the next returning cart reaching z >= 5.64, and the reverse
+            let (qi, ri) = (intervals(&f.q_rows), intervals(&f.r_rows));
+            let overlap: Vec<u32> = f.q_rows.iter().copied().filter(|r| f.r_rows.contains(r)).collect();
+            let mut gaps: Vec<(i64, String)> = Vec::new();
+            for &(_, qe) in &qi {
+                if let Some(&(rs, _)) = ri.iter().find(|(rs, _)| *rs > qe) {
+                    gaps.push((rs as i64 - (qe as i64 + 1), format!("queue tail out of V at row {} -> returning cart in at row {rs}", qe + 1)));
+                }
+            }
+            for &(_, re) in &ri {
+                if let Some(&(qs, _)) = qi.iter().find(|(qs, _)| *qs > re) {
+                    gaps.push((qs as i64 - (re as i64 + 1), format!("returning cart out of V at row {} -> queue cart in at row {qs}", re + 1)));
+                }
+            }
+            let v1 = if !overlap.is_empty() {
+                v1_least.push(-1);
+                format!("OVERLAP: a queue cart and a returning cart both at z >= 5.64 on rows {:?} (FAILS)", &overlap[..overlap.len().min(6)])
+            } else if let Some((g, why)) = gaps.iter().min_by_key(|g| g.0) {
+                v1_least.push(*g);
+                format!("least gap {g} gt ({why}){}", if *g - 1 >= 10 { "" } else { " (UNDER 10 after k + j = 1: FAILS)" })
+            } else if qi.is_empty() {
+                format!("the queue never in V this window (returning cart in V from row {})", ri.first().map(|r| r.0.to_string()).unwrap_or_else(|| "-".into()))
+            } else {
+                format!("the queue in V on rows {}..{}, no returning cart in V this window", qi[0].0, qi.last().map(|x| x.1).unwrap_or(0))
+            };
+            // (V3) the launched cart at the lane's hold (slot 0 on its shut trapdoor) before the next open
+            let v3 = match f.hold_rows.last() {
+                _ if f.end > self.last_row => format!("{}: NOT JUDGED (the run ended at row {} before the lane's next open)", f.slot1, self.last_row),
+                Some(h) => {
+                    // (ironspec 20:12 (1)) V3 = within 0.05 of the hold's rest on every one of the last 5 rows; the
+                    // per-row motion printed, not judged (AI riders creep)
+                    let at_hold = f.hold_rows.len() >= 5 && f.hold_rows.iter().all(|p| (p[1] - HOLD_Y).abs() < 0.05 && (p[2] - HOLD_Z).abs() < 0.05);
+                    let motion = f.hold_rows.iter().map(|p| (p[0] - h[0]).abs().max((p[1] - h[1]).abs()).max((p[2] - h[2]).abs())).fold(0.0f64, f64::max);
+                    if !at_hold {
+                        v3_bad += 1;
+                    }
+                    format!(
+                        "{} at ({:.3},{:.4},{:.4}){} (its largest move over the last 5 rows {motion:.4}, printed)",
+                        f.slot1,
+                        h[0],
+                        h[1],
+                        h[2],
+                        if at_hold { " = within 0.05 of the hold on all 5 rows" } else { " NOT within 0.05 of the hold on every one of the 5 rows (FAILS)" }
+                    )
+                }
+                None => {
+                    v3_bad += 1;
+                    format!("{} not found before the open (FAILS)", f.slot1)
+                }
+            };
+            println!("      (V1) {v1} | (V3) {v3}");
+            if let Some(rest) = f.last_rows.last() {
+                // (V4) the resting carts only: the queue (the launched one aside) and any returning cart that has
+                // come to rest (unmoved within 0.01 over the last 5 rows); a cart still sliding in is left out
+                let resting: Vec<f64> = rest
+                    .iter()
+                    .filter(|(c, z)| {
+                        *c != f.slot1 && (f.queue.contains(c) || f.last_rows.iter().all(|r| r.iter().find(|(d, _)| d == c).is_some_and(|(_, w)| (w - z).abs() < 0.01)))
+                    })
+                    .map(|(_, z)| *z)
+                    .collect();
+                for (k, z) in resting.iter().enumerate() {
+                    v4.entry(k + 1).or_default().push(*z);
+                }
+            }
         }
+        // (V4) the queue's rest per slot over every refill, at the row before each lane's next trapdoor open
+        for (k, zs) in v4.iter_mut() {
+            zs.sort_by(f64::total_cmp);
+            println!("    (V4) slot {k}: n {} rest z min {:.3} median {:.3} max {:.3}", zs.len(), zs[0], zs[zs.len() / 2], zs[zs.len() - 1]);
+        }
+        if !v1_least.is_empty() {
+            println!(
+                "    (V1) least gap over {} refills with both a queue cart and a returning cart in V: {} gt; refills under 10 after k + j = 1 (or overlapping): {}",
+                v1_least.len(),
+                v1_least.iter().min().unwrap_or(&0),
+                v1_least.iter().filter(|g| **g - 1 < 10).count()
+            );
+        }
+        println!("    (V3) refills whose launched cart did not come to rest at the hold before the next open: {v3_bad} of {}", self.refills.len());
         if !margins.is_empty() {
             println!("    (a) margins (last powered row - arrival row): min {:+}, max {:+} over {} refills", margins.iter().min().unwrap_or(&0), margins.iter().max().unwrap_or(&0), margins.len());
         }
         ensure!(!self.refills.is_empty(), "R_1 override: no refill opened (no rise in the run)");
+        // (G1 on AF) every refill's R_1 rows as READ must be the rule's own waveform: a rule that wrote the wrong
+        // waveform fails here. MCTAS_REPLAY_R1_PLANT=1 extends each expected waveform by one row (must fail).
+        let plant = std::env::var_os("MCTAS_REPLAY_R1_PLANT").is_some();
+        let mut checked = 0usize;
+        for f in &self.refills {
+            let mut want: Vec<u32> = match &self.rule {
+                Rule::Win(ws) => (f.rise..=f.end).filter(|row| ws.iter().any(|&(a, b)| *row >= f.rise + a + 1 && *row <= f.rise + b)).collect(),
+                Rule::Arrival(s) => {
+                    let cap = self.opens[f.lane].iter().copied().find(|o| *o > f.rise).map(|o| o.saturating_sub(3)).unwrap_or(f.rise + CAP);
+                    let off = f.arrival.map(|a| (a + s).min(cap)).unwrap_or(cap);
+                    (f.rise + 1..=off.min(f.end)).collect()
+                }
+            };
+            if plant && let Some(&last) = want.last() {
+                want.push(last + 1);
+            }
+            ensure!(
+                f.powered == want,
+                "R_1 override: lane {} rise t{}: R_1 read powered on rows {:?}, the rule `{}` writes {:?}{}",
+                lane_name(f.lane),
+                f.rise,
+                f.powered,
+                self.label,
+                want,
+                if plant { " (PLANTED: one row added)" } else { "" }
+            );
+            checked += 1;
+        }
+        println!("    the rule's waveform: R_1's rows as read equal the rule's own rows on {checked} of {} refills", self.refills.len());
         Ok(())
     }
 }
