@@ -6,6 +6,12 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
+    /// Git's tree id of this worktree's CODE (`crates/`, `Cargo.toml`, `Cargo.lock`) as it stands
+    /// (uncommitted edits and untracked files included): the value to build with as `MCTAS_SOURCE_TREE`
+    /// (ironspec Nov 14 01:58's binary rule: `MCTAS_SOURCE_TREE=$(mctas mobfarm source-tree) cargo build
+    /// --release`; an evidence runner then calls `mobfarm::provenance::check`, which refuses unless the
+    /// stamp is the cited commit's code and the worktree's current code, and the worktree is that commit).
+    SourceTree,
     /// The pausable timers' shared lockable chain (`chainbench.rs`): writes its design (`--stages`
     /// 1-tick repeaters with side lockers on a NOT-ALIVE bus) to `--out` and prints every stage's
     /// unfrozen delay, the lag after a `--freeze-len` gt freeze begun at every phase, the 200-gt
@@ -3063,6 +3069,10 @@ pub enum MobfarmCmd {
         /// ironspec 20:14 PT (b): tick-exact's lift-pair configuration in redsim, follower gaps FROM,TO.
         #[arg(long, value_delimiter = ',')]
         lift_pair: Vec<i64>,
+        /// G1 Nov 14 00:59: two ridden carts into the lift's foot 1 or 2 gt apart, over approach speeds
+        /// 0.30..0.48 and start offsets: the spacing at the leader's surfacing against the jam band.
+        #[arg(long)]
+        foot_pair_sweep: bool,
         /// tick-exact's t-snap positive control: `official` (its geometry) or `mine` (this bench's
         /// T and hold); prints its table's format and exits.
         #[arg(long)]
@@ -3220,6 +3230,55 @@ pub enum MobfarmCmd {
         /// ironspec Nov 13 21:20 / 21:24: R6's trailing edge binds under ±2 jitter).
         #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
         f4_trim_trail: i64,
+        /// With --controller-f: G10's REL-keyed ring reset at REL_b + X (start-of-tick), a 4-gt
+        /// set-priority pulse forcing J(-1) ARMED and J(3) DISARMED, replacing the AND -> J(-1) link and
+        /// day-1's timed re-arm tap (farmopt Nov 13 23:02: J(-1)'s re-arm margins judged under it).
+        #[arg(long)]
+        ring_reset: Option<i64>,
+        /// With --controller-f (ironspec Nov 14 00:06 (a)): the EVIDENCE-KEYED re-arm: G10's pulse D gt
+        /// after each batch cart's own D(-1) press, in place of the REL + X tap.
+        #[arg(long)]
+        rearm_dm1: Option<i64>,
+        /// With --path-a (ironfarm's column-entry gate G, Nov 14 00:20): lane 7's intake release held while
+        /// a foot entry's press at (-4,2,7) lies A..=B gt back: `A,B`.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        intake_inhibit: Vec<i64>,
+        /// With --path-a (G1 00:24 / ironspec 00:25b): the evidence-keyed gate G: lane 7's intake held while
+        /// any cart is in the column ("strict") or one is below y 15 ("low", an oracle).
+        #[arg(long)]
+        intake_count: Option<String>,
+        /// With --intake-inhibit (ironspec Nov 14 01:38): the lane-7 request latched until its full pulse can
+        /// fire, never skipped to the next REL.
+        #[arg(long)]
+        intake_never_skip: bool,
+        /// (ironspec Nov 14 01:58's binary rule) Run with a binary whose stamped source tree isn't the
+        /// worktree's (or an unstamped one): the run says NOT EVIDENCE instead of refusing.
+        #[arg(long)]
+        not_evidence: bool,
+        /// (ironspec Nov 14 02:35 (5)) The commit this run's evidence cites: the binary's stamped tree,
+        /// this commit's tree and the worktree's tree must be one tree (default HEAD, only when clean).
+        #[arg(long)]
+        cite: Option<String>,
+        /// (G1 Nov 14 01:58 (b)) With --intake-never-skip: lane 7's release at REL + lane7_rel + D at the
+        /// latest, inhibited or not.
+        #[arg(long)]
+        intake_defer_cap: Option<i64>,
+        /// (ironspec Nov 14 01:40) Ridden carts summoned at ticks T,.. into the lift's foot (tick-exact's
+        /// fixture summons): the planted double foot press.
+        #[arg(long, value_delimiter = ',')]
+        plant_foot: Vec<i64>,
+        /// (ironspec / day-1 Nov 14 00:56-00:58) Batch carts K ridden through every J to the way-in (9,25,9):
+        /// the measured route times (`K,..`; two in one batch for same-REL picks).
+        #[arg(long, value_delimiter = ',')]
+        through_cart: Vec<usize>,
+        /// (ironspec Nov 13 23:06, the jam row) Cart K stopped where it first reaches x >= X on the split
+        /// row, held DT gt (at least 1), then left still: `K,X,DT`.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        stop_cart: Vec<f64>,
+        /// (ironspec Nov 13 23:16 (2), λ_pass) Cart K held still the first time it's in cell (X,Y,Z), for DT
+        /// gt, then given back its motion: `K,X,Y,Z,DT`.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        stall_cart: Vec<i64>,
         /// With --controller-f: F4(a)'s K windows widened this many gt each side (the K-window bar's positive).
         #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
         f4_kwiden: i64,
@@ -8387,7 +8446,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches: false, napper_speed: 0.2, path_a: false, arm_rel: None, lane7_rel: 100, station_lag: 0, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, station_part: None, light_fix: false, set_cells: Vec::new(), undeclare_contact: Vec::new(), record: None, stale_t: None, block_exit: None, controls: false, record_poke: false, hold_early: false, thunder: None, rod: None, toggle: None, drop_cart: Vec::new(), late_cart: None, swap_carts: None, extra_cart: None, park_cart: None, h13_probe: false, controller_f: false, f4_widen: 0, f4_trim_trail: 0, f4_kwiden: 0, ext_ticks: 0, late_arrival: None, bit_delay, tripwire, dep_keyed, trip_lag, probe_string: None, probe_empty: false, probe_gate: false, arm_cell: None, second_napper: None, slow_after: None };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches: false, napper_speed: 0.2, path_a: false, arm_rel: None, lane7_rel: 100, station_lag: 0, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, station_part: None, light_fix: false, set_cells: Vec::new(), undeclare_contact: Vec::new(), record: None, stale_t: None, block_exit: None, controls: false, record_poke: false, hold_early: false, thunder: None, rod: None, toggle: None, drop_cart: Vec::new(), late_cart: None, swap_carts: None, extra_cart: None, park_cart: None, h13_probe: false, controller_f: false, f4_widen: 0, f4_trim_trail: 0, ring_reset: None, rearm_dm1: None, intake_inhibit: None, intake_count: None, intake_never_skip: false, intake_defer_cap: None, plant_foot: Vec::new(), through_cart: Vec::new(), stop_cart: None, stall_cart: None, f4_kwiden: 0, ext_ticks: 0, late_arrival: None, bit_delay, tripwire, dep_keyed, trip_lag, probe_string: None, probe_empty: false, probe_gate: false, arm_cell: None, second_napper: None, slow_after: None };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some() };
             let line = format!(
@@ -8504,7 +8563,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, no_controls, thunder, rod, toggle, drop_cart, late_cart, late_arrival, swap_carts, extra_cart, park_cart, controller_f, forced_table, f4_widen, f4_trim_trail, f4_kwiden, top_restart, lift_pair, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep, probe_string, probe_empty, probe_gate, arm_cell, second_napper, slow_after } => {
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, no_controls, thunder, rod, toggle, drop_cart, late_cart, late_arrival, swap_carts, extra_cart, park_cart, controller_f, forced_table, f4_widen, f4_trim_trail, ring_reset, rearm_dm1, intake_inhibit, intake_count, intake_never_skip, intake_defer_cap, plant_foot, through_cart, stop_cart, stall_cart, f4_kwiden, top_restart, lift_pair, foot_pair_sweep, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep, probe_string, probe_empty, probe_gate, arm_cell, second_napper, slow_after, not_evidence, cite } => {
+            // (ironspec Nov 14 01:58: the binary's source tree printed, and the run refused unless it is
+            // the tree under test: the worktree this runs in)
+            // (ironspec Nov 14 01:58 / 02:57: the provenance check, exiting 4 (REFUSED) by the shared table;
+            // on this base the return bench calls it itself: main's dispatch does once the stack lands)
+            let (prov, _citable) = match crate::provenance::check(&std::env::current_dir()?, cite.as_deref(), not_evidence) {
+                Ok(h) => h,
+                Err(refusal) => {
+                    println!("{refusal}");
+                    crate::provenance::finish(crate::provenance::Exit::Refused);
+                }
+            };
+            println!("{prov}");
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (ironspec 07:26 PT C4: `--block-exit` takes exactly T,N)
             anyhow::ensure!(block_exit.is_empty() || block_exit.len() == 2, "--block-exit T,N: two values, not {}", block_exit.len());
@@ -8515,10 +8586,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(extra_cart.is_empty() || (extra_cart.len() == 2 && extra_cart[0] >= 0 && [-1, 3, 7].contains(&extra_cart[1])), "--extra-cart T,X: two values, T >= 0, X a lane (-1, 3 or 7)");
             anyhow::ensure!(park_cart.is_empty() || park_cart.len() == 3, "--park-cart X,Y,Z: three values, not {}", park_cart.len());
             anyhow::ensure!(drop_cart.iter().chain(late_cart.first().map(|k| *k as usize).iter()).chain(swap_carts.map(|k| k + 1).iter()).all(|k| *k < 3 * batches), "--drop-cart / --late-cart / --swap-carts: a batch cart index under {} (3 x --batches; the napper isn't one)", 3 * batches);
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), controls: !no_controls, record_poke: false, hold_early: false, thunder, rod: (rod.len() == 3).then(|| (rod[0], rod[1], rod[2])), toggle: (toggle.len() == 5).then(|| (toggle[0] as i32, toggle[1] as i32, toggle[2] as i32, toggle[3], toggle[4])), drop_cart: drop_cart.clone(), late_cart: (late_cart.len() == 2).then(|| (late_cart[0] as usize, late_cart[1])), swap_carts, extra_cart: (extra_cart.len() == 2).then(|| (extra_cart[0], extra_cart[1] as i32)), park_cart: (park_cart.len() == 3).then(|| (park_cart[0], park_cart[1], park_cart[2])), h13_probe: false, controller_f, f4_widen, f4_trim_trail, f4_kwiden, ext_ticks: 0, late_arrival: (late_arrival.len() == 2).then(|| (late_arrival[0] as usize, late_arrival[1])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, probe_string: (probe_string.len() == 3).then(|| (probe_string[0], probe_string[1], probe_string[2])), probe_empty, probe_gate, arm_cell: (arm_cell.len() == 4).then(|| (arm_cell[0] as i32, arm_cell[1] as i32, arm_cell[2] as i32, arm_cell[3])), second_napper, slow_after };
+            let stop_cart = (stop_cart.len() == 3).then(|| (stop_cart[0] as usize, stop_cart[1], stop_cart[2] as i64));
+            let stall_cart = (stall_cart.len() == 5).then(|| (stall_cart[0] as usize, stall_cart[1] as i32, stall_cart[2] as i32, stall_cart[3] as i32, stall_cart[4]));
+            let intake_inhibit = (intake_inhibit.len() == 2).then(|| (intake_inhibit[0], intake_inhibit[1]));
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), controls: !no_controls, record_poke: false, hold_early: false, thunder, rod: (rod.len() == 3).then(|| (rod[0], rod[1], rod[2])), toggle: (toggle.len() == 5).then(|| (toggle[0] as i32, toggle[1] as i32, toggle[2] as i32, toggle[3], toggle[4])), drop_cart: drop_cart.clone(), late_cart: (late_cart.len() == 2).then(|| (late_cart[0] as usize, late_cart[1])), swap_carts, extra_cart: (extra_cart.len() == 2).then(|| (extra_cart[0], extra_cart[1] as i32)), park_cart: (park_cart.len() == 3).then(|| (park_cart[0], park_cart[1], park_cart[2])), h13_probe: false, controller_f, f4_widen, f4_trim_trail, ring_reset, rearm_dm1, intake_inhibit, intake_count, intake_never_skip, intake_defer_cap, plant_foot, through_cart, stop_cart, stall_cart, f4_kwiden, ext_ticks: 0, late_arrival: (late_arrival.len() == 2).then(|| (late_arrival[0] as usize, late_arrival[1])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, probe_string: (probe_string.len() == 3).then(|| (probe_string[0], probe_string[1], probe_string[2])), probe_empty, probe_gate, arm_cell: (arm_cell.len() == 4).then(|| (arm_cell[0] as i32, arm_cell[1] as i32, arm_cell[2] as i32, arm_cell[3])), second_napper, slow_after };
             // (ironspec 07:26 PT C3: the positive controls, in the tool, after the rows (not the
             // lift-pair, top-restart or T-snap benches); one that doesn't bite fails the command)
-            let other_bench = lift_pair.len() == 2 || !top_restart.is_empty() || t_snap.is_some();
+            let other_bench = lift_pair.len() == 2 || foot_pair_sweep || !top_restart.is_empty() || t_snap.is_some();
             // (G1 on 2dc7e46bb H16 / 84cd993fd (4): each mode's value counts strict, one mode at a time,
             // and r4's flags refused where the mode doesn't read them)
             anyhow::ensure!(lift_pair.is_empty() || lift_pair.len() == 2, "--lift-pair FROM,TO: two values, not {}", lift_pair.len());
@@ -8555,7 +8629,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 o.swap_carts.unwrap_or(0)
             );
             anyhow::ensure!(o.y12_min >= 1 && o.y12_nap_min >= 1 && o.mouth_min >= 1, "--y12-min, --y12-nap-min and --mouth-min are bars: at least 1");
-            let (text, fails) = if lift_pair.len() == 2 {
+            let (text, fails) = if foot_pair_sweep {
+                crate::returnbench::foot_pair_sweep(&o).map_err(|e| anyhow::anyhow!(e))?
+            } else if lift_pair.len() == 2 {
                 crate::returnbench::lift_pair(&o, lift_pair[0], lift_pair[1]).map_err(|e| anyhow::anyhow!(e))?
             } else if !top_restart.is_empty() {
                 crate::returnbench::top_restart(&o, &top_restart).map_err(|e| anyhow::anyhow!(e))?
@@ -10909,6 +10985,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+        }
+        MobfarmCmd::SourceTree => {
+            println!("{}", crate::provenance::worktree_build_tree(&std::env::current_dir()?).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::CtlDaylightTable => {
             for l in crate::ctlcounter::daylight_table() {

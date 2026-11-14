@@ -283,6 +283,38 @@ pub struct ReturnOpts {
     /// `--f4-trim-trail T` (day-1 / ironspec Nov 13 21:20 / 21:24): G14's trailing guard trimmed: each of
     /// F4(a)'s J hold-offs ends T gt earlier (R6's trailing edge), its start unchanged.
     pub f4_trim_trail: i64,
+    /// `--ring-reset X` (G10, farmopt Nov 13 23:02): the REL-keyed ring reset at REL_b + X (start-of-tick),
+    /// a 4-gt set-priority pulse forcing J(-1) ARMED and J(3) DISARMED, replacing the AND -> J(-1) link
+    /// and day-1's timed re-arm tap.
+    pub ring_reset: Option<i64>,
+    /// `--rearm-dm1 D` (ironspec Nov 14 00:06 (a)): the evidence-keyed re-arm: G10's pulse D gt after each
+    /// batch cart's own D(-1) press, in place of the REL + X tap (and the AND -> J(-1) link, the timed tap).
+    pub rearm_dm1: Option<i64>,
+    /// `--intake-inhibit A,B` (ironfarm's column-entry gate G, Nov 14 00:20): lane 7's intake release held
+    /// while a foot entry's press at (-4,2,7) lies A..=B gt back.
+    pub intake_inhibit: Option<(i64, i64)>,
+    /// `--intake-count strict|low` (G1 00:24 / ironspec 00:25b): the evidence-keyed form of gate G: lane 7's
+    /// intake held while any cart is in the column ("strict"), or one is below y 15 ("low", an oracle).
+    pub intake_count: Option<String>,
+    /// `--intake-never-skip` (ironspec Nov 14 01:38, priced first): gate G's lane-7 request latched until its
+    /// full pulse can fire (never skipped to the next REL).
+    pub intake_never_skip: bool,
+    /// `--intake-defer-cap D` (G1 Nov 14 01:58 (b)): with the never-skip latch, lane 7's release fires at
+    /// REL + lane7_rel + D at the latest, inhibited or not (the deferral capped under T's λ_pass(slot 3)).
+    pub intake_defer_cap: Option<i64>,
+    /// `--plant-foot T,..` (ironspec Nov 14 01:40): ridden carts summoned at tick T as tick-exact's fixture
+    /// does ((-2.2, 1.8, mz + 0.5), motion -0.40 west), each rolling into the lift's foot: the planted double
+    /// foot press.
+    pub plant_foot: Vec<i64>,
+    /// `--through-cart K,..` (ironspec / day-1 Nov 14 00:56-00:58): batch carts K ridden through every J to
+    /// the way-in (9,25,9), the J's ahead held straight while each is west of x 8: the measured route times.
+    pub through_cart: Vec<usize>,
+    /// `--stop-cart K,X,DT` (ironspec Nov 13 23:06, the jam row): cart K stopped where it first reaches
+    /// x >= X on the split row, held DT gt (at least 1), then left still: pushed clear, or a pile-up?
+    pub stop_cart: Option<(usize, f64, i64)>,
+    /// `--stall-cart K,X,Y,Z,DT` (ironspec Nov 13 23:16 (2), λ_pass): cart K held still the first time it's
+    /// in cell (X,Y,Z), for DT gt, then given back its motion.
+    pub stall_cart: Option<(usize, i32, i32, i32, i64)>,
     /// `forced_table`'s K-window positive (G1's C4): K(n)'s on-window widened by this many gt each side.
     pub f4_kwiden: i64,
     /// The run's length beyond `ticks` that the station's schedule may need (F1's waits, the drops'
@@ -1450,6 +1482,28 @@ pub struct Summary {
     /// leading edge (a batch cart leaving J before the napper's hold-off begins: the clear margin), 2 =
     /// the trailing edge (a batch cart reaching J after the hold-off ends: the settle margin); 0 none.
     pub r6_bind: (i64, i32, u8),
+    /// The credit's β (ironspec / G1 Nov 13 23:10 / 23:16): per lane (-1, 3, 7), the latest branch
+    /// detector D(x) press by a batch cart after ITS OWN batch's REL (the press tick - REL_{k/3});
+    /// i64::MIN when no press.
+    pub d_late: [i64; 3],
+    /// tick-exact Nov 14 00:31: the lift top's least follower margin (the next riser's arrival at the top
+    /// cell - the leader's step onto the exit booster); i64::MIN: a leader never left; i64::MAX: none.
+    pub top_margin: i64,
+    /// Gate G (ironfarm Nov 14 00:20): the batches whose lane-7 intake release was DEFERRED or SKIPPED by
+    /// the gate (ironspec 00:25b's bar: 0 in normal running).
+    pub gate_held: usize,
+    /// G1 Nov 14 01:16 (the foot stall): the least gap between two foot-entry presses at (-4,2,7) in the
+    /// run (gt); i64::MAX with fewer than two.
+    pub foot_gap: i64,
+    /// The two carts' speeds (b/gt, horizontal) at the presses of that least foot gap.
+    pub foot_gap_speeds: Option<(f64, f64)>,
+    /// G1 / ironspec Nov 14 01:58-01:59: lane 7's worst deferral in the run (gt; 0 when every release ran
+    /// on time) and the least margin between a foot press's inhibit window end and a lane-7 request's start
+    /// (gt; negative: a window overlapped the request), i64::MAX with no press before a request.
+    pub l7_defer_max: i64,
+    pub l7_window_margin: i64,
+    /// ironspec Nov 14 01:40's standing bar: the non-napper carts that entered the way-in leg (each fails).
+    pub wayin: usize,
     pub branch_clear: [i64; 3],
     pub r_full_at_k: u16,
     /// The routing's bars join `bars()` under the new controller (G1's C1); the napper's own lane.
@@ -2046,7 +2100,45 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
                 _ => {}
             }
         }
-        if by.is_empty() {
+        // (G1 22:38 / ironspec 22:44: R6's LEAST over every row of the sweep, and the lift mouth's least
+        // gaps by class, printed whether or not a row fails)
+        let r6_least = v.iter().filter_map(|(_, r)| r.as_ref().ok()).filter(|s| s.controller_f && s.r6_margin != i64::MAX).map(|s| s.r6_margin).min();
+        let mouth_least: Vec<String> = (0..3)
+            .map(|i| {
+                let m = v.iter().filter_map(|(_, r)| r.as_ref().ok()).map(|s| s.mouth_gap[i]).filter(|g| *g != i64::MAX).min();
+                format!("{} {}", ["batch -> batch", "batch -> napper", "napper -> batch"][i], m.map_or("-".to_string(), |m| m.to_string()))
+            })
+            .collect();
+        let d_max: Vec<String> = (0..3)
+            .map(|i| {
+                let m = v.iter().filter_map(|(_, r)| r.as_ref().ok()).map(|s| s.d_late[i]).filter(|d| *d != i64::MIN).max();
+                format!("D({}) {}", [-1, 3, 7][i], m.map_or("-".to_string(), |m| format!("REL + {m}")))
+            })
+            .collect();
+        let tm = v.iter().filter_map(|(_, r)| r.as_ref().ok()).map(|s| s.top_margin).filter(|m| *m != i64::MAX).min();
+        let gh: Vec<String> = v.iter().filter_map(|(l, r)| r.as_ref().ok().filter(|s| s.gate_held > 0).map(|s| format!("{l} ({})", s.gate_held))).collect();
+        let fg = v.iter().filter_map(|(l, r)| r.as_ref().ok().filter(|s| s.foot_gap != i64::MAX).map(|s| (s.foot_gap, l.clone(), s.foot_gap_speeds))).min_by_key(|x| x.0);
+        let dmax = v.iter().filter_map(|(l, r)| r.as_ref().ok().map(|s| (s.l7_defer_max, l.clone()))).max_by_key(|x| x.0);
+        let wmar = v.iter().filter_map(|(l, r)| r.as_ref().ok().filter(|s| s.l7_window_margin != i64::MAX).map(|s| (s.l7_window_margin, l.clone()))).min_by_key(|x| x.0);
+        let least = format!(
+            "; over the rows (G1 22:38): R6's least {} (bar >= 10), the lift mouth's least {}; the latest D press after its own batch's REL (the credit's β, 23:10): {}; the lift top's least follower margin (tick-exact 00:31) {}; gate G's held releases (bar 0 in normal running): {}; the least foot-entry gap at (-4,2,7) (G1 01:16, the foot stall) {}",
+            r6_least.map_or("- (no hold-off)".to_string(), |m| m.to_string()),
+            mouth_least.join(", "),
+            d_max.join(", "),
+            match tm {
+                None => "-".to_string(),
+                Some(i64::MIN) => "NEVER LEFT (a jam)".to_string(),
+                Some(m) => format!("{m} gt"),
+            },
+            if gh.is_empty() { "0 rows".to_string() } else { format!("{} rows, e.g. {}", gh.len(), gh.iter().take(3).cloned().collect::<Vec<_>>().join(" / ")) },
+            fg.map_or("-".to_string(), |(g, l, sp)| format!("{g} gt (at {l}; the two carts at {})", sp.map_or("-".to_string(), |(a, b)| format!("{a:.3} / {b:.3} b/gt"))))
+        );
+        let least = format!(
+            "{least}; lane 7's worst deferral (G1 / ironspec 01:58-01:59, vs T's λ_pass(slot 3) = 28) {}; the latest foot press before each lane-7 request against the deferring band's start REL + lane7_rel - 32 (margin = that start - the press; negative: inside the band, a deferral) {}",
+            dmax.map_or("-".to_string(), |(d, l)| if d == i64::MAX { format!("NEVER RELEASED (at {l})") } else if d == 0 { "0 gt (every release on time)".to_string() } else { format!("{d} gt (at {l})") }),
+            wmar.map_or("- (no press before a request)".to_string(), |(m, l)| format!("{m} gt (at {l})"))
+        );
+        least + &if by.is_empty() {
             String::new()
         } else {
             format!(
@@ -2281,6 +2373,191 @@ mod contact_tests {
 /// contact and the first push that acts; the first tick each cart departs from its solo ride (the same
 /// scene without the other cart). Ticks after the leader's release; "clean" = no contact of either
 /// kind and both rides undisturbed (ironspec 20:14 PT).
+/// G1 Nov 14 00:59 (whether the foot spacer may stay dropped): two ridden carts sent into the lift's foot
+/// GAP gt apart (1 or 2) at foot-approach speed V (0.30..0.48) from a sub-cell start offset OFF, on the
+/// bench's path (a) geometry with no batch: their column entries, the follower's distance to the leader
+/// at the leader's SURFACING (its first tick in the top cell (-5,23,mz) from the column) and its least
+/// distance over the climb, and whether both risers exit the top (onto the exit curve (-5,24,mz+2)) or the
+/// lift jams; the least distance from any surfacing spacing to the jam band 0.70-0.85 b (tick-exact /
+/// G1) is the sweep's answer.
+pub fn foot_pair_sweep(o: &ReturnOpts) -> Result<(String, usize), String> {
+    let mz = if o.z7 { 7 } else { 8 };
+    let base = ReturnOpts { path_a: true, batches: 0, napper_delay: None, napper_lift: false, trace: None, out: None, login: None, restart: None, ..o.clone() };
+    let rider = "Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]";
+    let len: i64 = 240;
+    let mut rows: Vec<String> = Vec::new();
+    let (mut fails, mut least_band, mut least_at) = (0usize, f64::MAX, String::new());
+    let mut least_surf = f64::MAX;
+    // (each scene's outcome, for the clean-threshold table: (label, gap, v, dx, outcome))
+    let mut outcomes: Vec<(&str, i64, f64, f64, &str)> = Vec::new();
+    // (the scenes: (gap, speed, the leader's start x, the follower's extra offset east, label). Ours: in
+    // the T cell (-1,0,mz), gap 0 = IN CONTACT (the follower 1.0 b behind, the same tick), 1, 2; tick-exact's
+    // 01:13 game rows exactly: from x -2.2 up the climb, the follower 0 / 0.05 / 0.10 / 0.15 b further east,
+    // gaps 3 / 4 at 0.48 and 4 / 5 at 0.30)
+    let mut scenes: Vec<(i64, f64, f64, f64, &str)> = Vec::new();
+    for gap in [0i64, 1, 2] {
+        for vi in 0..7 {
+            for oi in 0..5 {
+                scenes.push((gap, 0.30 + 0.03 * vi as f64, -0.1 - 0.2 * oi as f64, if gap == 0 { 1.0 } else { 0.0 }, "ours"));
+            }
+        }
+    }
+    for (v, gaps) in [(0.48, [3i64, 4]), (0.30, [4, 5])] {
+        for gap in gaps {
+            for dx in [0.0, 0.05, 0.10, 0.15] {
+                scenes.push((gap, v, -2.2, dx, "tick-exact 01:13"));
+            }
+        }
+    }
+    // (tick-exact's full table (ironspec 01:17): v 0.30 / 0.33 / 0.36 / 0.48 x gaps 3..14 x the follower
+    // 0 / 0.05 / 0.10 / 0.15 b further east, from x -2.2)
+    for v in [0.30, 0.33, 0.36, 0.48] {
+        for gap in 3i64..=14 {
+            for dx in [0.0, 0.05, 0.10, 0.15] {
+                scenes.push((gap, v, -2.2, dx, "tick-exact table"));
+            }
+        }
+    }
+    // (a cart's spawn height: tick-exact's summons at y 1.8 over the climb (it settles onto the rail); ours
+    // on the rail's own height)
+    let rail_y = |x: f64| if x <= -2.0 && x > -3.0 { 1.8 } else if x >= -2.0 && x < -1.0 { 0.0625 + (-1.0 - x) } else { 0.0625 };
+    for (gap, v, x0, dx, label) in scenes {
+        {
+            {
+                let spec = build(&base)?;
+                let ro = RunOpts { ai: true, ..RunOpts::steady(1, (len + 50) as u32, WalkMode::Random) };
+                let (mut run, _, _) = start_run(&spec, &ro)?;
+                while run.settle_tick() {}
+                let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],{rider}}}", -v);
+                let (mut a, mut b): (Option<u32>, Option<u32>) = (None, None);
+                let mut prev: [Option<(i32, i32, i32)>; 2] = [None, None];
+                let (mut entry, mut surf, mut exit): ([Option<i64>; 2], [Option<i64>; 2], [Option<i64>; 2]) = ([None; 2], [None; 2], [None; 2]);
+                let (mut d_surf, mut d_least): (Option<(f64, f64)>, f64) = (None, f64::MAX);
+                for t in 0..len {
+                    let fx = x0 + dx;
+                    if t == 0 {
+                        a = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x0, rail_y(x0), mz as f64 + 0.5], Some(&nbt))?);
+                        if gap == 0 {
+                            b = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [fx, rail_y(fx), mz as f64 + 0.5], Some(&nbt))?);
+                        }
+                    }
+                    if gap > 0 && t == gap {
+                        b = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [fx, rail_y(fx), mz as f64 + 0.5], Some(&nbt))?);
+                    }
+                    run.tick();
+                    let pos = |id: Option<u32>, w: &redsim::world::World| id.and_then(|i| redsim::entity::index_of(w, i)).map(|i| w.entities.list[i].pos);
+                    let ps = [pos(a, &run.world), pos(b, &run.world)];
+                    for k in 0..2 {
+                        if let Some(p) = ps[k] {
+                            let cell = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                            if entry[k].is_none() && cell == (-5, 2, mz) {
+                                entry[k] = Some(t);
+                            }
+                            if surf[k].is_none() && cell == (-5, 23, mz) && prev[k] == Some((-5, 22, mz)) {
+                                surf[k] = Some(t);
+                            }
+                            if exit[k].is_none() && surf[k].is_some() && cell != (-5, 23, mz) && cell.1 >= 23 {
+                                // (the riser's exit: its first tick out of the top cell after surfacing, at or
+                                // above the top (onto the booster or the exit curve, whatever the geometry))
+                                exit[k] = Some(t);
+                            }
+                            prev[k] = Some(cell);
+                        }
+                    }
+                    if let (Some(p), Some(q)) = (ps[0], ps[1])
+                        && p.x < -4.0
+                        && q.x < -4.0
+                        && p.y > 2.0
+                        && q.y > 2.0
+                        && exit[0].is_none()
+                    {
+                        let d = ((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt();
+                        d_least = d_least.min(d);
+                        if surf[0] == Some(t) {
+                            d_surf = Some((d, p.y - q.y));
+                        }
+                    }
+                }
+                let jam = exit[0].is_none() || exit[1].is_none();
+                if jam {
+                    fails += 1;
+                }
+                // (tick-exact 01:13's foot stall: the follower never enters the shaft; where it ends: ON THE
+                // FOOT (its centre left on the foot rail / the climb's top, y 1.5..3) = FOOT STALL; anywhere
+                // else (east of x -2, fallen, removed) = THROWN BACK, ironspec 01:25's second class)
+                let end_b = b.and_then(|i| redsim::entity::index_of(&run.world, i)).map(|i| run.world.entities.list[i].pos);
+                let stall = entry[1].is_none();
+                let outcome = if !stall {
+                    "entered"
+                } else if end_b.is_some_and(|p| p.x >= -4.5 && p.x < -2.0 && p.y >= 1.5 && p.y < 3.0) {
+                    "FOOT STALL"
+                } else {
+                    "THROWN BACK"
+                };
+                outcomes.push((label, gap, v, dx, outcome));
+                if let Some((d, _)) = d_surf {
+                    let band = if d < 0.70 { 0.70 - d } else if d > 0.85 { d - 0.85 } else { 0.0 };
+                    if band < least_band {
+                        least_band = band;
+                        least_at = format!("gap {gap} v {v:.2} start {x0:.2} +{dx:.2}: {d:.3} b");
+                    }
+                }
+                let f = |x: Option<i64>| x.map_or("-".to_string(), |x| x.to_string());
+                if let Some(d) = d_surf.map(|s| s.0) {
+                    least_surf = least_surf.min(d);
+                }
+                rows.push(format!(
+                    "[{label}] {} v {v:.2} start x {x0:.2}, the follower +{dx:.2}: column entries t {} / {} (the entry-tick gap {}), surfacing t {} / {}, the follower at the leader's surfacing {}, least {}, exits t {} / {}{}{}",
+                    if gap == 0 { "IN CONTACT".to_string() } else { format!("gap {gap}") },
+                    f(entry[0]),
+                    f(entry[1]),
+                    match (entry[0], entry[1]) {
+                        (Some(x), Some(y)) => format!("{}", y - x),
+                        _ => "-".to_string(),
+                    },
+                    f(surf[0]),
+                    f(surf[1]),
+                    d_surf.map_or("-".to_string(), |(d, dy)| format!("{d:.3} b (dy {dy:.3})")),
+                    if d_least == f64::MAX { "-".to_string() } else { format!("{d_least:.3} b") },
+                    f(exit[0]),
+                    f(exit[1]),
+                    if jam { " JAM" } else { "" },
+                    if stall {
+                        format!(" {outcome} (the follower never entered the shaft; it ends {})", end_b.map_or("removed (fallen out of the world)".to_string(), |p| format!("at {:.3},{:.3},{:.3}", p.x, p.y, p.z)))
+                    } else {
+                        String::new()
+                    }
+                ));
+            }
+        }
+    }
+    // (the clean threshold per speed over tick-exact's table: the least gap from which every gap up to 14
+    // enters at all four offsets; each failing gap below it with its classes, to set beside the game's)
+    let mut table: Vec<String> = Vec::new();
+    for v in [0.30, 0.33, 0.36, 0.48] {
+        let rows_v: Vec<&(&str, i64, f64, f64, &str)> = outcomes.iter().filter(|o| o.0 == "tick-exact table" && (o.2 - v).abs() < 1e-9).collect();
+        let fails_at = |g: i64| rows_v.iter().filter(|o| o.1 == g && o.4 != "entered").map(|o| format!("+{:.2} {}", o.3, o.4)).collect::<Vec<_>>();
+        let clean_from = (3i64..=14).find(|&g| (g..=14).all(|h| fails_at(h).is_empty()));
+        let below: Vec<String> = (3i64..clean_from.unwrap_or(15)).filter(|g| !fails_at(*g).is_empty()).map(|g| format!("gap {g}: {}", fails_at(g).join(", "))).collect();
+        table.push(format!(
+            "v {v:.2}: clean from gap {} [{}]",
+            clean_from.map_or("- (none up to 14)".to_string(), |g| g.to_string()),
+            below.join("; ")
+        ));
+    }
+    let text = format!(
+        "foot-pair sweep (G1 Nov 14 00:59 / ironspec 01:01: two ridden carts into the foot IN CONTACT or 1 / 2 gt apart, approach speed 0.30..0.48, start offsets 0..0.8 b; ironspec's BAR: the least surfacing spacing >= 1.0 b; the jam band 0.70-0.85 b): {} scenes, {} JAM(s); the least surfacing spacing {} (bar >= 1.0 b); the least distance from a surfacing spacing to the band {} ({})\nthe clean threshold per speed (tick-exact's table: v x gaps 3..14 x the follower +0 / 0.05 / 0.10 / 0.15 b; the game Nov 14 01:28: 0.30: 9, 0.33: 8, 0.36: 7, 0.48: 6): {}\n{}",
+        rows.len(),
+        fails,
+        if least_surf == f64::MAX { "-".to_string() } else { format!("{least_surf:.3} b") },
+        if least_band == f64::MAX { "-".to_string() } else { format!("{least_band:.3} b") },
+        least_at,
+        table.join(" | "),
+        rows.join("\n")
+    );
+    Ok((text, fails + usize::from(least_surf < 1.0)))
+}
+
 pub fn lift_pair(o: &ReturnOpts, from: i64, to: i64) -> Result<(String, usize), String> {
     use crate::liftbench::CartState;
     // (per tick: the cart's state and its rider's feet position)
@@ -2590,6 +2867,9 @@ fn routing_verdict(s: &Summary) -> (bool, Vec<String>, bool) {
 /// (G1 17:32 N2), and record-match's undeclared cells (N1).
 fn bench_fails(s: &Summary) -> Vec<String> {
     let mut f: Vec<String> = Vec::new();
+    if s.wayin > 0 {
+        f.push(format!("non-napper carts into the way-in leg {} (ironspec 01:40)", s.wayin));
+    }
     if s.wrong > 0 {
         f.push(format!("identity misroutes {}", s.wrong));
     }
@@ -4333,6 +4613,8 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut was = [false; 5];
     let (mut last_rise, mut resyncs, mut seeded) = (0i64, Vec::<i64>::new(), false);
     let mut turns: Vec<(i64, i32, bool)> = Vec::new();
+    // (each J's last driven output (J(-1), J(3)): a turn is counted only when it changes)
+    let mut last_out: [Option<bool>; 2] = [None; 2];
     let mut timed_turns: Vec<i64> = Vec::new();
     let mut pending_j: Vec<(i64, i32, bool)> = Vec::new();
     let mut at_j: Vec<(i64, i32, usize)> = Vec::new();
@@ -4400,6 +4682,40 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut arm_cell_was = false;
     // (`slow_after`: (entity index, the tick its hold ends, its position and motion at the press))
     let mut slow_holds: Vec<(usize, i64, redsim::entity::Vec3, redsim::entity::Vec3)> = Vec::new();
+    // (`stop_cart`: the stop's tick and position, and its log)
+    let mut stop_hold: Option<(i64, redsim::entity::Vec3)> = None;
+    let mut stop_log: Vec<String> = Vec::new();
+    // (the credit's β: per lane the latest D press after its own batch's REL, and each press)
+    let mut d_late: [i64; 3] = [i64::MIN; 3];
+    // (the lift top's least follower margin, for the sweeps)
+    let mut top_margin_least: i64 = i64::MAX;
+    let mut d_log: Vec<String> = Vec::new();
+    // (`stall_cart` / λ_pass: the stall's tick, position and motion, its log; each batch cart's first
+    // tick on the split row)
+    let mut stall_hold: Option<(i64, redsim::entity::Vec3, redsim::entity::Vec3)> = None;
+    let mut stall_log: Vec<String> = Vec::new();
+    let mut trunk_at: Vec<Option<i64>> = vec![None; n];
+    // (ironspec 01:40's standing bar: the non-napper carts that entered the way-in leg, with the tick)
+    let mut wayin_carts: Vec<(usize, i64)> = Vec::new();
+    // (the lift top's riser arrivals: (tick, cart, z); each cart's previous cell)
+    let mut top_arrivals: Vec<(i64, usize, f64)> = Vec::new();
+    let mut top_exits: Vec<(i64, usize)> = Vec::new();
+    let mut booster_leaves: Vec<(i64, usize)> = Vec::new();
+    let mut prev_cell: Vec<Option<(i32, i32, i32)>> = vec![None; n + 1];
+    // (`intake_inhibit`: the foot entry's presses, the intake lever's state, the held ticks; per batch,
+    // lane 7's requested release (REL + `lane7_rel`) and the tick its lever actually came on)
+    let (mut foot_was, mut l7_lever) = (false, false);
+    let mut foot_presses: Vec<i64> = Vec::new();
+    let mut foot_speeds: Vec<f64> = Vec::new();
+    // (`plant_foot`: the planted risers' ids, their first foot press, the planting log)
+    let mut plant_ids: Vec<Option<u32>> = vec![None; o.plant_foot.len()];
+    let mut plant_press: Vec<Option<i64>> = vec![None; o.plant_foot.len()];
+    let mut plant_log: Vec<String> = Vec::new();
+    let mut inhibit_log: Vec<i64> = Vec::new();
+    let mut l7_release: Vec<(i64, Option<i64>)> = vec![(i64::MIN, None); o.batches];
+    // (`through_cart`: per through cart, its ticks at (8,25,9) and (9,25,9), and whether its J's are held)
+    let mut through_at: Vec<(Option<i64>, Option<i64>)> = vec![(None, None); o.through_cart.len()];
+    let mut through_forcing: Vec<bool> = vec![false; o.through_cart.len()];
     let mut col_min: Option<(f64, usize, usize, i64)> = None;
     let mut j_vmax = [0.0f64; 3];
     let mut slope_rises: Vec<i64> = Vec::new();
@@ -4429,6 +4745,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // 15:38))
     let mut re_armed = true;
     let mut re_armed_log: Vec<String> = Vec::new();
+    // (`ring_reset` (G10): each forced change, logged; `rearm_dm1`: the re-arms due)
+    let mut ring_log: Vec<String> = Vec::new();
+    let mut dm1_due: Vec<i64> = Vec::new();
     let mut re_arm_due: Vec<i64> = Vec::new();
     // (G1's C9: carts on lane n's R when K(n) arms)
     let mut r_full_at_k: u16 = 0;
@@ -4607,6 +4926,129 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // leaving (8,0,8) west at 0.4)
         // (`path_a`: lane 7's release is toggled with the controller's writes, just before the tick:
         // see `lane7_drive` below)
+        // (`stop_cart` K,X,DT (ironspec Nov 13 23:06, the credit's tier 2: a cart stopped on the split row
+        // between the Js; pushed clear by the next cart, or a pile-up?): cart K held still where it first
+        // reaches x >= X on the split row (y ex, z rz), for DT gt (0: to the run's end))
+        if let Some((sk, sx, sdt)) = o.stop_cart
+            && let Some(id) = carts.get(sk).and_then(|c| c.id)
+            && let Some(ci) = redsim::entity::index_of(&run.world, id)
+        {
+            let e = &run.world.entities.list[ci];
+            if stop_hold.is_none() && e.pos.y.floor() as i32 == ex && zf(e.pos.z.floor() as i32) == rz && e.pos.x >= sx {
+                // (ironspec 01:35: the stop's ROLE asserted: a batch cart on the split row, between which J's)
+                if sk >= n {
+                    return Err(format!("--stop-cart {sk}: not a batch cart (ironspec 01:35's role assertion)"));
+                }
+                let between = match e.pos.x.floor() as i32 {
+                    x if x < -1 => "west of J(-1)",
+                    x if x < 3 => "between J(-1) and J(3)",
+                    x if x < 7 => "between J(3) and J(7)",
+                    _ => "east of J(7)",
+                };
+                stop_hold = Some((t, e.pos));
+                stop_log.push(format!("cart {sk} (batch {}, lane {}; ROLE: a batch cart on the split row {between}, asserted) stopped at ({:.2},{:.2},{:.2}) from t {t}", sk / 3, [-1, 3, 7][sk % 3], e.pos.x, e.pos.y, zf(e.pos.z.floor() as i32)));
+            }
+            if let Some((t0, p0)) = stop_hold
+                && t < t0 + sdt.max(1)
+            {
+                let moved = ((run.world.entities.list[ci].pos.x - p0.x).powi(2) + (run.world.entities.list[ci].pos.z - p0.z).powi(2)).sqrt();
+                if moved > 0.05 {
+                    stop_log.push(format!("t {t}: pushed {moved:.2} b off its stop (held back)"));
+                }
+                run.world.entities.set_pos(ci, p0);
+                run.world.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+            }
+        }
+        // (`stall_cart` K,X,Y,Z,DT (ironspec Nov 13 23:16 (2), λ_pass): cart K held still the first time it's
+        // in cell (X,Y,Z) (e.g. on lane 7's private climb), for DT gt, then given back its motion: the
+        // least DT at which the next batch's carts enter the shared trunk ahead of it is the slot's λ_pass)
+        if let Some((gk, gx, gy, gz, gdt)) = o.stall_cart
+            && let Some(id) = carts.get(gk).and_then(|c| c.id)
+            && let Some(ci) = redsim::entity::index_of(&run.world, id)
+        {
+            let e = &run.world.entities.list[ci];
+            if stall_hold.is_none() && e.pos.x.floor() as i32 == gx && e.pos.y.floor() as i32 == gy && zf(e.pos.z.floor() as i32) == gz {
+                // (ironspec Nov 14 01:35's standing rule: a plant prints its target's position and ROLE at the
+                // planting tick, and the run asserts the role, failing by name: a stall on lane 7's private
+                // climb (x 7, y 0..12, z 2..8) must hold a lane-7 batch cart; a stall on the foot's shared
+                // approach (the z-mz row x -1..3 at y 0 and the climb (-3..-2, 0..1)) holds any batch cart in
+                // transit (cc767b78's b18 / G1 03:19: the 60-gt in-transit hold row))
+                let on_l7_climb = gx == 7 && (0..=12).contains(&gy) && (2..=8).contains(&gz);
+                let on_approach = gz == mz && ((gy == 0 && (-1..=3).contains(&gx)) || ((-3..=-2).contains(&gx) && (0..=1).contains(&gy)));
+                let role = if on_l7_climb { "lane 7's private climb" } else if on_approach { "the foot's shared approach, a batch cart in transit" } else { "an undeclared cell" };
+                if on_l7_climb && !(gk < n && gk % 3 == 2) {
+                    return Err(format!("--stall-cart {gk}: the cell ({gx},{gy},{gz}) is lane 7's private climb, but cart {gk} is not a lane-7 batch cart (ironspec 01:35's role assertion)"));
+                }
+                if on_approach && gk >= n {
+                    return Err(format!("--stall-cart {gk}: the cell ({gx},{gy},{gz}) is the foot's shared approach, but cart {gk} is not a batch cart (ironspec 01:35's role assertion)"));
+                }
+                if !on_l7_climb && !on_approach {
+                    return Err(format!("--stall-cart {gk}: the cell ({gx},{gy},{gz}) has no declared role (ironspec 01:35: a plant's target must have one)"));
+                }
+                stall_hold = Some((t, e.pos, e.delta_movement));
+                stall_log.push(format!("cart {gk} (batch {}, lane {}; ROLE: {role}, asserted) stalled in ({gx},{gy},{gz}) at t {t}, at ({:.3},{:.3},{:.3}), for {gdt} gt (its motion {:.3},{:.3},{:.3})", gk / 3, [-1, 3, 7][gk % 3], e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z));
+            }
+            if let Some((t0, p0, v0)) = stall_hold {
+                if t < t0 + gdt {
+                    run.world.entities.set_pos(ci, p0);
+                    run.world.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+                } else if t == t0 + gdt {
+                    run.world.entities.list[ci].delta_movement = v0;
+                }
+            }
+        }
+        // (λ_pass: each batch cart's first tick on the split row (the shared trunk's end), for the order)
+        for k in 0..n.min(carts.len()) {
+            if trunk_at[k].is_none()
+                && let Some(id) = carts[k].id
+                && let Some(ci) = redsim::entity::index_of(&run.world, id)
+            {
+                let p = run.world.entities.list[ci].pos;
+                if p.y.floor() as i32 == ex && zf(p.z.floor() as i32) == rz {
+                    trunk_at[k] = Some(t);
+                }
+            }
+            // (ironspec Nov 14 01:40's standing bar: a non-napper cart entering the way-in leg ((8,25,9) on,
+            // east of J(7)) FAILS by name; a `--through-cart` is the planted napper stand-in, exempt)
+            if !o.through_cart.contains(&k)
+                && !wayin_carts.iter().any(|w: &(usize, i64)| w.0 == k)
+                && let Some(id) = carts[k].id
+                && let Some(ci) = redsim::entity::index_of(&run.world, id)
+            {
+                let p = run.world.entities.list[ci].pos;
+                if p.y.floor() as i32 == ex && zf(p.z.floor() as i32) == rz && p.x >= 8.0 {
+                    wayin_carts.push((k, t));
+                }
+            }
+        }
+        // (G1 / ironspec / cc767b78 Nov 14 00:10-00:12: the lift top's riser arrivals: each cart's z on
+        // entering the top cell (-5,23,7) from the column below, the same section as cc767b78's nights)
+        for k in 0..carts.len() {
+            if let Some(id) = carts[k].id
+                && let Some(ci) = redsim::entity::index_of(&run.world, id)
+            {
+                let p = run.world.entities.list[ci].pos;
+                let cell = (p.x.floor() as i32, p.y.floor() as i32, zf(p.z.floor() as i32));
+                if cell == (-5, 23, 7) && prev_cell.get(k).copied().flatten() == Some((-5, 22, 7)) {
+                    let zz = if o.mirror_z { 4.0 - p.z } else { p.z };
+                    top_arrivals.push((t, k, zz));
+                }
+                // (tick-exact Nov 14 00:31: the jam's threshold is the FOLLOWER's gap: each riser's step from
+                // the top cell onto the exit booster (-5,23,8), so the next riser's arrival is judged
+                // against the leader's leaving)
+                if cell == (-5, 23, 8) && prev_cell.get(k).copied().flatten() == Some((-5, 23, 7)) {
+                    top_exits.push((t, k));
+                }
+                // (G1 / tick-exact 00:43: the third event, "leaving the booster": the first tick on the exit
+                // curve (-5,24,9) from the booster)
+                if cell == (-5, 24, 9) && prev_cell.get(k).copied().flatten() == Some((-5, 23, 8)) {
+                    booster_leaves.push((t, k));
+                }
+                if k < prev_cell.len() {
+                    prev_cell[k] = Some(cell);
+                }
+            }
+        }
         if let Some(d) = o.napper_delay {
             // (`slow_after`: the planted slow carts held still where their press found them, then given
             // back their motion)
@@ -4905,6 +5347,25 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // rail-t scene 0 differences): the junctions hold only the shapes their declared switches give)
         let (p3, pm) = (l3, lm);
         let rise = |i: usize| now[i] && !was[i];
+        // (the credit's β (ironspec / G1 23:10 / 23:16): each branch detector press D(-1) / D(3) / D(7)
+        // by a batch cart, against its OWN batch's REL)
+        for (i, li, lx) in [(3usize, 0usize, -1i32), (2, 1, 3), (4, 2, 7)] {
+            if rise(i) {
+                let clk = if o.game_ticks { t } else { live };
+                for k in 0..n.min(carts.len()) {
+                    if let Some(id) = carts[k].id
+                        && let Some(ci) = redsim::entity::index_of(&run.world, id)
+                    {
+                        let p = run.world.entities.list[ci].pos;
+                        if p.x.floor() as i32 == lx && p.y.floor() as i32 == bdy && zf(p.z.floor() as i32) == bdz {
+                            let d = clk - sched.rel.get(k / 3).copied().unwrap_or(0);
+                            d_late[li] = d_late[li].max(d);
+                            d_log.push(format!("D({lx}) cart {k} REL + {d}"));
+                        }
+                    }
+                }
+            }
+        }
         if o.k_relay {
             // (`k_relay`, the latches without the row's detectors: J(-1) on at idle; lane -1's branch
             // rise turns it off and J(3) on; lane 3's turns J(3) off; lane 7's (the third cart, past
@@ -5011,13 +5472,13 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                         k_off_at = Some(t);
                         drv(&mut run.world, true, o.napper_lane - 2, ex, zf(rz), false)?;
                     }
-                    if o.napper_lane != -1 && clock == a + 127 + shift + 4 {
+                    if o.napper_lane != -1 && clock == a + 127 + shift + 4 && o.ring_reset.is_none() && o.rearm_dm1.is_none() {
                         j_deferred = false;
                         lm = true;
                         lm_timed = true;
                     }
                 }
-                if rise(4) {
+                if rise(4) && o.ring_reset.is_none() && o.rearm_dm1.is_none() {
                     // (lane 7's branch rise re-arms J(-1), except the napper's own batch's (its third
                     // cart's rise lands at ARM3 + 121..125) when its lane is east of J(-1): day-1's
                     // re-arm tap does it then. The previous batch's rise lands at ARM3 + 21..25 of the
@@ -5126,6 +5587,37 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 lm = false;
             }
         }
+        // (`ring_reset` X (G10: ironspec 19:38 / 20:17 (D); G1 22:38 / farmopt 23:02: J(-1)'s re-arm judged
+        // under it): the REL-keyed ring reset, a 4-gt set-priority pulse visible from REL_b + X in the
+        // gate list's start-of-tick convention (written at REL_b + X - 1, read from REL_b + X): J(-1)
+        // ARMED, J(3) DISARMED (J(7)'s default on is the bench's own); it REPLACES the AND -> J(-1) link
+        // (lane 7's branch rise) and day-1's timed re-arm tap (both off under it). J(-1)'s arming counts as
+        // the "J(-1) re-arm" cause (a timed change); J(3)'s disarming lands in "J(3) reset")
+        // (`rearm_dm1` D (ironspec Nov 14 00:06 (a), priced with day-1): the EVIDENCE-KEYED re-arm: the
+        // same 4-gt set-priority pulse D gt after a batch cart's own D(-1) press (in place of the REL + 72
+        // tap): written at the press + D - 1, read from the press + D)
+        let clk_now = if o.game_ticks { t } else { live };
+        if let Some(dl) = o.rearm_dm1
+            && rise(3)
+        {
+            dm1_due.push(clk_now + dl);
+        }
+        let dm1_win = o.rearm_dm1.is_some() && dm1_due.iter().any(|d| clk_now >= d - 1 && clk_now < d + 3);
+        if dm1_win
+            || o.ring_reset.is_some_and(|x| (0..o.batches).any(|b| clk_now >= sched.rel[b] + x - 1 && clk_now < sched.rel[b] + x + 3))
+        {
+            let why = if dm1_win { "D(-1) + D" } else { "REL + X" };
+            if !lm {
+                lm_timed = true;
+                ring_log.push(format!("t {t} J(-1) armed ({why})"));
+            }
+            if l3 {
+                ring_log.push(format!("t {t} J(3) disarmed ({why})"));
+            }
+            lm = true;
+            l3 = false;
+            j_deferred = false;
+        }
         // (the per-batch re-sync (ironspec 00:30): `resync` gt with no rise on any of the split's
         // detectors (longer than a batch's spread, shorter than the gap to the next batch) puts the
         // latches back at idle, so one misroute heals on the next batch)
@@ -5163,12 +5655,24 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // its latch kept; the window's edges carry G10's drive already)
         let held = |j: i32| o.controller_f && f4_holds.iter().any(|(x, a, b)| *x == j && t >= *a && t < *b);
         let (held_m, held_3) = (held(-1), held(3));
+        // (G1's junction margins count a SWITCH only when the T's output changes (a drive that leaves a
+        // held or unchanged T as it was is no switch: found under G10's ring reset, whose forced arming
+        // inside the napper's hold-off at REL_b + 71 read as a J(-1) switch 1 gt before the napper)
+        let mut note = |turns: &mut Vec<(i64, i32, bool)>, t: i64, j: i32, out: bool| -> bool {
+            let i = if j == -1 { 0 } else { 1 };
+            if last_out[i] == Some(out) {
+                return false;
+            }
+            last_out[i] = Some(out);
+            turns.push((t, j, out));
+            true
+        };
         if l3 != p3 {
             if o.driver_latency {
                 pending_j.push((t + if l3 { DRV_SET - 1 } else { DRV_RESET - 1 }, 3, l3));
             } else {
                 drv(&mut run.world, o.row9 || o.row10, 3, ex, zf(rz), l3 && !held_3)?;
-                turns.push((t, 3, l3 && !held_3));
+                note(&mut turns, t, 3, l3 && !held_3);
             }
         }
         if lm != pm {
@@ -5176,8 +5680,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 pending_j.push((t + if lm { DRV_SET - 1 } else { DRV_RESET - 1 }, -1, lm));
             } else {
                 drv(&mut run.world, o.row9 || o.row10, -1, ex, zf(rz), lm && !held_m)?;
-                turns.push((t, -1, lm && !held_m));
-                if lm_timed {
+                if note(&mut turns, t, -1, lm && !held_m) && lm_timed {
                     timed_turns.push(t);
                 }
             }
@@ -5187,18 +5690,50 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         for (_, j, st) in due {
             let out = st && !(j == -1 && held_m || j == 3 && held_3);
             drv(&mut run.world, o.row9 || o.row10, j, ex, zf(rz), out)?;
-            turns.push((t, j, out));
+            note(&mut turns, t, j, out);
         }
         if o.controller_f {
             for (x, a, b) in f4_holds.clone() {
                 if t == a {
                     drv(&mut run.world, o.row9 || o.row10, x, ex, zf(rz), false)?;
-                    turns.push((t, x, false));
+                    note(&mut turns, t, x, false);
                 }
                 if t == b {
                     let st = if x == -1 { lm } else { l3 };
                     drv(&mut run.world, o.row9 || o.row10, x, ex, zf(rz), st)?;
-                    turns.push((t, x, st));
+                    note(&mut turns, t, x, st);
+                }
+            }
+        }
+        // (`through_cart` K,.. (ironspec / day-1 Nov 14 00:56-00:58: the outbound napper rides its lane's
+        // batch cart to the way-in): while a through cart is on the split row west of x 8, every J ahead of
+        // it is held straight (J(-1), J(3), J(7) off), each restored to its latch state once it's past;
+        // its ticks at (8,25,9) and (9,25,9) recorded against its pocket's drive)
+        for (ti, &k) in o.through_cart.iter().enumerate() {
+            if let Some(id) = carts.get(k).and_then(|c| c.id)
+                && let Some(ci) = redsim::entity::index_of(&run.world, id)
+            {
+                let p = run.world.entities.list[ci].pos;
+                let on_row = p.y.floor() as i32 == ex && zf(p.z.floor() as i32) == rz;
+                if on_row && p.x < 8.0 && through_at[ti].0.is_none() {
+                    for j in [-1, 3, 7] {
+                        if (j as f64) + 1.0 > p.x {
+                            drv(&mut run.world, o.row9 || o.row10, j, ex, zf(rz), false)?;
+                        }
+                    }
+                    through_forcing[ti] = true;
+                }
+                if on_row && p.x >= 8.0 && through_at[ti].0.is_none() {
+                    through_at[ti].0 = Some(t);
+                    if through_forcing[ti] {
+                        through_forcing[ti] = false;
+                        drv(&mut run.world, o.row9 || o.row10, -1, ex, zf(rz), lm && !held_m)?;
+                        drv(&mut run.world, o.row9 || o.row10, 3, ex, zf(rz), l3 && !held_3)?;
+                        drv(&mut run.world, o.row9 || o.row10, 7, ex, zf(rz), true)?;
+                    }
+                }
+                if p.x >= 9.0 && through_at[ti].1.is_none() {
+                    through_at[ti].1 = Some(t);
                 }
             }
         }
@@ -5276,15 +5811,82 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         if o.path_a {
             let clock = if o.game_ticks { t } else { live };
             let prel = if o.napper_lift { 100 } else { 0 };
+            // (`intake_inhibit` A,B (ironfarm's column-entry gate G, Nov 14 00:20): every foot entry rolls
+            // over (-4,2,mz) (laid as a detector rail in the gate's design); lane 7's intake release is
+            // held while a foot entry's press lies in [now - B, now - A], so the two risers meet the top
+            // >= ~10 gt apart (the emulated drive: the release's lever ANDed with NOT the window)
+            let foot_now = carts.iter().filter_map(|c| c.id).chain(plant_ids.iter().flatten().copied()).find_map(|id| {
+                redsim::entity::index_of(&run.world, id).and_then(|i| {
+                    let e = &run.world.entities.list[i];
+                    let p = e.pos;
+                    ((p.x.floor() as i32, p.y.floor() as i32, zf(p.z.floor() as i32)) == (-4, 2, mz)).then(|| (id, e.delta_movement.x.hypot(e.delta_movement.z)))
+                })
+            });
+            if let Some((fid, sp)) = foot_now
+                && !foot_was
+            {
+                foot_presses.push(clock);
+                foot_speeds.push(sp);
+                if let Some(pi) = plant_ids.iter().position(|p| *p == Some(fid))
+                    && plant_press[pi].is_none()
+                {
+                    plant_press[pi] = Some(t);
+                }
+            }
+            let foot_now = foot_now.is_some();
+            foot_was = foot_now;
+            let inhibited = o.intake_inhibit.is_some_and(|(a, b)| foot_presses.iter().any(|f| clock - f >= a && clock - f <= b));
+            // (`intake_count` (G1 00:24 / ironspec 00:25b: the EVIDENCE-KEYED form, foot entries minus exits
+            // at one exit detector = the carts in the column): "strict": held while any cart is in the
+            // column (-5,2..23,mz); "low": held while one is below y 15 (the intake's level + 2; an oracle a
+            // count alone can't give: the upper bound of the count form))
+            let in_col = |ylim: i32| {
+                carts.iter().filter_map(|c| c.id).any(|id| {
+                    redsim::entity::index_of(&run.world, id).is_some_and(|i| {
+                        let p = run.world.entities.list[i].pos;
+                        p.x.floor() as i32 == -5 && zf(p.z.floor() as i32) == mz && p.y.floor() as i32 >= 2 && (p.y.floor() as i32) < ylim
+                    })
+                })
+            };
+            let inhibited = inhibited
+                || match o.intake_count.as_deref() {
+                    Some("strict") => in_col(24),
+                    Some("low") => in_col(15),
+                    _ => false,
+                };
             // (each lane-7 cart released in the period its pocket's drive sent it (`station_schedule`:
             // today's clock or F1's wait), `--late-cart` shifting it here, the controller's write)
+            let mut want = false;
             for b in 0..o.batches {
                 let k = b * 3 + 2;
                 let Some(j) = sched.period[k] else { continue };
                 let r0 = prel + 100 * j + o.lane7_rel + o.late_cart.filter(|(lk, _)| *lk == k).map_or(0, |(_, dt)| dt);
-                if clock == r0 || clock == r0 + o.lane7_pulse {
-                    run.world.set_block(BlockPos::new(-4, 12, zf(mz - 1)), Block::parse(&format!("minecraft:lever[face=ceiling,facing={},powered={}]", if o.mirror_z { "south" } else { "north" }, clock == r0))?, redsim::world::flags::ALL);
+                if b < l7_release.len() {
+                    // (the release, once begun, runs its full pulse (a deferred release is a whole pulse
+                    // from the inhibit's end, never a runt); it may begin only inside its request window)
+                    if let Some(rs) = l7_release[b].1 {
+                        if clock >= rs && clock < rs + o.lane7_pulse {
+                            want = true;
+                        }
+                    } else if clock >= r0 && (clock < r0 + o.lane7_pulse || o.intake_never_skip) {
+                        // (`intake_never_skip` (ironspec 01:38: priced first): the request LATCHED until its
+                        // pulse can fire whole, never skipped to the next REL; `intake_defer_cap` D (G1 Nov 14
+                        // 01:58 (b): the deferral capped under T's λ_pass(slot 3) = 28): the latch releases at
+                        // REL + lane7_rel + D at the latest, inhibited or not)
+                        l7_release[b].0 = r0;
+                        let capped = o.intake_defer_cap.is_some_and(|d| clock >= r0 + d);
+                        if !inhibited || capped {
+                            l7_release[b].1 = Some(clock);
+                            want = true;
+                        } else {
+                            inhibit_log.push(clock);
+                        }
+                    }
                 }
+            }
+            if want != l7_lever {
+                l7_lever = want;
+                run.world.set_block(BlockPos::new(-4, 12, zf(mz - 1)), Block::parse(&format!("minecraft:lever[face=ceiling,facing={},powered={}]", if o.mirror_z { "south" } else { "north" }, want))?, redsim::world::flags::ALL);
             }
         }
         // (the face filter's inputs: each cart's box, position and motion before the tick)
@@ -5336,6 +5938,18 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             let z = box_lo.z + r.next_int(box_hi.z - box_lo.z + 1);
             redsim::weather::lightning::strike(&mut run.world, x, z);
             thunder_rolls += 1;
+        }
+        // (`plant_foot` T,.. (ironspec Nov 14 01:40: the never-skip gate's PLANTED DOUBLE FOOT PRESS): at
+        // tick T a ridden cart summoned as tick-exact's fixture does, at (-2.2, 1.8, mz + 0.5) with motion
+        // (-0.40, 0, 0), so it rolls up the climb into the lift's foot; its ROLE (a planted riser into the
+        // foot) printed at the planting tick and asserted after the run (its own foot press within 12 gt))
+        for (pi, &pt) in o.plant_foot.iter().enumerate() {
+            if t == pt {
+                let nbt = "{Motion:[-0.40d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [-2.2, 1.8, zf(mz) as f64 + 0.5], Some(nbt))?;
+                plant_ids[pi] = Some(id);
+                plant_log.push(format!("planted riser {pi} (ROLE: a riser into the lift's foot, ironspec 01:40's planted double foot press) summoned at t {t} at (-2.20,1.80,{:.2}) moving west at 0.40", zf(mz) as f64 + 0.5));
+            }
         }
         run.tick();
         // (G1 H4: the exit detector's rises)
@@ -5954,9 +6568,175 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             r_full_at_k,
             if f4_refused.is_empty() { String::new() } else { format!("; refused by the register: {}", f4_refused.join(", ")) }
         ));
+        // (ironspec Nov 13 21:51, under the trailing trim: the J's return past the napper's latest
+        // crossing (the hold-off's end - the napper's last tick on J; >= 3, 8 expected untrimmed + 4) and the
+        // leading guard's crossing margin (the napper's first tick on J - the hold-off's start: the 2-vs-3
+        // defect))
+        let (mut j_ret, mut j_lead) = (i64::MAX, i64::MAX);
+        for (j, a, b) in &f4_holds {
+            for (t0, x, k) in &at_j {
+                if *k == n && x == j {
+                    let last = j_last.get(&(*x, *k)).copied().unwrap_or(*t0);
+                    j_ret = j_ret.min(b - 1 - last);
+                    j_lead = j_lead.min(t0 - a);
+                }
+            }
+        }
+        out.push(format!(
+            "the napper at its held J's (ironspec Nov 13 21:51; --f4-trim-trail {}): the J's return past the napper's latest crossing {} (bar >= 3), the napper's first tick on J after the hold-off opens {} (the leading guard)",
+            o.f4_trim_trail,
+            if j_ret == i64::MAX { "- (no J crossed)".to_string() } else { j_ret.to_string() },
+            if j_lead == i64::MAX { "-".to_string() } else { j_lead.to_string() }
+        ));
         out.push(format!(
             "G8's RE_ARMED (F1's ring term; set only by lane 7's real D(7) press + 2, reset at each REL): its setters this run: {}",
             if re_armed_log.is_empty() { "none".to_string() } else { re_armed_log.join(", ") }
+        ));
+        if let Some(x) = o.ring_reset.or(o.rearm_dm1) {
+            out.push(format!(
+                "G10's ring reset ({}: a 4-gt set-priority pulse, start-of-tick; RELs {}): its forced changes: {}",
+                if o.rearm_dm1.is_some() { format!("EVIDENCE-KEYED: {x} gt after each batch cart's D(-1) press") } else { format!("X = {x}: visible from REL_b + {x}") },
+                sched.rel.iter().map(|r| r.to_string()).collect::<Vec<_>>().join(", "),
+                if ring_log.is_empty() { "none (every J already in the batch-start state)".to_string() } else { ring_log.join(", ") }
+            ));
+        }
+    }
+    if let Some((sk, sx, sdt)) = o.stop_cart {
+        out.push(format!(
+            "the stopped cart (ironspec Nov 13 23:06, the jam row: cart {sk} stopped where it first reaches x >= {sx} on the split row, held {} gt, then left still): {}",
+            sdt.max(1),
+            if stop_log.is_empty() { "NEVER STOPPED (it didn't reach the split row past that x)".to_string() } else { stop_log.join("; ") }
+        ));
+    }
+    {
+        let f = |v: i64| if v == i64::MIN { "-".to_string() } else { format!("REL + {v}") };
+        // (λ_pass (ironspec 23:16 (2)): the order the batch carts reach the split row; a later batch's cart
+        // ahead of an earlier batch's is a PASS)
+        let mut order: Vec<(i64, usize)> = trunk_at.iter().enumerate().filter_map(|(k, t)| t.map(|t| (t, k))).collect();
+        order.sort();
+        let passes: Vec<String> = order
+            .iter()
+            .enumerate()
+            .flat_map(|(a, &(ta, ka))| order[a + 1..].iter().filter(move |&&(_, kb)| kb / 3 < ka / 3).map(move |&(tb, kb)| format!("cart {ka} (batch {}) at t {ta} ahead of cart {kb} (batch {}) at t {tb}", ka / 3, kb / 3)))
+            .collect();
+        out.push(format!(
+            "the order onto the split row (λ_pass, ironspec Nov 13 23:16 (2)){}: {}; PASSES {}",
+            if stall_log.is_empty() { String::new() } else { format!(" [{}]", stall_log.join("; ")) },
+            order.iter().map(|(t, k)| format!("{k}@{t}")).collect::<Vec<_>>().join(" "),
+            if passes.is_empty() { "0".to_string() } else { format!("{}: {}", passes.len(), passes.join(", ")) }
+        ));
+        {
+            let zs: Vec<f64> = top_arrivals.iter().map(|a| a.2).collect();
+            if !o.through_cart.is_empty() {
+                out.push(format!(
+                    "the forced-through carts (ironspec / day-1 Nov 14 00:56-00:58: a napper riding its batch cart to the way-in; every J ahead held straight while it's west of x 8): {}",
+                    o.through_cart
+                        .iter()
+                        .enumerate()
+                        .map(|(ti, &k)| {
+                            let drive = sched.drive.get(k).copied().flatten();
+                            let rel = sched.rel.get(k / 3).copied();
+                            let f = |x: Option<i64>| x.map_or("never".to_string(), |x| format!("t {x}"));
+                            format!(
+                                "cart {k} (batch {}, lane {}): its pocket's drive {}, REL {}, at (8,25,9) {}, at (9,25,9) {}{}",
+                                k / 3,
+                                [-1, 3, 7][k % 3],
+                                f(drive),
+                                rel.map_or("-".to_string(), |r| r.to_string()),
+                                f(through_at[ti].0),
+                                f(through_at[ti].1),
+                                match (drive, through_at[ti].1) {
+                                    (Some(d), Some(l)) => format!(" (the drive -> the leg {} gt)", l - d),
+                                    _ => String::new(),
+                                }
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+            }
+            let low: Vec<String> = top_arrivals.iter().filter(|a| a.2 <= 7.48).map(|a| format!("t {} cart {} z {:.4}", a.0, a.1, a.2)).collect();
+            out.push(format!(
+                "the lift top's riser arrivals (G1 / ironspec / cc767b78 Nov 14 00:10-00:12: each cart's z entering (-5,23,7) from the column): {} arrivals, z {}; at or under 7.48: {}",
+                zs.len(),
+                if zs.is_empty() { "-".to_string() } else { format!("{:.4}..{:.4}", zs.iter().cloned().fold(f64::MAX, f64::min), zs.iter().cloned().fold(f64::MIN, f64::max)) },
+                if low.is_empty() { "none".to_string() } else { low.join(", ") }
+            ));
+            // (the follower's margin: each riser's arrival at the top cell against the previous riser's step
+            // onto the exit booster (positive: the top cell already clear); the dwell: arrival -> exit)
+            let mut arr = top_arrivals.clone();
+            arr.sort_by_key(|a| a.0);
+            let exit_of = |k: usize, t0: i64| top_exits.iter().filter(|e| e.1 == k && e.0 >= t0).map(|e| e.0).min();
+            let dwells: Vec<i64> = arr.iter().filter_map(|a| exit_of(a.1, a.0).map(|e| e - a.0)).collect();
+            let mut margins: Vec<(i64, usize, usize, i64)> = Vec::new();
+            for w in arr.windows(2) {
+                match exit_of(w[0].1, w[0].0) {
+                    Some(e) => margins.push((w[1].0 - e, w[0].1, w[1].1, w[1].0)),
+                    None => margins.push((i64::MIN, w[0].1, w[1].1, w[1].0)),
+                }
+            }
+            let least = margins.iter().min_by_key(|m| m.0);
+            // (each riser's three events by tick-exact's names (00:43): surfacing (its first tick in the top
+            // cell from the column), the step onto the booster, leaving the booster (onto the exit curve))
+            let leave_of = |k: usize, t0: i64| booster_leaves.iter().filter(|e| e.1 == k && e.0 >= t0).map(|e| e.0).min();
+            let events: Vec<String> = arr
+                .iter()
+                .map(|a| {
+                    let s = exit_of(a.1, a.0);
+                    let l = s.and_then(|s| leave_of(a.1, s));
+                    format!(
+                        "cart {} surfacing t {}, onto the booster {}, leaving the booster {}",
+                        a.1,
+                        a.0,
+                        s.map_or("never".to_string(), |s| format!("t {s} (+{})", s - a.0)),
+                        l.map_or("never".to_string(), |l| format!("t {l} (+{})", l - a.0))
+                    )
+                })
+                .collect();
+            out.push(format!("the lift top's events per riser (tick-exact's names, 00:43): {}", events.join("; ")));
+            out.push(format!(
+                "the lift top's follower margin (tick-exact Nov 14 00:31: the jam's threshold is the follower's gap): the top-cell dwell (arrival -> the step onto the exit booster) {}; the least margin (the next riser's arrival - the leader's step onto the booster; negative: it arrives while the leader is still in the top cell) {}",
+                if dwells.is_empty() { "-".to_string() } else { format!("{}..{} gt", dwells.iter().min().unwrap(), dwells.iter().max().unwrap()) },
+                match least {
+                    None => "- (fewer than 2 arrivals)".to_string(),
+                    Some(m) if m.0 == i64::MIN => format!("NEVER LEFT: cart {} never stepped onto the booster before cart {} arrived at t {}", m.1, m.2, m.3),
+                    Some(m) => format!("{} gt (cart {} behind cart {}, at t {})", m.0, m.2, m.1, m.3),
+                }
+            ));
+            top_margin_least = least.map_or(i64::MAX, |m| m.0);
+            if let Some((a, b)) = o.intake_inhibit.or(o.intake_count.as_ref().map(|_| (0, 0))) {
+                let mut held: Vec<String> = Vec::new();
+                let mut i = 0;
+                while i < inhibit_log.len() {
+                    let s = inhibit_log[i];
+                    let mut e = s;
+                    while i + 1 < inhibit_log.len() && inhibit_log[i + 1] == e + 1 {
+                        i += 1;
+                        e = inhibit_log[i];
+                    }
+                    held.push(format!("{s}..{e}"));
+                    i += 1;
+                }
+                out.push(format!(
+                    "the column-entry gate G (ironfarm Nov 14 00:20: lane 7's intake held while a foot entry's press at (-4,2,7) lies {a}..={b} gt back; an inhibited release is DEFERRED inside its {}-gt pulse and SKIPPED to the next REL if the window covers the whole pulse): the foot presses {}; the intake held at {}; lane 7's releases per batch: {}",
+                    o.lane7_pulse,
+                    foot_presses.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(", "),
+                    if held.is_empty() { "no tick (it never bit)".to_string() } else { held.join(", ") },
+                    l7_release.iter().enumerate().map(|(bb, (r0, rl))| match rl {
+                        _ if *r0 == i64::MIN => format!("batch {bb}: no request"),
+                        Some(r) if r == r0 => format!("batch {bb}: on time at t {r}"),
+                        Some(r) => format!("batch {bb}: DEFERRED {:+} gt (t {r})", r - r0),
+                        None => format!("batch {bb}: SKIPPED (requested t {r0})"),
+                    }).collect::<Vec<_>>().join(", ")
+                ));
+            }
+        }
+        out.push(format!(
+            "the D presses against their own batch's REL (the credit's β, ironspec / G1 Nov 13 23:10 / 23:16; game ticks, end-of-tick): latest D(-1) {}, D(3) {}, D(7) {}; each: {}",
+            f(d_late[0]),
+            f(d_late[1]),
+            f(d_late[2]),
+            if d_log.is_empty() { "none".to_string() } else { d_log.join(", ") }
         ));
     }
     if station_mode(o) {
@@ -6051,6 +6831,47 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 }
                 _ => String::new(),
             }
+        ));
+    }
+    // (G1 Nov 14 01:14: LANE COUNTS after every row: the batch carts that reached each lane, those that
+    // never reached one, against 1 per lane per batch)
+    {
+        // (ironspec 01:35 / 01:40: the planted risers, each with its ROLE, and its assertion: a planted riser
+        // that never pressed the foot within 12 gt of its summons refuses the run by name)
+        for (pi, &pt) in o.plant_foot.iter().enumerate() {
+            match plant_press[pi] {
+                Some(fp) if fp - pt <= 12 => out.push(format!("{}; its foot press at t {fp} (+{}): ROLE asserted", plant_log.get(pi).cloned().unwrap_or_default(), fp - pt)),
+                other => {
+                    return Err(format!(
+                        "--plant-foot {pt}: planted riser {pi} did not press the foot (-4,2,{mz}) within 12 gt ({}): its ROLE (a riser into the lift's foot) is not met (ironspec 01:35's assertion)",
+                        other.map_or("never".to_string(), |fp| format!("at t {fp}"))
+                    ));
+                }
+            }
+        }
+        out.push(if wayin_carts.is_empty() {
+            "the way-in leg (ironspec Nov 14 01:40's standing bar: a non-napper cart entering it fails by name): no non-napper cart entered it".to_string()
+        } else {
+            format!(
+                "the way-in leg (ironspec Nov 14 01:40's standing bar): FAIL: {}",
+                wayin_carts.iter().map(|(k, t)| format!("cart {k} (batch {}, lane {}) entered it at t {t}", k / 3, [-1, 3, 7][k % 3])).collect::<Vec<_>>().join(", ")
+            )
+        });
+        let mut cnt: std::collections::BTreeMap<i32, usize> = std::collections::BTreeMap::new();
+        let mut never = 0usize;
+        for (k, c) in carts.iter().enumerate().take(n) {
+            if o.drop_cart.contains(&k) && !station_mode(o) {
+                continue;
+            }
+            match c.lane {
+                Some(l) => *cnt.entry(l).or_insert(0) += 1,
+                None => never += 1,
+            }
+        }
+        out.push(format!(
+            "lane counts (G1 Nov 14 01:14; expected {} per lane): {}; never at a lane {never}",
+            o.batches,
+            cnt.iter().map(|(l, c)| format!("lane {l} {c}")).collect::<Vec<_>>().join(", ")
         ));
     }
     for (k, c) in carts.iter().enumerate() {
@@ -6168,6 +6989,20 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         ));
     }
     out.push(format!("junction settle / clear (ironspec 17:20 (b): each switch against the first cart needing its new state and the last needing its old one, least per junction): {}", jsc.join("; ")));
+    // (ironspec Nov 14 01:52: the PER-CART J ARRIVALS, for day-1's re-sizing of T's windows (X, K's
+    // half-width): every cart's first tick on each J's cell, beside every switch of each J)
+    {
+        let mut aj: Vec<&(i64, i32, usize)> = at_j.iter().collect();
+        aj.sort();
+        out.push(format!(
+            "the per-cart J arrivals (ironspec Nov 14 01:52, for day-1's T windows; start-of-tick = end-of-tick + 1): {}; the J switches: {}",
+            aj.iter()
+                .map(|(ta, j, k)| if *k < n { format!("t {ta} J({j}) cart {k} (batch {}, lane {})", k / 3, order[k % 3]) } else { format!("t {ta} J({j}) the napper") })
+                .collect::<Vec<_>>()
+                .join(", "),
+            turns.iter().map(|(tt, j, s)| format!("t {tt} J({j}) {}", if *s { "on" } else { "off" })).collect::<Vec<_>>().join(", ")
+        ));
+    }
     // (ironspec 18:16 (3): the napper's K(n-2) under day-1's timed taps: on: clear (the last batch cart
     // through K out of its cell -> K on) and settle (K on -> the napper entering); off: the napper out
     // of K's cell -> K off, and K off -> the next batch cart entering)
@@ -6903,8 +7738,13 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             // napper takes lane -1 (no re-arm then); the D presses on path (a); the junction margins
             // with the split's J's (row 9 / 10), J(-1)'s timed clear as its re-arm, J(3) never timed)
             let js = o.row9 || o.row10;
-            let rearm = o.path_a && o.napper_lane != -1;
-            let c = [o.k_relay, o.k_relay, rearm, o.path_a, o.path_a, o.path_a, o.path_a];
+            // (under G10's ring reset (`ring_reset`): the reset re-arms J(-1) every batch whatever the
+            // napper's lane, and lane 7's D press no longer sets it: J(-1)'s "set" turns are then only the
+            // hold-off's end over a napper east of J(-1))
+            let g10 = o.ring_reset.is_some() || o.rearm_dm1.is_some();
+            let rearm = o.path_a && (o.napper_lane != -1 || g10);
+            let jset = o.path_a && (!g10 || o.napper_lane != -1);
+            let c = [o.k_relay, o.k_relay, rearm, jset, o.path_a, o.path_a, o.path_a];
             let mut m = [false; 22];
             m[..7].copy_from_slice(&c);
             m[7..14].copy_from_slice(&c);
@@ -6969,6 +7809,25 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         mouth_gap,
         r6_margin,
         r6_bind,
+        d_late,
+        top_margin: top_margin_least,
+        gate_held: l7_release.iter().filter(|(r0, rl)| *r0 != i64::MIN && rl.is_none_or(|r| r != *r0)).count(),
+        foot_gap: foot_presses.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(i64::MAX),
+        wayin: wayin_carts.len(),
+        l7_defer_max: l7_release.iter().filter(|(r0, _)| *r0 != i64::MIN).map(|(r0, rl)| rl.map_or(i64::MAX, |r| r - r0)).max().unwrap_or(0),
+        l7_window_margin: o.intake_inhibit.map_or(i64::MAX, |(_, b)| {
+            l7_release
+                .iter()
+                .filter(|(r0, _)| *r0 != i64::MIN)
+                .filter_map(|(r0, _)| foot_presses.iter().filter(|&&p| p <= *r0).map(|&p| r0 - (p + b)).min_by_key(|m| m.abs()))
+                .min()
+                .unwrap_or(i64::MAX)
+        }),
+        foot_gap_speeds: foot_presses
+            .windows(2)
+            .enumerate()
+            .min_by_key(|(_, w)| w[1] - w[0])
+            .map(|(i, _)| (foot_speeds.get(i).copied().unwrap_or(f64::NAN), foot_speeds.get(i + 1).copied().unwrap_or(f64::NAN))),
         branch_clear,
         r_full_at_k,
         controller_f: o.controller_f,
