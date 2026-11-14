@@ -1,9 +1,42 @@
 # V's way-in controller, car A (b8949c96, Nov 14 2026; day-1's netlist a/1158558780016588, subsystem 3, THE WAY-IN):
 # owner file in V's loop frame ("x,y,z state" lays, a bare "x,y,z" clears; `#` lines carried by vcompose's composer).
+# base: designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt (md5 ea985422495c, main's V rev 2.1) + the
+# way-in delta designs/farms/iron/carousel-assembly/wip/b8949c96/f1q2-wayin-v.delta (md5 9be92f9abd54, f8f24b2d4).
 # Car A: the front's two up-runs (the departure detector's level, FRONT CLEAR), (B)'s read / latch / D / HOLD OPEN /
 # H2's x-8 drive, the token and the P1 trigger. Car B (the front's release: RS_ready, the 80-gt hold, NOT_ready into
-# R1) follows; until then NOT-ready is day-1's stand-in, moved to (7,-10,-6) (below).
+# R1) follows; until then NOT-ready is day-1's stand-in, MOVED to (7,-10,-6) (a floor lever on glass (7,-11,-6): R1's
+# north input is this file's repeater (7,-10,-5) reading it; (8,-10,-5) becomes the FC reader's support), REST / DAY stay
+# day-1's stand-ins at R1's inputs.
 # Conventions (the netlist's): a diode's `facing` names its INPUT side; a torch tower inverts once per torch, 2 gt each.
+# Every cell's state is the game's settled state AT REST (the front cart pressing (9,-9,-5), the token SET, (B)'s latch
+# reset, H2 open, P1 braked): written back by `mobfarm way-cell ... --ctl-drive 0:9,-9,-5=<pressed> --ctl-settle-write`.
+#
+# What it does (the netlist's subsystem 3, as laid):
+#  - HOLD OPEN (H2 (9,24,7) powered) = NOT Q AND NOT (9,23,6) AND NOT (9,22,3): a subtract comparator (7,27,-1) whose rear
+#    is NOT Q and whose side is the arrival read OR the exit detector (through a repeater, 15); H2 closes 7 gt after a
+#    press of (9,23,6) and reopens 5 gt after (9,22,3) releases.
+#  - (B)'s latch Q (P1 OCCUPIED before D): torch NOR-NOR, SET by a 14-gt edge of (9,23,6)'s read, RESET (dominant) by
+#    (9,22,3)'s level; its feedback through a repeater into N1_b.
+#  - P1 OCCUPIED = Q delayed D = 16 gt (two delay-4 repeaters), carried down to level B (y 20) on stone steps. D's source:
+#    the (9,23,6) -> rest-on-P1 transit 9..11 gt + 5 (b8949c96's redsim (B) bench, the figure ironspec 12:52p cites);
+#    step c re-checks D >= the game's maximum + 2 gt (D is a parameter: the repeaters' delays, no cells move).
+#  - TOKEN: torch NOR-NOR, SET at start, SET by a 14-gt edge of the departure detector (9,-11,-3)'s level (carried up the
+#    DEP tower, ~30 gt), CLEARED by the P1 pulse (the dust on top of N2_t).
+#  - FRONT CLEAR = (9,-9,-5) unpowered, carried up the FC tower (~31 gt) as NOT FRONT CLEAR.
+#  - THE P1 TRIGGER: a subtract comparator (3,20,-2), rear P1 OCCUPIED, sides NOT token and NOT front clear (15 each): out =
+#    OCCUPIED AND token AND front clear; its output clears the token, and the loop through the token latch ends it: one
+#    12-gt pulse into P1's support stone (9,21,5) (V's glass under P1 CLEARED, ironspec's 7th supersede).
+# Deviations from the netlist, each on a bench: the edges are 14 gt, not 4 (a 4-gt set pulse is shorter than the latch's
+# own loop: both latches fell back or oscillated); the 12-gt P1 pulse is the trigger's own loop through the token (no
+# separate edge former); (8,23,2) is GLASS (the read's up-step support; a non-conductor as G1 asked); a stone (9,27,-1)
+# cuts a dust diagonal; glass (5,21,-1) caps N1_t (no new spawn floor). FRONT EMPTIED is dropped (day-1 12:16).
+# The benches (V + the delta + this file, laid wiring only):
+#  - the drive bench (no carts, declared stand-ins at the four detectors): `mctas mobfarm way-cell <V> --positions ...
+#    --queue 9,-10,-4 --south --rail --r1-built --r1-layout v-ctl --delta <delta> --delta <this> --ctl-ticks 100,540
+#    --ctl-drive <a cycle, a token-cleared arrival, a front-occupied arrival>`: every gate as designed.
+#  - the leg train with real carts: `... --bed -3,-20,3 --leg-day 13000 --leg 8.5,25.0625,9.5,0.4,0,0 --ride-to 3,-18,-5
+#    --leg-train 3,70 --leg-release-after 80 --leg-laid-controller --ride-ticks 3000`: every BAR passes (and at 0.1 b/t).
+# Compaction candidate (later pass): the two torch towers (~52 cells carrying the front's two signals ~30 blocks up).
 #
 ## ---- the departure detector (9,-11,-3) read, carried up as a LEVEL (the token's edge is formed at the top) ----
 ## its reader (8,-11,-3): a repeater, input the detector (its only free face), output west
