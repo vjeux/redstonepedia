@@ -5578,7 +5578,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if sk.sensor_seen {
         let mm = |v: &Vec<i64>| (v.iter().min().copied(), v.iter().max().copied());
         println!(
-            "the wake sensor (the observer at (-3,-1,4) facing up at the bed head): its first rise after a lie-down at +{:?}..{:?} gt over {} lie-downs, after a wake at +{:?}..{:?} gt over {} wakes; edges it missed (no rise within 10 gt): {}; rises with no edge in the 10 gt before: {}",
+            "the wake sensor (the observer at (-3,-1,4) facing up at the bed head): its first rise after a lie-down at +{:?}..{:?} gt over {} lie-downs, after a wake at +{:?}..{:?} gt over {} wakes; edges it missed (no rise within 10 gt: the observer's 2-gt pulse (tick-exact 26.3) + 8 for its 2-wide pulse and the bench's tick-boundary stamp): {}; rises with no edge in the 10 gt before: {}",
             mm(&sk.sensor_after_sleep).0, mm(&sk.sensor_after_sleep).1, sk.sensor_after_sleep.len(), mm(&sk.sensor_after_wake).0, mm(&sk.sensor_after_wake).1, sk.sensor_after_wake.len(), sk.sensor_missed, sk.sensor_spurious
         );
         if sk.sensor_missed > 0 || sk.sensor_spurious > 0 || sk.sensor_after_wake.is_empty() {
@@ -5603,7 +5603,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         failed.push("NOT JUDGED: 0 wakes for the waker bars; --scope-excludes waker declares them out of this run's scope".to_string());
     }
     if waker_wakes > 0 {
-        println!("the waker's distance (G1 / ironspec 07:47; the napper's feet to the waker zombie's, from the wake to the pickup + 40 gt): least {}, least with eye-to-eye sight {}; ticks under 6 with sight (flee triggers, bar 0): {waker_flee}; ticks under 6 with NEAREST_HOSTILE remembered (bar 0): {waker_memory}", if waker_dmin == f64::MAX { "-".to_string() } else { format!("{waker_dmin:.2}") }, if waker_seen_dmin == f64::MAX { "never in sight".to_string() } else { format!("{waker_seen_dmin:.2}") });
+        println!("the waker's distance (G1 / ironspec 07:47; the napper's feet to the waker zombie's, from the wake to the pickup + 40 gt): least {}, least with eye-to-eye sight {}; ticks under 6 with sight (flee triggers: 6 is the villager panic package's flee distance, VillagerGoalPackages' SetWalkTargetAwayFrom NEAREST_HOSTILE at 6; NEAREST_HOSTILE itself is set within 8, VillagerHostilesSensor's zombie distance; bar 0): {waker_flee}; ticks under 6 with NEAREST_HOSTILE remembered (bar 0): {waker_memory}", if waker_dmin == f64::MAX { "-".to_string() } else { format!("{waker_dmin:.2}") }, if waker_seen_dmin == f64::MAX { "never in sight".to_string() } else { format!("{waker_seen_dmin:.2}") });
         if waker_flee > 0 || waker_memory > 0 {
             failed.push(format!("the waker: {waker_flee} ticks under 6 with sight, {waker_memory} under 6 with NEAREST_HOSTILE remembered (bar 0)"));
         }
@@ -5650,7 +5650,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             // (G1's Q13: the design's `a6-pickup:` stranded bound judged: a boarding by the wake
             // edge + 60 gt on every visit)
             if board_wait_max > 60 {
-                failed.push(format!("a boarding {board_wait_max} gt after the wake: over the `a6-pickup:` stranded bound (60)"));
+                failed.push(format!("a boarding {board_wait_max} gt after the wake: over the `a6-pickup:` stranded bound (60: the design's declared bound, about 1.3x the longest wake -> boarding measured at the slowest park release, 47 gt at wake + 28)"));
             }
             for l in &resleep_lines {
                 println!("  re-sleep {l}");
@@ -5690,7 +5690,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if hold_design {
         sk.hold_spans.sort();
         sk.hold_to_r.sort();
-        println!("the exit-slope hold (ironspec 09:38 / 09:40 (b)): picked-up carts {}, at rest on the slope {} (bar: all); left before the tap {} (bar 0); arrivals during the tap's pulse {} (bar 0); the longest creep while held {:.4} (departure is a move over 0.01); held {:?}..{:?} gt (bar: under one tap period); the rider's NEAREST_HOSTILE ticks over the hold {} (bar 0); stamps at the slope's departure {} (bar 0); a CLEAR line to the waker in a shutter state {} (bar 0); departure -> R {:?}..{:?} gt (bar: the budget's {HOLD_TO_R_BUDGET}); the launch's speed per cell (least, greatest) {:?}", sk.hold_picked, sk.hold_rested, sk.hold_early, sk.hold_arrival_powered, sk.hold_creep, sk.hold_spans.first(), sk.hold_spans.last(), sk.hold_hostile, sk.hold_stamped, sk.hold_sight_clear, sk.hold_to_r.first(), sk.hold_to_r.last(), sk.launch);
+        println!("the exit-slope hold (ironspec 09:38 / 09:40 (b)): picked-up carts {}, at rest on the slope {} (bar: all); left before the tap {} (bar 0); arrivals during the tap's pulse {} (bar 0); the longest creep while held {:.4} (departure is a move over 0.01: above the held rest's largest per-tick creep, 0.0083 in every reference band (printed here), the brake zeroing the slope's 0.0078 pull below 0.03); held {:?}..{:?} gt (bar: under one tap period); the rider's NEAREST_HOSTILE ticks over the hold {} (bar 0); stamps at the slope's departure {} (bar 0); a CLEAR line to the waker in a shutter state {} (bar 0); departure -> R {:?}..{:?} gt (bar: the provisional budget's {HOLD_TO_R_BUDGET}-gt term, ironspec: 73 + 170 + 15 + d_RS 10 + 7 + 10 = 285 <= 300); the launch's speed per cell (least, greatest) {:?}", sk.hold_picked, sk.hold_rested, sk.hold_early, sk.hold_arrival_powered, sk.hold_creep, sk.hold_spans.first(), sk.hold_spans.last(), sk.hold_hostile, sk.hold_stamped, sk.hold_sight_clear, sk.hold_to_r.first(), sk.hold_to_r.last(), sk.launch);
         if sk.hold_rested < sk.hold_picked {
             failed.push(format!("{} picked-up carts never at rest on the exit slope (the hold)", sk.hold_picked - sk.hold_rested));
         }
@@ -5786,7 +5786,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         if sk.rs_visits > 0 {
             let mut d = sk.rs_to_r.clone();
             d.sort();
-            println!("the rider-keyed RS_ready string (4,0,5) over R (ironspec 15:23, day-1 15:29): pressed by the riding napper on {} of {} seated visits ({} visits lay it); presses by anything else {} (bar 0); its first press - R's detector rise {:?}..{:?} gt (median {:?}); the rider box's least overlap with the band (y 0.0625..0.15625) {} (> 0: it presses); the cart box's least gap under the band {} (> 0: an empty cart never reaches it)", sk.rs_pressed, sk.rs_seated, sk.rs_visits, sk.rs_spurious, d.first(), d.last(), d.get(d.len() / 2), sk.rs_overlap_min.map_or("none".to_string(), |o| format!("{o:.4}")), sk.rs_gap_min.map_or("none".to_string(), |g| format!("{g:.4}")));
+            println!("the rider-keyed RS_ready string (4,0,5) over R (ironspec 15:23, day-1 15:29): pressed by the riding napper on {} of {} seated visits ({} visits lay it); presses by anything else {} (bar 0); its first press - R's detector rise {:?}..{:?} gt (median {:?}); the rider box's least overlap with the band (y 0.0625..0.15625: an attached string's shape, the game's TripWireBlock box 0..16 x 1..2.5 x 0..16 / 16, redsim react.rs's `column(16.0, 1.0, 2.5)`) {} (> 0: it presses); the cart box's least gap under the band {} (> 0: an empty cart never reaches it)", sk.rs_pressed, sk.rs_seated, sk.rs_visits, sk.rs_spurious, d.first(), d.last(), d.get(d.len() / 2), sk.rs_overlap_min.map_or("none".to_string(), |o| format!("{o:.4}")), sk.rs_gap_min.map_or("none".to_string(), |g| format!("{g:.4}")));
             if sk.rs_pressed < sk.rs_seated {
                 failed.push(format!("the RS_ready string pressed on {} of {} seated visits (the rider must press it on every one)", sk.rs_pressed, sk.rs_seated));
             }
@@ -5873,7 +5873,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         failed.push(format!("{} riderless carts out", sk.riderless));
     }
     // (ironspec 00:03 / 00:07 (3): no stand-still after the eject over 20 gt)
-    println!("the stand-still after the eject (gt awake on foot, unmoved, from the dismount to the first lie-down or the pickup; bar 20): the longest {} gt; visits over 20: {}", sk.stand_max, sk.stand_over_20);
+    println!("the stand-still after the eject (gt awake on foot, unmoved, from the dismount to the first lie-down or the pickup; bar 20, ironspec 00:03 / 00:07 (3)): the longest {} gt; visits over 20: {}", sk.stand_max, sk.stand_over_20);
     if sk.stand_over_20 > 0 {
         // (G1's Q7: an exclusion waives only a 0-sample NOT JUDGED)
         if excluded("stand") {
@@ -5914,7 +5914,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         // (G1's C19: the at-rest bar judged (its positive control: --release-after-arm releases
         // before the cart is at rest and must fail here))
         if sk.release_speed_max >= 0.001 {
-            failed.push(format!("a cart moving at {:.4} b/t on a release tick (the at-rest bar: under 0.001)", sk.release_speed_max));
+            failed.push(format!("a cart moving at {:.4} b/t on a release tick (the at-rest bar: under 0.001, G1's C19: the braked park zeroes a cart's speed, so any speed at the release is a cart still arriving)", sk.release_speed_max));
         }
     }
     // (ironspec 21:43 / 23:46: record-match against the design of record; the rows count only by
