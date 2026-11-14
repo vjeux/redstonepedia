@@ -1111,7 +1111,7 @@ pub fn deep_climb(powered_every: usize) -> Vec<(P, String)> {
     let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
     let glass = "minecraft:glass".to_string();
     let mut v: Vec<(P, String)> = Vec::new();
-    let mut put = |v: &mut Vec<(P, String)>, p: P, b: String| {
+    let put = |v: &mut Vec<(P, String)>, p: P, b: String| {
         v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
         v.push((p, b));
     };
@@ -1503,7 +1503,6 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     for _ in 0..40 {
         base.tick();
     }
-    let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     let mut rows: Vec<(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = Vec::new();
     // (G1 09:31 E2) each row's band-bench t0 (the entry cell's centre passed, post-tick), in the rows' order
     let mut centres: Vec<Option<(u32, f64)>> = Vec::new();
@@ -2335,7 +2334,6 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     let (mut armed, mut cleared_at) = (stamp.is_none(), None);
     let mut no_exact = 0u32;
     let (mut released_at, mut first_calm_after, mut home_at_first_calm, mut stamp_after_max) = (None::<u32>, None::<u32>, None::<bool>, 0i64);
-    let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     for t in 0..ticks + follow {
         if t == ticks && follow > 0 {
             release(&mut run.world, o)?;
@@ -2520,7 +2518,6 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
             }
         }
     }
-    let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     let age = |w: &redsim::world::World, i: usize| -> Option<i64> {
         if !redsim::entity::mob::ai::brain::has_exact(w, i) {
             return None;
@@ -3069,7 +3066,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             return Err(format!("the start state {} could not be set: at the summon {summon_line}{set_line}", if o.visit_start_held { "(ii)" } else { "(i)" }));
         }
         let start_state = format!(
-            "start state {} (ticket state uncertain: pre-fix redsim) (at the summon {summon_line}{set_line})",
+            "start state {} (ticket state uncertain: pre-fix redsim) (at the summon {summon_line}{set_line}); the summoned rider's activity at the summon (the day set first): {summon_act}",
             if o.visit_start_held { "(ii) the napper holds the ticket" } else { "(i) the design: HOME a memory, the ticket free" },
         );
         let mut held_since: Option<u32> = None;
