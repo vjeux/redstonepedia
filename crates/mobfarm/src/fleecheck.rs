@@ -6032,13 +6032,16 @@ pub fn update_consumer_decls(text: &str) -> Result<Vec<UpdateAllow>, String> {
     Ok(out)
 }
 
-/// [`update_reach_components`] with the allowed consumers ([`UpdateAllow`]: declared per source, or `--allow`ed for
-/// any), each read back: an allow whose cell holds another block than it names fails; one no queried source's update
-/// needs fails as stale, saying why (the block is inert, the cell is the source's own structure, or no update reaches
-/// it); a declaration for a source not queried is listed as not read.
-/// (G1 Nov 14 08:54, part 66) Whether a text holds an `x,y,z=` declaration anywhere (`-?\d+,-?\d+,-?\d+=`).
+/// (G1 Nov 14 08:54 / 09:41, parts 66 / 69) Whether a text holds an `x,y,z=` declaration anywhere, spaces allowed
+/// around its commas and before its `=` (`-?\d+ *, *-?\d+ *, *-?\d+ *=`).
 fn holds_cell_decl(t: &str) -> bool {
     let b = t.as_bytes();
+    let skip_ws = |mut i: usize| {
+        while i < b.len() && b[i] == b' ' {
+            i += 1;
+        }
+        i
+    };
     let num = |mut i: usize| -> Option<usize> {
         if i < b.len() && b[i] == b'-' {
             i += 1;
@@ -6054,17 +6057,21 @@ fn holds_cell_decl(t: &str) -> bool {
             return false;
         }
         let Some(i) = num(start) else { return false };
+        let i = skip_ws(i);
         if i >= b.len() || b[i] != b',' {
             return false;
         }
-        let Some(j) = num(i + 1) else { return false };
+        let Some(j) = num(skip_ws(i + 1)) else { return false };
+        let j = skip_ws(j);
         if j >= b.len() || b[j] != b',' {
             return false;
         }
-        let Some(k) = num(j + 1) else { return false };
+        let Some(k) = num(skip_ws(j + 1)) else { return false };
+        let k = skip_ws(k);
         k < b.len() && b[k] == b'='
     })
 }
+
 
 /// (G1 Nov 14 08:52, part 66) Whether a reason cites the 26.3 code as `26.3 Class.method:` (a class name starting with
 /// a capital, one `.`, a method name, then `:`), the form a by-code declaration needs; "(26.3)" or "126.3 ms" don't.
@@ -6129,6 +6136,10 @@ fn observer_watched(q: BlockPos, f: &str) -> Option<BlockPos> {
     })
 }
 
+/// [`update_reach_components`] with the allowed consumers ([`UpdateAllow`]: declared per source, or `--allow`ed for
+/// any), each read back: an allow whose cell holds another block than it names fails; every declared source is read
+/// too, and a declaration whose source cell holds no source fails as stale; an allow nothing needs fails as stale,
+/// saying why (the block is inert, the cell is the source's own structure, or no update reaches it).
 pub fn update_reach_components_decl(spec: &FarmSpec, cells: &[BlockPos], allow: &[UpdateAllow]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
@@ -6210,7 +6221,7 @@ pub fn update_reach_components_decl(spec: &FarmSpec, cells: &[BlockPos], allow: 
                 "west" => (-1, 0, 0),
                 "up" => (0, 1, 0),
                 "down" => (0, -1, 0),
-                f => return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (a facing \"{f}\" read as no direction)", c.x, c.y, c.z, here.trim_start_matches("minecraft:"))),
+                f => return Err(format!("update reach: NOT JUDGED: {},{},{}{} holds {} (a facing \"{f}\" read as no direction)", c.x, c.y, c.z, if declared_only { " (a declared source)" } else { "" }, here.trim_start_matches("minecraft:"))),
             };
             // (a repeater's or comparator's facing names its input, an observer's its watched face: the
             // output cell is behind it for all three)
@@ -6272,7 +6283,7 @@ pub fn update_reach_components_decl(spec: &FarmSpec, cells: &[BlockPos], allow: 
                     let f = s.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
                     // (G1 07:59b non-blocking, parts 60 / 66) an unreadable facing is NOT JUDGED, never read as "down"
                     let Some(watched) = observer_watched(q, &f) else {
-                        return Err(format!("update reach: NOT JUDGED: the observer at {},{},{} beside {},{},{} has a facing \"{f}\" read as no direction", q.x, q.y, q.z, c.x, c.y, c.z));
+                        return Err(format!("update reach: NOT JUDGED: the observer at {},{},{} beside {},{},{}{} has a facing \"{f}\" read as no direction", q.x, q.y, q.z, c.x, c.y, c.z, if declared_only { " (a declared source)" } else { "" }));
                     };
                     if watched == *c && !fp.contains(&q) {
                         fp.push(q);
@@ -11744,7 +11755,7 @@ mod gate_tests {
         // (G1 07:59b (1), part 60) E′'s shape: a repeater facing north (input north, output south) into slime, an iron
         // trapdoor beside the slime: FAIL bare; PASS with the trapdoor declared for the repeater in the design's header
         // (named "declared"); a declaration naming another block fails; one for a cell no update reaches is stale; one
-        // for a source not queried is listed as not read; a `--allow` with its id passes too
+        // whose source cell holds no source fails as stale (part 66); a `--allow` with its id passes too
         let e2 = mk(vec![(b(2, 1, 2), p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]")), (b(2, 1, 3), p("minecraft:slime_block")), (b(2, 1, 4), p("minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"))]);
         let (e0, ne0) = super::update_reach_components(&e2, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
         assert!(ne0 == 1 && e0[0].contains("1 consumer(s) outside the allowed: iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false] at 2,1,4 (FAIL)"), "E′ bare: {e0:?}");
@@ -11788,7 +11799,7 @@ mod gate_tests {
             (b(4, 1, 2), p("minecraft:stone")),
         ]);
         let (eo, neo) = super::update_reach_from_text(&own_hook, "# update-consumers: intended 2,1,2=3,1,2 tripwire_hook (its own hook)\n", &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(neo >= 1 && eo.iter().any(|l| l.starts_with("allow declared for 2,1,2 3,1,2 (tripwire_hook[") && l.contains("the source's own structure (its string line or hooks), no consumer: a stale allow (FAIL)")), "the own-line stale case: {eo:?}");
+        assert!(neo == 1 && eo.iter().any(|l| l.starts_with("allow declared for 2,1,2 3,1,2 (tripwire_hook[") && l.contains("the source's own structure (its string line or hooks), no consumer: a stale allow (FAIL)")), "the own-line stale case: {eo:?}");
         // (G1 08:52 non-blocking) a waterlogged slab holds water: never inert, a consumer by name
         let wet = mk(vec![(b(2, 1, 2), p("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]")), (b(2, 1, 3), p("minecraft:oak_slab[type=bottom,waterlogged=true]"))]);
         let (ew2, new2) = super::update_reach_components(&wet, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
@@ -11797,41 +11808,54 @@ mod gate_tests {
         assert!(super::observer_watched(b(0, 0, 0), "sideways").is_none() && super::observer_watched(b(0, 0, 0), "up") == Some(b(0, 1, 0)), "the observer's watched cell");
         let cli = vec![super::UpdateAllow { source: None, cell: b(2, 1, 4), id: Some("iron_trapdoor".into()), why: String::new() }];
         let (ec, nec) = super::update_reach_components_decl(&e2, &[b(2, 1, 2)], &cli).unwrap_or_else(|e| panic!("{e}"));
-        assert!(nec == 0 && ec[0].contains("(PASS); allowed: iron_trapdoor[") && !ec[0].contains("no id named"), "an --allow with its id: {ec:?}");
-        // (G1 08:10 (1)) a declaration is a claim the review reads: its class (intended / by-code) and reason are
-        // required, a by-code one cites 26.3, a consumer names its id; each mis-form is refused naming the line
-        for bad in [
-            "# update-consumers: intended 2,1,2=2,1,4\n",
-            "# update-consumers: 2,1,2=2,1,4 iron_trapdoor (no class)\n",
-            "# update-consumers: waived 2,1,2=2,1,4 iron_trapdoor (an unknown class)\n",
-            "# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor\n",
-            "# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (it is fine)\n",
-            // (farmopt 08:24, part 62) dfb89499's E″ shape: three sources on one line, the class inside the reason
-            "# update-consumers: -1,16,-2=-1,16,-1 slime_block+-1,16,0 iron_trapdoor (the hold drive; class (a), intended); 3,16,-2=3,16,-1 slime_block+3,16,0 iron_trapdoor (the same)\n",
-            // the same with its class in front: still two sources on one line
-            "# update-consumers: intended -1,16,-2=-1,16,0 iron_trapdoor (the hold drive); 3,16,-2=3,16,0 iron_trapdoor (the same)\n",
-        ] {
-            let r = super::update_consumer_decls(bad);
-            assert!(r.as_ref().is_err_and(|e| e.contains("`# update-consumers:` line")), "{bad:?} refused: {r:?}");
-        }
-        // (G1 08:52 (1) / 08:54 (1)-(2), part 66) each refusal by NAME: a by-code reason needs "26.3 Class.method:"; a
-        // second source behind any separator, or unbalanced parentheses, is refused as such
+        assert!(nec == 0 && ec[0].contains("(PASS); allowed: iron_trapdoor[") && ec[0].contains("at 2,1,4 (--allow)"), "an --allow with its id: {ec:?}");
+        // (G1 08:10 (1); G1 09:41 (2), part 69) a declaration is a claim the review reads: each mis-form refused BY ITS
+        // OWN NAME: no reason, no class, an unknown class, a by-code reason without a citation; dfb89499's E″ shape (two
+        // sources on one line, the class inside the reason: refused by the class check first); the same with its class
+        // in front (its reason's parentheses unbalanced)
         let refused = |line: &str, why: &str| {
             let r = super::update_consumer_decls(line);
-            assert!(r.as_ref().is_err_and(|e| e.contains(why)), "{line:?} refused for {why:?}: {r:?}");
+            assert!(r.as_ref().is_err_and(|e| e.contains("`# update-consumers:` line") && e.contains(why)), "{line:?} refused for {why:?}: {r:?}");
         };
+        let class_form = "CLASS SOURCE=CELL ID[+CELL ID...] (why), CLASS intended or by-code";
+        refused("# update-consumers: intended 2,1,2=2,1,4\n", "no reason in parentheses");
+        refused("# update-consumers: 2,1,2=2,1,4 iron_trapdoor (no class)\n", class_form);
+        refused("# update-consumers: waived 2,1,2=2,1,4 iron_trapdoor (an unknown class)\n", class_form);
+        refused("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor\n", "no reason in parentheses");
+        refused("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (it is fine)\n", "a by-code declaration cites the 26.3 code");
+        refused("# update-consumers: -1,16,-2=-1,16,-1 slime_block+-1,16,0 iron_trapdoor (the hold drive; class (a), intended); 3,16,-2=3,16,-1 slime_block+3,16,0 iron_trapdoor (the same)\n", class_form);
+        refused("# update-consumers: intended -1,16,-2=-1,16,0 iron_trapdoor (the hold drive); 3,16,-2=3,16,0 iron_trapdoor (the same)\n", "unbalanced parentheses");
+        // (G1 08:52 (1) / 08:54 (1)-(2), part 66) a by-code reason needs "26.3 Class.method:"
         for cite in ["(26.3)", "(126.3 ms)", "(26.3 it is fine)", "(26.3 hopperBlock.tick: x)", "(26.3 HopperBlock: x)"] {
             refused(&format!("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor {cite}\n"), "a by-code declaration cites the 26.3 code as \"26.3 Class.method: ...\"");
         }
         assert!(super::update_consumer_decls("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (26.3 TrapDoorBlock.neighborChanged: re-reads its power)\n").is_ok(), "a real citation passes");
-        for second in ["(r); intended 3,1,2=3,1,4 iron_trapdoor (r2)", "(r), 3,1,2=3,1,4 iron_trapdoor (r2)", "(r) 3,1,2=3,1,4 iron_trapdoor (r2)", "(r; and 3,1,2=3,1,4 iron_trapdoor)"] {
-            let line = format!("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor {second}\n");
-            let r = super::update_consumer_decls(&line);
-            assert!(r.as_ref().is_err_and(|e| e.contains("more than one source on the line") || e.contains("unbalanced parentheses")), "{line:?}: {r:?}");
+        // (G1 09:41 (2), part 69) a second source behind any separator, each pinned to its own refusal: the first three
+        // leave the reason's parentheses unbalanced, the fourth hides an `x,y,z=` inside one balanced reason
+        for (second, why) in [
+            ("(r); intended 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r), 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r) 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r; and 3,1,2=3,1,4 iron_trapdoor)", "more than one source on the line"),
+            ("(r; and 3, 1, 2 = 3,1,4 iron_trapdoor)", "more than one source on the line"),
+        ] {
+            refused(&format!("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor {second}\n"), why);
         }
         refused("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor (r (unclosed)\n", "unbalanced parentheses");
-        refused("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor (r; and 3,1,2=3,1,4 iron_trapdoor)\n", "more than one source on the line");
-        assert!(super::holds_cell_decl("x -3,1,-2=y") && !super::holds_cell_decl("a 1,2,3 b") && !super::holds_cell_decl("26.3 A.b: 1,2=3"), "the x,y,z= scanner");
+        assert!(
+            super::holds_cell_decl("x -3,1,-2=y") && super::holds_cell_decl("x 3, 1, 2=y") && super::holds_cell_decl("x 3,1,2 =y") && !super::holds_cell_decl("a 1,2,3 b") && !super::holds_cell_decl("26.3 A.b: 1,2=3"),
+            "the x,y,z= scanner, spaces allowed"
+        );
+        // (G1 09:41 (1), part 69) the ONE-FILE path: one design text carrying its `# update-consumers:` line, built into
+        // the spec AND fed as the text, as the CLI reads one file
+        let one = "name: e2\ncircuit: mob-farm iron_ingot\n# update-consumers: intended 1,1,1=1,1,3 iron_trapdoor (the slime powers the hatch)\norigin: 0 0 0\nport output: 0 -1 0\npalette:\n  s minecraft:stone\n  r minecraft:repeater[delay=1,facing=north,locked=false,powered=false]\n  l minecraft:slime_block\n  t minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]\nlayer 0:\n  sss\n  sss\n  sss\n  sss\nlayer 1:\n  .\n  .r\n  .l\n  .t\n";
+        let c1 = circuit::Circuit::from_design(mctas::design::Design::parse(one).unwrap_or_else(|e| panic!("{e}"))).unwrap_or_else(|e| panic!("{e}"));
+        let s1 = circuit::mobfarm::spec_of(&c1).unwrap_or_else(|e| panic!("{e}"));
+        let (o1, no1) = super::update_reach_from_text(&s1, one, &[b(1, 1, 1)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(no1 == 0 && o1[0].contains("(PASS); allowed: iron_trapdoor[") && o1[0].contains("at 1,1,3 (declared: intended: the slime powers the hatch)"), "one file, declared: {o1:?}");
+        let bare = one.replace("# update-consumers: intended 1,1,1=1,1,3 iron_trapdoor (the slime powers the hatch)\n", "");
+        let (o2, no2) = super::update_reach_from_text(&s1, &bare, &[b(1, 1, 1)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(no2 == 1 && o2[0].contains("iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false] at 1,1,3 (FAIL)"), "the same file without its declaration: {o2:?}");
         // (G1 07:59b non-blocking, part 60) a hook ends a string's line only when it faces back along it: a string
         // (2,1,2) with a west hook facing east (its own) and, at its east end, a hook facing south (on a stone at its
         // north; not facing back along the line) reads that far hook as a consumer

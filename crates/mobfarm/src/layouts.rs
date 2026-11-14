@@ -318,52 +318,39 @@ fn entry_cells(entry: &str) -> Vec<[i32; 3]> {
     }).collect()
 }
 
-/// (G1 Nov 14 08:52, part 66) An `update-consumers` entry's parts, `CLASS SX,SY,SZ=CX,CY,CZ ID+... (why)`: the class,
-/// the source cell, each consumer (cell, id) and the reason; None when it doesn't parse.
-fn update_consumer_parts(entry: &str) -> Option<(String, [i32; 3], Vec<([i32; 3], String)>, String)> {
-    let cell = |s: &str| -> Option<[i32; 3]> {
-        let v: Vec<i32> = s.trim().split(',').map(|n| n.trim().parse::<i32>().ok()).collect::<Option<_>>()?;
-        (v.len() == 3).then(|| [v[0], v[1], v[2]])
-    };
-    let (class, rest) = entry.trim().split_once(' ')?;
-    let i = rest.find(" (")?;
-    let (body, why) = (&rest[..i], rest[i + 1..].to_string());
-    let (s, list) = body.split_once('=')?;
-    let consumers = list
-        .split('+')
-        .map(|item| {
-            let mut it = item.split_whitespace();
-            match (it.next(), it.next(), it.next()) {
-                (Some(c), Some(id), None) => Some((cell(c)?, id.to_string())),
-                _ => None,
-            }
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some((class.to_string(), cell(s)?, consumers, why))
+/// (G1 Nov 14 08:52 / 09:41, parts 66 / 69) An `update-consumers` entry's parts, read by fleecheck's ONE parser
+/// (`update_consumer_decls`: the class, the reason's balance, no second `x,y,z=`, each consumer's id): the class, the
+/// source cell, each consumer (cell, id) and the reason; the parser's own refusal otherwise.
+fn update_consumer_parts(entry: &str) -> Result<(String, [i32; 3], Vec<([i32; 3], String)>, String), String> {
+    let decls = crate::fleecheck::update_consumer_decls(&format!("# update-consumers: {}\n", entry.trim()))?;
+    let first = decls.first().ok_or_else(|| format!("`update-consumers: {entry}`: no declaration read"))?;
+    let src = first.source.ok_or_else(|| format!("`update-consumers: {entry}`: no source read"))?;
+    let (class, reason) = first.why.split_once(": ").map(|(c, r)| (c.to_string(), r.to_string())).ok_or_else(|| format!("`update-consumers: {entry}`: no class read"))?;
+    let consumers = decls.iter().map(|a| ([a.cell.x, a.cell.y, a.cell.z], a.id.clone().unwrap_or_default())).collect();
+    Ok((class, [src.x, src.y, src.z], consumers, reason))
 }
 
-/// (part 66) An entry's cells, by its key: an `update-consumers` entry's source and every consumer; any other the
-/// cells before its `=`.
-fn entry_cells_of(key: &str, entry: &str) -> Vec<[i32; 3]> {
+/// (parts 66 / 69) An entry's cells, by its key: an `update-consumers` entry's source and every consumer (its parse
+/// refused by name); any other the cells before its `=`.
+fn entry_cells_of(key: &str, entry: &str) -> Result<Vec<[i32; 3]>, String> {
     if key == "update-consumers" {
-        return update_consumer_parts(entry).map(|(_, s, cs, _)| std::iter::once(s).chain(cs.into_iter().map(|(c, _)| c)).collect()).unwrap_or_default();
+        let (_, s, cs, _) = update_consumer_parts(entry).map_err(|e| format!("the declaration `update-consumers: {entry}` doesn't parse ({e}): a swap can't tell whether it moves with the part"))?;
+        return Ok(std::iter::once(s).chain(cs.into_iter().map(|(c, _)| c)).collect());
     }
-    entry_cells(entry)
+    Ok(entry_cells(entry))
 }
 
-/// (part 66) A carried entry, by its key: an `update-consumers` entry with its source AND consumer cells moved and the
-/// carry note inside its reason (it never parses as part of the reason's text outside it), refused by name when it
+/// (parts 66 / 69) A carried entry, by its key: an `update-consumers` entry with its source AND consumer cells moved and
+/// the carry note inside its reason (it never parses as part of the reason's text outside it), refused by name when it
 /// doesn't parse; any other the cells before its `=` moved and the note appended.
 fn carry_entry(key: &str, entry: &str, off: [i32; 3]) -> Result<(String, String), String> {
     let note = format!("carried from the swapped part, moved by {},{},{}", off[0], off[1], off[2]);
     if key == "update-consumers" {
-        let (class, s, cs, why) = update_consumer_parts(entry).ok_or_else(|| format!("the carried declaration `update-consumers: {entry}` doesn't parse (CLASS SOURCE=CELL ID[+CELL ID...] (why)): it would be left at its old cells"))?;
+        let (class, s, cs, reason) = update_consumer_parts(entry).map_err(|e| format!("the carried declaration `update-consumers: {entry}` doesn't parse ({e}): it would be left at its old cells"))?;
         let mv = |c: [i32; 3]| format!("{},{},{}", c[0] + off[0], c[1] + off[1], c[2] + off[2]);
         let list = cs.iter().map(|(c, id)| format!("{} {id}", mv(*c))).collect::<Vec<_>>().join("+");
         let base = format!("{class} {}={list}", mv(s));
-        let why = why.trim();
-        let inner = why.strip_prefix('(').and_then(|w| w.strip_suffix(')')).unwrap_or(why);
-        return Ok((format!("{base} {why}"), format!("{base} ({inner}; {note})")));
+        return Ok((format!("{base} ({reason})"), format!("{base} ({reason}; {note})")));
     }
     let s = shift_entry(entry, off);
     Ok((s.clone(), format!("{s} ({note})")))
@@ -439,10 +426,7 @@ pub fn swap_declarations(text: &str, new_text: &str, old_cells: &std::collection
         let mut keep = Vec::new();
         let mut dropped_here = false;
         for e in decl_entries(body) {
-            let cells = entry_cells_of(k, &e);
-            if k == "update-consumers" && cells.is_empty() {
-                return Err(format!("the declaration `{k}: {e}` doesn't parse (CLASS SOURCE=CELL ID[+CELL ID...] (why)): a swap can't tell whether it moves with the part"));
-            }
+            let cells = entry_cells_of(k, &e)?;
             let inside = cells.iter().filter(|c| old_cells.contains(*c)).count();
             if inside > 0 && inside < cells.len() {
                 return Err(format!("the declaration `{k}: {e}` names cells both in the old part's footprint and outside it: split it by hand"));
@@ -620,6 +604,27 @@ mod swap_part_tests {
         let bad_new = new.replace("(the new part's hatch)", "the new part's hatch");
         let e = super::edit_swap(design, &[(old.to_string(), bad_new, [1, 0, 0])]).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(e.contains("doesn't parse") && e.contains("update-consumers"), "a mis-formed carried declaration refuses the swap: {e}");
+        // (G1 09:41 (3), part 69) the swap reads entries with fleecheck's ONE parser: a second source after the reason
+        // and an unknown class, both carried by the old laxer parser, now refuse the swap, each naming the parser's reason
+        for (bad, why) in [
+            ("intended 0,0,1=1,0,1 iron_trapdoor (r), 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("waived 0,0,1=1,0,1 iron_trapdoor (r)", "CLASS intended or by-code"),
+        ] {
+            let n2 = new.replace("intended 0,0,1=1,0,1 iron_trapdoor (the new part's hatch)", bad);
+            let e = super::edit_swap(design, &[(old.to_string(), n2, [1, 0, 0])]).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(e.contains("doesn't parse") && e.contains(why), "{bad:?}: {e}");
+        }
+        // (G1 09:41 non-blocking) the design's own lines: an unparseable one refuses the swap; one straddling the old
+        // footprint is refused; one wholly outside the part is kept byte for byte
+        let unparsed = design.replace("# update-consumers: intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)", "# update-consumers: intended 1,0,0=2,0,0 redstone_lamp");
+        let e = super::edit_swap(&unparsed, &[(old.to_string(), new.to_string(), [1, 0, 0])]).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("doesn't parse") && e.contains("no reason in parentheses"), "an unparseable design line: {e}");
+        let straddle = design.replace("intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)", "intended 1,0,0=0,0,0 stone (straddling)");
+        let e = super::edit_swap(&straddle, &[(old.to_string(), new.to_string(), [1, 0, 0])]).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("names cells both in the old part's footprint and outside it"), "a straddling line: {e}");
+        let outside = design.replace("# update-consumers: intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)\n", "# update-consumers: intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)\n# update-consumers: intended 0,0,0=0,0,0 stone (a line outside the part)\n");
+        let (o3, _) = super::edit_swap(&outside, &[(old.to_string(), new.to_string(), [1, 0, 0])]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(o3.contains("\n# update-consumers: intended 0,0,0=0,0,0 stone (a line outside the part)\n"), "a line outside the part kept byte for byte: {o3}");
     }
 }
 
