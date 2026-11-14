@@ -184,6 +184,10 @@ impl UpSlope {
     pub fn still_now(&self) -> bool {
         self.still >= 1
     }
+    /// The consecutive still ticks (1 = a stop's first still tick).
+    pub fn still_count(&self) -> u32 {
+        self.still
+    }
     /// Off the slopes: the next rest starts afresh.
     pub fn reset(&mut self) {
         *self = UpSlope::default();
@@ -221,11 +225,10 @@ impl UpSlope {
                 _ => self.rest = Some((p.1, p.2, false)),
             }
             self.stop = None;
-        } else if self.still >= 1 {
-            match self.stop {
-                Some((_, sz, true)) if p.2 > sz + 1e-9 => {}
-                _ => self.stop = Some((p.1, p.2, false)),
-            }
+        } else if self.still == 1 {
+            // (G1 17:57 N3: every new stop re-arms the short-stop reference, so a boost from a higher
+            // stop in the same excursion is classified)
+            self.stop = Some((p.1, p.2, false));
         }
         ev
     }
@@ -250,6 +253,39 @@ pub fn path_departure(a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]) ->
         return Some(f64::INFINITY);
     }
     (n > 0).then_some(d)
+}
+
+/// G1 17:00 B1 / 17:57 N1 / N12: one lane cart's R_1 contacts since its stop, the tick its up-slope
+/// move began and its last z, updated per tick AFTER the tracker's step: only a stop's FIRST still
+/// tick starts the contacts afresh (a contact on any still tick of a 2..4-tick stop is kept); any still
+/// tick clears the move's start; this tick's contact is added; the move begins at the first non-still
+/// tick whose z rose.
+#[derive(Clone, Debug, Default)]
+pub struct BoostTrack {
+    pub contacts: Vec<(i64, Vec<usize>)>,
+    pub up_start: Option<i64>,
+    prev_z: Option<f64>,
+}
+
+impl BoostTrack {
+    pub fn tick(&mut self, t: i64, z: f64, still_count: u32, contact: Option<Vec<usize>>) {
+        if still_count == 1 {
+            self.contacts.clear();
+        }
+        if still_count >= 1 {
+            self.up_start = None;
+        }
+        if let Some(p) = contact {
+            self.contacts.push((t, p));
+        }
+        if still_count == 0 && self.up_start.is_none() && self.prev_z.is_some_and(|pz| z > pz + 1e-9) {
+            self.up_start = Some(t);
+        }
+        self.prev_z = Some(z);
+    }
+    pub fn reset(&mut self) {
+        *self = BoostTrack::default();
+    }
 }
 
 /// G1 16:25 / 17:00 (B1): a short stop's class from its move's start `us` and EVERY R_1 chain contact
@@ -744,6 +780,23 @@ pub struct SidingOpts {
     /// --start-i: the design start (i) (G1 15:53 / ironspec 15:37): the bed's ticket left FREE (no
     /// poi::take); HOME in every rider's brain and LAST_SLEPT t0 - 100 as before.
     pub start_i: bool,
+    /// --r-evidence S (dfb89499 18:14 (ii)): R_1's end keyed on the evidence, the new slot-1 cart's
+    /// entry onto R_1 (z < 2) + S gt, capped at 60 gt from the rise; None: the timed --r-pulse.
+    pub r_evidence: Option<i64>,
+    /// G1 18:21 (a): the modelled reader's propagation delay (its detector or string, then dust and
+    /// repeaters to the drive) added before the settle under --r-evidence.
+    pub r_evidence_delay: i64,
+    /// ironspec 18:21 (1): key the evidence end on the slot-1 string's rising edge (sensor (B)), not on
+    /// the cart's z < 2 crossing (default true).
+    pub r_evidence_string: bool,
+    /// --r-second A,B (dfb89499 18:17 (iii)): a second R_1 window from the rise + A to + B.
+    pub r_second: Option<(i64, i64)>,
+    /// --skip-release N (ironspec 18:15, tick-exact 18:37): miss the Nth release (1-based), forcing a
+    /// queue one cart deeper.
+    pub skip_release: Option<usize>,
+    /// --r-offgap (G1 18:52 (1)): with --r-evidence, R_1 powered for the timed launch window, OFF
+    /// through the coast, ON again from the evidence (+ the reader delay) to + S.
+    pub r_offgap: bool,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -1398,6 +1451,21 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (G1 17:00 B2: the start pulse's REAL powered ticks at the rail before the first shut, and the
     // first shut)
     let mut start_pulse: Option<(i64, i64)> = None;
+    // (G1 17:44: per refill (R_1 on tick, its last powered tick, the new slot-1 cart, the tick it
+    // enters z < 2, its z at the last powered tick, its rest z); the rail's last state)
+    #[allow(clippy::type_complexity)]
+    let mut refills: Vec<(i64, i64, Option<usize>, Option<i64>, Option<f64>, Option<f64>)> = Vec::new();
+    let mut prev_rail_on = false;
+    let mut refill_tails: Vec<f64> = Vec::new();
+    let mut refill_depths: Vec<usize> = Vec::new();
+    // (sensor (A): per refill, R_2's last pressed state and its first falling edge)
+    let mut refill_r2: Vec<(bool, Option<i64>)> = Vec::new();
+    // (sensor (B): per refill, the slot-1 string's last pressed state and its first rising edge)
+    let mut refill_string: Vec<(bool, Option<i64>)> = Vec::new();
+    // (G8c: per evidence end (its tick, the next trapdoor open then); tick-exact 18:37: per slot k the
+    // largest offset over slot 1 at R_1's rise + 60 and the snapshot count)
+    let mut evidence_ends: Vec<(i64, Option<i64>)> = Vec::new();
+    let mut snap_offsets: std::collections::BTreeMap<usize, (f64, usize)> = std::collections::BTreeMap::new();
     let mut first_shut: Option<i64> = None;
     // (G1 17:00 B1: each lane cart's R_1 chain contacts since its stop (the stop's own tick included):
     // (tick, path); the tick its up-slope move began; its last z; the listed events)
@@ -1407,7 +1475,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (each lane cart since its last stop: the tick its up-slope move began and its last z; the
     // boosted events' notes)
     let mut up_start: Vec<Option<i64>> = vec![None; carts.len()];
-    let mut prev_z: Vec<Option<f64>> = vec![None; carts.len()];
+    let mut boost: Vec<BoostTrack> = vec![BoostTrack::default(); carts.len()];
     let mut boosted_notes: Vec<String> = Vec::new();
     let mut fill_notes: Vec<String> = Vec::new();
     let mut unclassified_notes: Vec<String> = Vec::new();
@@ -1493,6 +1561,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap: Option<(usize, usize)> = None;
     let mut pred_pass: Option<i64> = None;
     let mut released_at: Option<i64> = None;
+    // (--skip-release: releases skipped so far; G8c: the next trapdoor open and the cut ticks)
+    let mut skipped = 0usize;
+    let mut next_open: Option<i64> = None;
+    let mut cut_ticks: Vec<i64> = Vec::new();
+    // (G1 18:52 (1): the off-gap form's evidence window)
+    let mut evid_window: Option<(i64, i64)> = None;
     // (G1 17:00 B3: the --inject-release napper's cart)
     let mut injected_cart: Option<usize> = None;
     let mut v_rest_occ: Option<usize> = None;
@@ -1772,7 +1846,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             t1_no_riders = o.riders && vill == 0;
             if so.ai {
                 t1_unhomed = vill - homed;
-                t1_ticket_bad = free_now != Some(0);
+                // (G1 17:57 N4: state (ii) wants the bed's ticket taken (0 free) at t 1; --start-i (the
+                // design start (i)) wants it FREE (1 free))
+                t1_ticket_bad = free_now != Some(if so.start_i { 1 } else { 0 });
             }
         }
         // (the logins and freezes as one schedule: frozen while any interval covers t, returns waiting
@@ -2124,8 +2200,17 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             rereleased = true;
         }
         let ph = (t - warm - o.corner).rem_euclid(o.period);
-        if t >= warm && t < rel_end && ph == 0 {
+        // (ironspec 18:15 / tick-exact 18:37: --skip-release N misses the Nth release (1-based) to force
+        // a deeper queue (depth 6 from one miss))
+        let skip_this = ph == 0 && t >= warm && so.skip_release.is_some_and(|k| rel_times.len() + skipped + 1 == k);
+        if skip_this {
+            skipped += 1;
+        }
+        if t >= warm && t < rel_end && ph == 0 && !skip_this {
             trap_until = t + o.drop_w;
+            // (G8c, day-1 / ironspec 18:47: the source-led cut: under --r-evidence R_1 is cut at its
+            // driver 2 gt before every trapdoor open and the latch resets; printed per refill)
+            next_open = Some(t + o.period);
             per_release.push(0);
             rel_times.push(t);
             restage_from = Some(t);
@@ -2168,12 +2253,28 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // whose own trapdoor shuts at offset o sees R_1 from its shut + (27 - o) with offsets
                 // 0 / 12 / 24; --r-delay D lays that, the pulse --r-pulse)
                 r_from = t + so.r_delay;
-                r_until = r_from + o.r_pulse;
+                // (--r-evidence S: the end waits for the evidence, capped at 60 gt; with --r-offgap the
+                // timed launch window then the evidence window; else the timed pulse)
+                r_until = if so.r_evidence.is_some() && !so.r_offgap { r_from + 60 } else { r_from + o.r_pulse };
+                evid_window = None;
                 // (G1 17:00 B2: the first shut, the end of the start's fill)
                 first_shut.get_or_insert(t);
             }
         }
-        let want_r = t >= r_from && t < r_until;
+        // (dfb89499 18:17 (iii), the shaped pulse: a second window on the shared R line over the
+        // arrival band, `--r-second A,B`: R_1 also powered from the rise + A to the rise + B inclusive)
+        let mut want_r = (t >= r_from && t < r_until) || so.r_second.is_some_and(|(a, b)| r_from != i64::MIN && t >= r_from + a && t <= r_from + b) || evid_window.is_some_and(|(a, b)| t >= a && t <= b);
+        // (G8c: the source-led cut under --r-evidence: off from 2 gt before the next trapdoor open)
+        if so.r_evidence.is_some()
+            && let Some(no) = next_open
+            && t >= no - 2
+            && want_r
+        {
+            want_r = false;
+            r_until = t;
+            cut_ticks.push(t);
+        }
+        let want_r = want_r;
         // (--r-until-string, dfb89499's pick 12:26: R_1 off once the lane's hold string (x,17,0) is
         // pressed, the advancing cart at slot 1; at most the pulse)
         let cut = so.r_until_string && r_is && matches!(run.world.get(wp(BlockPos::new(lx, 17, 0))), Block::Tripwire { powered: true, .. });
@@ -2514,6 +2615,107 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // (G1 15:22 / 15:55 / 17:00: the contact chains (the minecart push test) from the carts on R_1
         // while the RAIL ITSELF is powered this tick (its block state, not the drive's switch))
         let rail_on = matches!(run.world.get(wp(BlockPos::new(lx, 17, 1))), Block::Rail { activator: false, powered: true, .. });
+        // (G1 17:44: each refill's four numbers: R_1's powered ticks at the rail, the tick the new
+        // slot-1 cart (the lowest cart at z 2..3 when the rail rose) enters z < 2, its z at R_1's last
+        // powered tick, and its rest z (its first still tick after entering))
+        if rail_on && !prev_rail_on && first_shut.is_some() {
+            let new1 = (0..n).filter(|c| now[*c].is_some_and(|(x, _, z, _)| x >= lx as f64 && x < (lx + 1) as f64 && (2.0..3.0).contains(&z))).min_by(|a, b| now[*a].map(|p| p.2).partial_cmp(&now[*b].map(|p| p.2)).unwrap_or(std::cmp::Ordering::Equal));
+            refills.push((t, t, new1, None, None, None));
+            refill_r2.push((true, None));
+            refill_string.push((true, None));
+        }
+        if let Some(rf) = refills.last_mut()
+            && rf.5.is_none()
+            && t - rf.0 <= 120
+        {
+            // (ironspec 18:16 sensor (A): R_2 (x,18,2) as a detector rail, pressed while a cart's box meets
+            // its interaction box (the cell deflated 0.2 sideways, its top 0.2 down); its falling edge per
+            // refill, or never)
+            let pressed = (0..n).any(|k| {
+                carts[k].and_then(|id| redsim::entity::index_of(&run.world, id)).is_some_and(|ci| {
+                    let b = dbox(&run.world.entities.list[ci].bb);
+                    b.1 > lx as f64 + 0.2 && b.0 < lx as f64 + 0.8 && b.3 > 18.0 && b.2 < 18.8 && b.5 > 2.2 && b.4 < 2.8
+                })
+            });
+            if let Some(r2) = refill_r2.last_mut() {
+                if r2.0 && !pressed && r2.1.is_none() {
+                    r2.1 = Some(t);
+                }
+                r2.0 = pressed;
+            }
+            // (ironspec 18:21 (1): sensor (B), the slot-1 string over R_1 at y 18: pressed while a rider's box
+            // meets the attached tripwire's shape (y 18 + 1/16 .. 18 + 2.5/16) over R_1's cell; the evidence
+            // end keys on its first rising edge after the rise (+ the reader delay + S))
+            let string_pressed = (0..n).any(|k| {
+                carts[k].and_then(|id| rider_index(&run.world, id)).is_some_and(|ri| {
+                    let b = dbox(&run.world.entities.list[ri].bb);
+                    b.1 > lx as f64 && b.0 < (lx + 1) as f64 && b.3 > 18.0625 && b.2 < 18.15625 && b.5 > 1.0 && b.4 < 2.0
+                })
+            });
+            if let Some(sb) = refill_string.last_mut() {
+                if !sb.0 && string_pressed && sb.1.is_none() {
+                    sb.1 = Some(t);
+                    if let Some(s) = so.r_evidence
+                        && so.r_evidence_string
+                    {
+                        if so.r_offgap {
+                            // (G1 18:52 (1), the OFF-GAP form: the timed launch window, OFF through the coast,
+                            // ON again from the evidence to the evidence + s)
+                            evid_window = Some((t + so.r_evidence_delay, t + so.r_evidence_delay + s));
+                        } else {
+                            r_until = t + so.r_evidence_delay + s + 1;
+                        }
+                        evidence_ends.push((t + so.r_evidence_delay + s, next_open));
+                    }
+                }
+                sb.0 = string_pressed;
+            }
+            // (tick-exact 18:37: the per-snapshot offsets over slot 1 at R_1's rise + 60: z_k - z_1 -
+            // (k - 1) x 0.79 for the lane's slope carts above the hold, sorted)
+            if t == rf.0 + 60 {
+                let mut zs: Vec<f64> = (0..n).filter_map(|k| now[k].filter(|(x, y, zz, _)| *x >= lx as f64 && *x < (lx + 1) as f64 && *zz > 1.0 && *zz < 6.9 && *y < 23.2).map(|p| p.2)).collect();
+                zs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(z1) = zs.first().copied() {
+                    for (k, z) in zs.iter().enumerate().skip(1) {
+                        let off = z - z1 - k as f64 * 0.79;
+                        let e = snap_offsets.entry(k + 1).or_insert((f64::MIN, 0));
+                        e.0 = e.0.max(off);
+                        e.1 += 1;
+                    }
+                }
+            }
+            if rail_on {
+                rf.1 = t;
+            }
+            if let Some(c) = rf.2
+                && let Some((_, _, z, _)) = now[c]
+            {
+                if rf.3.is_none() && z < 2.0 {
+                    rf.3 = Some(t);
+                    // (dfb89499 18:14 (ii), the evidence-keyed end: R_1 stays powered until the new slot-1
+                    // cart leaves R_2 onto R_1 (its entry z < 2) + the reader's propagation delay (G1 18:21
+                    // (a), --r-evidence-delay) + the settle S, then the latch resets)
+                    if let Some(s) = so.r_evidence
+                        && !so.r_evidence_string
+                    {
+                        r_until = t + so.r_evidence_delay + s + 1;
+                    }
+                }
+                if rail_on {
+                    rf.4 = Some(z);
+                }
+                if rf.3.is_some() && tracker[c].still_now() {
+                    rf.5 = Some(z);
+                    // (G1 18:11: the tail's z then (the highest lane cart on the slopes, z < 6.6), against
+                    // the lip volume's south edge)
+                    let tail = (0..n).filter_map(|k| now[k].filter(|(x, _, zz, _)| *x >= lx as f64 && *x < (lx + 1) as f64 && *zz < 6.6).map(|p| p.2)).fold(f64::MIN, f64::max);
+                    refill_tails.push(tail);
+                    // (G1 18:21 (c): the queue's depth then (the lane carts on the slopes))
+                    refill_depths.push((0..n).filter(|k| now[*k].is_some_and(|(x, y, zz, _)| x >= lx as f64 && x < (lx + 1) as f64 && zz > 0.0 && zz < 6.6 && y < 23.2)).count());
+                }
+            }
+        }
+        prev_rail_on = rail_on;
         if rail_on && first_shut.is_none() {
             start_pulse = Some((start_pulse.map_or(t, |p| p.0), t));
         }
@@ -2573,17 +2775,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // afresh from it, the stop's own tick included; then this tick's chain contact; then the
                 // move's start (the first tick its z rose since the stop); then the event's class)
                 let ev = tracker[c].step((x, y, z));
-                if tracker[c].still_now() {
-                    r1_contacts[c].clear();
-                    up_start[c] = None;
-                }
-                if let Some(path) = chains.get(&c) {
-                    r1_contacts[c].push((t, path.clone()));
-                }
-                if !tracker[c].still_now() && up_start[c].is_none() && prev_z[c].is_some_and(|pz| z > pz + 1e-9) {
-                    up_start[c] = Some(t);
-                }
-                prev_z[c] = Some(z);
+                // (G1 17:57 N1 / N12: the shared per-tick update, tested through `BoostTrack`)
+                boost[c].tick(t, z, tracker[c].still_count(), chains.get(&c).cloned());
+                up_start[c] = boost[c].up_start;
+                r1_contacts[c] = boost[c].contacts.clone();
                 match ev {
                     Some(UpEvent::Rollback(a)) => rollbacks.push((t, c, a, "rollback")),
                     Some(UpEvent::ShortStop(a)) => {
@@ -2630,7 +2825,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 tracker[c].reset();
                 r1_contacts[c].clear();
                 up_start[c] = None;
-                prev_z[c] = None;
+                boost[c].reset();
             }
         }
         // (G1 12:32's edge control, judged by the bar's own loop (G1 14:18 L1): planted right after the
@@ -3774,7 +3969,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     ));
     lines.push(bed_start_line);
     lines.push(format!(
-        "{t1_line}; riders without the bed's HOME at t 1 under --nap-ai (the bar: 0): {t1_unhomed}; riders not at REST at t 1 (the bar: 0): {t1_not_rest}; the bed's ticket not taken at t 1 under --nap-ai (the bar: 0): {}{}",
+        "{t1_line}; riders without the bed's HOME at t 1 under --nap-ai (the bar: 0): {t1_unhomed}; riders not at REST at t 1 (the bar: 0): {t1_not_rest}; the bed's ticket state at t 1 not the start's (--nap-ai state (ii): taken; --start-i: free) (the bar: 0): {}{}",
         t1_ticket_bad as usize,
         if t1_no_riders { "; NOT JUDGED: no rider at t 1 in a run with riders" } else { "" }
     ));
@@ -4308,6 +4503,73 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             rollbacks.iter().filter(|r| r.3 == "rollback" || r.3 == "short stop, boosted" || r.3.contains("UNCLASSIFIED")).map(|(t, c, d, k)| format!("t {t} lane cart {c} +{d:.4} ({k})")).collect::<Vec<_>>().join(", "),
             upslope_planted.map_or(String::new(), |(t, c, d)| format!("; the edge control's plant: lane cart {c} moved up-slope by {d:.4} along the rail at t {t} ({upslope_plant_note}, read back from the world)"))
         ));
+        {
+            // (G1 17:44: the refills' four numbers and slot 1's rest; the margin = R_1's last powered
+            // tick minus the tick the new slot-1 cart enters z < 2 (the game's measured margin is 0:
+            // a design bar pending ironspec); printed, not a bar yet)
+            let done: Vec<&(i64, i64, Option<usize>, Option<i64>, Option<f64>, Option<f64>)> = refills.iter().filter(|r| r.2.is_some()).collect();
+            let margins: Vec<i64> = done.iter().filter_map(|r| r.3.map(|e| r.1 - e)).collect();
+            let rests: Vec<f64> = done.iter().filter_map(|r| r.5).collect();
+            lines.push(format!(
+                "the refills at R_1 (G1 Nov 13 17:44: R_1's powered ticks at the rail, the tick the new slot-1 cart (from z 2..3) enters z < 2, its z at R_1's last powered tick, its rest z; the margin = the last powered tick - the entry; slot 1's rest bar z < 2.0 - margin pending; printed, not a bar): refills {} (with a new slot-1 cart {}); the margin min {} max {}; the rest z min {} max {} (the 1.28 slot); the tail at each rest (G1 18:11: the highest lane cart on the slopes) max {} against the lip volume's south edge {:.3} (the tail's box reaches it at {:.3}); sensor (A) R_2 (x,18,2)'s falling edge during the refill (ironspec 18:16): in {} of {} refills, never released in {}; the queue depth at each rest (G1 18:21 (c)) {}..{}; the evidence end's reader delay {} gt (G1 18:21 (a)); never entered (a capped refill under --r-evidence: NOT JUDGED, fails) {}; never rested {}; per refill [{}]",
+                refills.len(),
+                done.len(),
+                margins.iter().min().map_or("-".to_string(), |m| m.to_string()),
+                margins.iter().max().map_or("-".to_string(), |m| m.to_string()),
+                rests.iter().cloned().fold(None, |a: Option<f64>, b| Some(a.map_or(b, |a| a.min(b)))).map_or("-".to_string(), |v| format!("{v:.4}")),
+                rests.iter().cloned().fold(None, |a: Option<f64>, b| Some(a.map_or(b, |a| a.max(b)))).map_or("-".to_string(), |v| format!("{v:.4}")),
+                refill_tails.iter().cloned().fold(None, |a: Option<f64>, b| Some(a.map_or(b, |a| a.max(b)))).map_or("-".to_string(), |v| format!("{v:.4}")),
+                lip_lane.volume[4],
+                lip_lane.volume[4] - 0.49,
+                refill_r2.iter().filter(|r| r.1.is_some()).count(),
+                refill_r2.len(),
+                refill_r2.iter().filter(|r| r.1.is_none()).count(),
+                refill_depths.iter().min().map_or("-".to_string(), |d| d.to_string()),
+                refill_depths.iter().max().map_or("-".to_string(), |d| d.to_string()),
+                so.r_evidence_delay,
+                done.iter().filter(|r| r.3.is_none()).count(),
+                done.iter().filter(|r| r.5.is_none()).count(),
+                done.iter()
+                    .map(|r| format!(
+                        "R_1 t {}..{} cart {} enters {} z@last {} rest {}",
+                        r.0,
+                        r.1,
+                        r.2.map_or("-".to_string(), |c| c.to_string()),
+                        r.3.map_or("-".to_string(), |e| format!("t {e} (margin {})", r.1 - e)),
+                        r.4.map_or("-".to_string(), |z| format!("{z:.4}")),
+                        r.5.map_or("-".to_string(), |z| format!("{z:.4}"))
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+            // (ironspec / G1 18:21-18:22: per refill, the cart's z < 2 entry tick beside the modelled
+            // reader's tick: sensor (B)'s string rising edge and sensor (A)'s R_2 falling edge)
+            lines.push(format!(
+                "the refill latch (G8c, ironspec 18:47; tick-exact 18:37): source-led cuts {} [{}]; the trapdoor open - the evidence end per refill [{}]; the slot offsets over slot 1 at R_1's rise + 60 (z_k - z_1 - (k-1) x 0.79; max (snapshots)) [{}]; releases skipped (--skip-release) {}; per rest (G1 18:52 (2): the depth beside the tail's z; only depth 6 / 7 feed V) [{}]",
+                cut_ticks.len(),
+                cut_ticks.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
+                evidence_ends.iter().map(|(e, no)| no.map_or("-".to_string(), |no| (no - e).to_string())).collect::<Vec<_>>().join(", "),
+                snap_offsets.iter().map(|(k, (m, c))| format!("slot {k} {m:+.3} ({c})")).collect::<Vec<_>>().join(", "),
+                skipped,
+                refill_depths.iter().zip(refill_tails.iter()).map(|(d, z)| format!("{d}:{z:.3}")).collect::<Vec<_>>().join(", ")
+            ));
+            lines.push(format!(
+                "the refills' sensors per refill (ironspec 18:21 (1), G1 18:21 (a); the reader delay {} gt): [{}]",
+                so.r_evidence_delay,
+                refills
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| format!(
+                        "rise t {}: z<2 {} string {} R_2 falls {}",
+                        r.0,
+                        r.3.map_or("never".to_string(), |e| format!("t {e}")),
+                        refill_string.get(i).and_then(|s| s.1).map_or("never".to_string(), |e| format!("t {e}")),
+                        refill_r2.get(i).and_then(|s| s.1).map_or("never".to_string(), |e| format!("t {e}"))
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
         lines.push(format!(
             "the up-slope events by class (G1 Nov 13 15:19: a rollback from a rest of 5 still ticks and a short stop (1..4 still ticks) under R_1's boost fail; a short stop's bounce after a collision is printed, not a bar): rollback {}, short stop boosted {}, short stop bounce {}{}",
             rollbacks.iter().filter(|r| r.3 == "rollback").count(),
@@ -5352,6 +5614,15 @@ pub struct SidingRow {
     /// G1's 12:32 rollback fallback bar: the queue's net up-slope displacements over 0.1 block from a
     /// cart's last rest (the bar: 0).
     pub upslope_disp: usize,
+    /// G1 17:44 / ironspec 18:06: the refills' margin (min, max) and slot 1's rest z (min, max).
+    pub refill_margin: (i64, i64),
+    pub refill_rest: (f64, f64),
+    /// G1 18:11: the tail's highest z at the refills' rests.
+    pub refill_tail: f64,
+    /// G1 18:21 (b) / (c): refills whose new slot-1 cart never entered R_1 (capped), and the queue
+    /// depth (min, max) at the refills' rests.
+    pub refill_never: usize,
+    pub refill_depth: (usize, usize),
     /// The interaction row's napper pairs (ironspec Nov 13 14:47 (a)): (napper tick, napper cart,
     /// leader tick, leader cart, C-gap, box-contact ticks, push-contact ticks, the leader clear of the
     /// lip volume relative to the napper's arrival).
@@ -5555,7 +5826,7 @@ impl SidingRow {
             ("riders without the bed's HOME at t 1 (--nap-ai)", self.t1_unhomed),
             ("riders not at REST at t 1", self.t1_not_rest),
             ("releases whose feed differs from the design's drive delay", self.feed_off),
-            ("the bed's ticket not taken at t 1 (--nap-ai)", self.t1_ticket_bad),
+            ("the bed's ticket state at t 1 not the start's (--nap-ai: (ii) taken, --start-i free)", self.t1_ticket_bad),
             ("nappers without a curve rule", self.nap_no_curve),
             ("arrivals over 0.46", self.arrivals_over),
             ("the resting napper pushed", (self.push_disp > 1e-6 || self.push_speed > 1e-6) as usize),
@@ -5629,7 +5900,7 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
         } else if l.starts_with("the riders at t 1 (ironspec 07:28") {
             r.t1_unhomed = req(l, "riders without the bed's HOME at t 1 under --nap-ai (the bar: 0): ")? as usize;
             r.t1_not_rest = req(l, "riders not at REST at t 1 (the bar: 0): ")? as usize;
-            r.t1_ticket_bad = req(l, "the bed's ticket not taken at t 1 under --nap-ai (the bar: 0): ")? as usize;
+            r.t1_ticket_bad = req(l, "the bed's ticket state at t 1 not the start's (--nap-ai state (ii): taken; --start-i: free) (the bar: 0): ")? as usize;
         } else if l.starts_with("the K-row push bar's scope (ironspec 03:00)") {
             r.push_excluded = l.contains("push: out of scope (computed");
             r.push_uncovered = req(l, "rests the push grid doesn't cover (the bar: 0): ")? as usize;
@@ -5703,6 +5974,14 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
             r.ld = (req(after, ": passes ")? as usize, req(after, "contacts box ")? as usize, req(after, " push ")? as usize, req(after, "largest displacement ")?);
         } else if l.starts_with("the forced release (G1 17:00 B3)") {
             r.injected_cart = if l.ends_with(": none") { None } else { Some(req(l, "napper cart ")? as usize) };
+        } else if l.starts_with("the refills at R_1 (G1 Nov 13 17:44") {
+            // (strict: a refill sweep row needs both figures; "-" (no refill) parses as an error)
+            r.refill_margin = (req(l, "the margin min ")? as i64, req(l, "; the margin min ").and_then(|_| req(l.split_once("; the margin min ").map_or(l, |x| x.1), " max "))? as i64);
+            r.refill_rest = (req(l, "the rest z min ")?, req(l.split_once("the rest z min ").map_or(l, |x| x.1), " max ")?);
+            r.refill_tail = req(l.split_once("the highest lane cart on the slopes)").map_or(l, |x| x.1), " max ")?;
+            r.refill_never = req(l.split_once("never entered (").map_or(l, |x| x.1), "fails) ")? as usize;
+            let dl = l.split_once("the queue depth at each rest (G1 18:21 (c)) ").map_or("", |x| x.1);
+            r.refill_depth = dl.split_once("..").and_then(|(a, b)| Some((a.trim().parse::<usize>().ok()?, b.split(';').next()?.trim().parse::<usize>().ok()?))).unwrap_or((0, 0));
         } else if l.starts_with("the lip margin (ironspec 21:14 (2)") {
             let s = l.split("(stuck)): margins ").nth(1).ok_or(format!("siding_row: no lip margins in: {l}"))?;
             r.lip_min = if s.starts_with("- ") {
@@ -6080,6 +6359,32 @@ mod seed_list_tests {
         assert!(path_departure(&planted, &solo).is_some_and(|d| d > 1e-6), "a planted 2e-6 offset");
         assert!(path_departure(&solo[..3], &solo).is_some_and(|d| d > 1e-6), "a truncated tail");
         assert_eq!(path_departure(&solo, &solo), Some(0.0));
+        // (G1 17:57 N1's control through the per-tick update: still ticks 100..102 with the R_1 contact
+        // at 100, the move up at 103 -> boosted)
+        let mut bt = BoostTrack::default();
+        bt.tick(99, 2.60, 0, None);
+        bt.tick(100, 2.60, 1, Some(vec![0, 1]));
+        bt.tick(101, 2.60, 2, None);
+        bt.tick(102, 2.60, 3, None);
+        bt.tick(103, 2.63, 0, None);
+        let ticks: Vec<i64> = bt.contacts.iter().map(|c| c.0).collect();
+        assert_eq!(bt.up_start, Some(103));
+        assert_eq!(classify_short_stop(103, &ticks, 10), "short stop, boosted", "a contact on a stop's first still tick survives its later still ticks");
+        // (G1 17:57 N3's control: stop, a bounce +0.11 along the rail, a stop higher, then +0.11 again
+        // -> a second event)
+        let at = |z: f64| (3.5, 18.0 + z, z);
+        let up = |z: f64, d: f64| {
+            let h = d / std::f64::consts::SQRT_2;
+            (3.5, 18.0 + z + h, z + h)
+        };
+        let mut u = UpSlope::default();
+        for z in [3.0, 3.0] {
+            let _ = u.step(at(z));
+        }
+        assert!(matches!(u.step(up(3.0, 0.11)), Some(UpEvent::ShortStop(_))), "the first bounce");
+        let higher = up(3.0, 0.11).2;
+        let _ = u.step(at(higher));
+        assert!(matches!(u.step(up(higher, 0.11)), Some(UpEvent::ShortStop(_))), "a second event from the higher stop");
         // (the full-precision print round-trips the planted offset)
         let s = format!("{}", planted[3].3);
         assert_eq!(s.parse::<f64>().unwrap(), planted[3].3);
@@ -6190,6 +6495,12 @@ mod official_row_tests {
             r_delay: 0,
             boost_window: 10,
             start_i: false,
+            r_evidence: None,
+            r_evidence_delay: 0,
+            r_evidence_string: true,
+            r_second: None,
+            skip_release: None,
+            r_offgap: false,
             d_slope: true,
             out: None,
             no_walkway: false,
