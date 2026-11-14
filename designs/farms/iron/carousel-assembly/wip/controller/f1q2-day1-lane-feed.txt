@@ -1,0 +1,15 @@
+# day-1's LANE -1 FEED repeater (vcompose's group G, V rev 1), the owner file: the delay-3 repeater on the lane -1 feed's
+# timing chain (ironfarm 22:52: day-1's), standing on its glass.
+# Source: rev 3 (record7f13b) lines left uncovered by V rev 0 (vcompose's ledger a/2641378383001949), claimed by day-1
+# 23:00 (ironspec 23:06 (5)); the cells are exactly rev 3's, unchanged.
+# Direction: 26.3's convention (a repeater's FACING is its input side): facing=west, so it reads (-5,22,9) and drives
+# (-3,22,9), delay 3 (6 gt).
+name: f1q2-day1-lane-feed
+origin: -4 21 9
+palette:
+  G minecraft:glass
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+layer 0:
+  G
+layer 1:
+  R

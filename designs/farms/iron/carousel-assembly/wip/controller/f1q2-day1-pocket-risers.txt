@@ -1,0 +1,28 @@
+# day-1's POCKET RISERS (vcompose's group E, V rev 1), the owner file: the dust and glass that carry each M16bw side drive's
+# line up into the station's pocket drive repeater east of it (the repeaters themselves are dfb89499's station file).
+# Source: rev 3 (record7f13b) lines left uncovered by V rev 0 (vcompose's ledger a/2641378383001949), claimed by day-1
+# 23:00 (ironspec 23:06 (5)); the cells are exactly rev 3's, unchanged.
+# Direction (ironspec 22:59 (2), 9fc3155f's wire-link static, `mobfarm dust-steps`): every step here is a RISE: power
+# enters at y -1 (from the west at x -6 for the first riser; from the north at z -2 for the other two) and climbs to the
+# y 0 wire, which points east into the drive repeater: (-5,-1,0) -> (-4,-1,0) -> up to (-3,0,0) -> repeater (-2,0,0);
+# (0,-1,-1) -> (0,-1,0) -> up to (1,0,0) -> repeater (2,0,0); (4,-1,-1) -> (4,-1,0) -> up to (5,0,0) -> repeater (6,0,0).
+# The upper wire never feeds the lower, so the three glass-supported down-blocked steps the static found are by design:
+# --allow-one-way U>L at (-3,0,0)/(-4,-1,0), (1,0,0)/(0,-1,0), (5,0,0)/(4,-1,0) (reason: power flows up into the
+# pocket drive; the downward direction carries nothing and needs nothing).
+name: f1q2-day1-pocket-risers
+origin: -5 -2 -1
+palette:
+  G minecraft:glass
+  a minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  b minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  c minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  d minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+layer 0:
+  .....G...G.
+  GG...G...G.
+layer 1:
+  .....c...c.
+  abG..dG..dG
+layer 2:
+  ...........
+  ..a...a...a
