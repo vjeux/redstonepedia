@@ -218,9 +218,10 @@ impl Default for CounterOpts {
 /// sustained-presence release puts the park at the wake + 22 (RLS + 2, the trim), so every visit's entry -> R draws
 /// this much longer.
 pub const RELEASE_SHIFT: i64 = 14;
-/// The adopted stop's wake -> R (ctl-shutter 17:24: the departure at the wake + 38..44, R 13..15 after it; the worst):
-/// a skip-woken sleeper (class a) leaves through R this long after REST's end wakes it.
-pub const WAKE_TO_R: i64 = 59;
+/// The adopted stop's wake -> R (ctl-shutter: boarding at the wake + 37..43, the departure LEAVE 2 later, R 13..15
+/// after it: the worst 60; G1's N6 on a2186649e): a skip-woken sleeper (class a) leaves through R this long after REST's
+/// end wakes it.
+pub const WAKE_TO_R: i64 = 60;
 
 /// A scripted event: a night skip (at the event's game time, after the 100 gt asleep: the day jumps
 /// to the next 24,000 and the weather flags clear), or the weather flags set (vanilla `raining` /
