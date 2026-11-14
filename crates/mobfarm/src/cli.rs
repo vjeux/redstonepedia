@@ -3348,6 +3348,18 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         shell_box: Vec<String>,
     },
+    /// (ironspec Nov 13 19:11 / 19:13 / 19:45 (c), G1 20:02 / 21:38) The components a cell's state
+    /// change can trigger: each --cell (a string, a hook, a pressure plate or a detector rail; anything
+    /// else is NOT JUDGED) with its update footprint in the settled design (a hook's and its support's
+    /// neighbours, a plate's or detector's and the block under it, an attached string's and each of its
+    /// hooks' footprints), every observer, piston (or head), dropper or dispenser there listed; fails on
+    /// any (bar 0).
+    UpdateReach {
+        design: PathBuf,
+        /// A cell x,y,z whose state changes (a string, a detector, a plate; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
+    },
     /// (farmopt / tick-exact Nov 13 00:16) The hostile sensor at a villager's position: every hostile
     /// the design holds, its sensor range, the feet-to-feet distance and the eye-to-eye sight ray;
     /// those in NEAREST_HOSTILE with an occluder each (glass on every ray to the points, none on a
@@ -9814,6 +9826,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let hostile = redsim::entity::Vec3::new(f[0], f[1], f[2]);
             let heye = eye.unwrap_or_else(|| crate::fleecheck::eye_of(redsim::entity::mob::types::MobType::Zombie));
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), Some((hostile, heye)), &[])?;
+        }
+        MobfarmCmd::UpdateReach { design, cell } => {
+            let (_c, spec) = load(version, &design)?;
+            let mut cells = Vec::new();
+            for p in &cell {
+                let v: Vec<i32> = p.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--cell {p}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--cell {p}: x,y,z");
+                cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
+            anyhow::ensure!(!cells.is_empty(), "update-reach: NOT JUDGED: no --cell");
+            let (lines, n) = crate::fleecheck::update_reach_components(&spec, &cells).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "the update reach: {n} observer / piston / dropper / dispenser(s) (bar 0)");
         }
         MobfarmCmd::SensorAt { design, at, feet, exclude, set, hold, through } => {
             let (_c, spec) = load(version, &design)?;
