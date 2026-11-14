@@ -88,6 +88,21 @@ pub fn portal_planes(blocks: &BTreeMap<[i32; 3], String>) -> Vec<Plane> {
     out
 }
 
+/// (G1 Nov 14 13:40 (2), part 90: the library entry every caller shares, the battery harness's and the paste path's
+/// precondition) Every plane of a design, its overworld and its Nether part (each in its own coordinates), checked:
+/// Ok(the number of planes) when every one stands, Err(one line per failing plane, `overworld|Nether axis A interior
+/// lo..hi: failures`) otherwise.
+pub fn check(d: &mctas::design::Design) -> Result<usize, Vec<String>> {
+    let mut planes: Vec<(&str, Plane)> = portal_planes(&d.blocks).into_iter().map(|p| ("overworld", p)).collect();
+    planes.extend(portal_planes(&d.nether_blocks).into_iter().map(|p| ("Nether", p)));
+    let bad: Vec<String> = planes
+        .iter()
+        .filter(|(_, p)| !p.failures.is_empty())
+        .map(|(w, p)| format!("{w} axis {} interior {},{},{}..{},{},{}: {}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2], p.failures.join("; ")))
+        .collect();
+    if bad.is_empty() { Ok(planes.len()) } else { Err(bad) }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -129,5 +144,11 @@ mod tests {
         let z: BTreeMap<[i32; 3], String> = plane(None).into_iter().map(|([x, y, _], s)| ([0, y, x], s.replace("axis=x", "axis=z"))).collect();
         let r = super::portal_planes(&z);
         assert!(r.len() == 1 && r[0].axis == 'z' && r[0].failures.is_empty(), "{r:?}");
+        // (part 90) the library entry: a design's overworld and Nether planes, Ok(count) or the failing planes by name
+        let mut d = mctas::design::Design { blocks: plane(None), nether_blocks: plane(None), ..Default::default() };
+        assert_eq!(super::check(&d), Ok(2), "both worlds' planes stand");
+        d.nether_blocks.remove(&[2, 0, 0]);
+        let e = super::check(&d).unwrap_err();
+        assert!(e.len() == 1 && e[0].starts_with("Nether axis x interior 1,1,0..3,3,0: the bottom frame cell 2,0,0 is air"), "{e:?}");
     }
 }
