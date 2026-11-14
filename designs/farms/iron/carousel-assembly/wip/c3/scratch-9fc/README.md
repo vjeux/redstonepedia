@@ -12,3 +12,6 @@ V rev 1 + the parts named, laid with `mctas mobfarm edit`; none is a design of r
 - `v-str2.txt` (d1ce0914f13e): v-c3r5E + attached strings at (9,-9,-4) and (9,-10,-3) (the coverage audit).
 - `layout-n4-x8-lc.txt` (335d13ddfff6) + `layout-n4-x8.positions.txt` (c8bc37b7e421): loaderlay's N = 4 layout
   with its portal cells as air and its villager passengers stripped (lightning only).
+- `v-r5d.txt` (cb4c60b880b8): V rev 1 + the stop record + F3 r5 + day-1's glass (E′'s base, before its 22 cells).
+- `v-E2-ctl.txt` (6ca9610ca1aa): v-r5dE + a dust on glass beside lane -1's slime at (-2,16,-1) (power-out's positive control).
+- `v-E2-ds.txt` (5872515988f4): v-r5dE + a one-down dust step beside lane -1's slime (upper (-2,17,-2) on glass, lower (-2,16,-1)) (dust-steps' positive control).
