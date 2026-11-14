@@ -14,6 +14,7 @@ mod cmd;
 /// `mctas test` (the tests of this change) and `mctas recorded` (the recordings' manifests):
 /// top-level commands whose arguments and bodies live here, next to `door selftest`.
 pub use cmd::checks::{RecordedCmd, TestArgs, cmd_recorded, cmd_test};
+pub use cmd::review::{ReviewMapArgs, cmd_review_map};
 
 #[derive(Subcommand)]
 pub enum DoorCmd {
