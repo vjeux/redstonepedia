@@ -42,6 +42,43 @@ fn standin(b: &mut Builder, c: [i32; 3], s: &str) -> Result<()> {
     Ok(())
 }
 
+/// (ironfarm 12:10, ironspec 12:14p: the closed role enum) The harness's role for a stand-in it
+/// throws (`drive=<role>` inside its `emulated:` entry's parentheses): the controller input the
+/// stand-in emulates.
+fn drive_role(c: [i32; 3]) -> Option<&'static str> {
+    match c {
+        LATCH_RLS_IN => Some("stop-rls"),
+        LATCH_ARM_IN => Some("stop-arm"),
+        K_CTRL => Some("stop-k"),
+        WAKER_CTRL | FOLD_WAKER_CTRL => Some("stop-f"),
+        _ => None,
+    }
+}
+
+/// The support cell an `emulated:` entry names first inside its parentheses (the ruled grammar,
+/// ironspec 12:12p / 12:13p: `x,y,z=STATE (support=X,Y,Z; drive=<role>; why)`): a floor lever, a rail,
+/// dust or a diode stands on the cell below, a ceiling lever hangs from the cell above, a wall lever
+/// or a hook from the cell behind its face; None (no `support=`) only for a block that needs none.
+fn support_of(c: [i32; 3], state: &str) -> Option<[i32; 3]> {
+    if !crate::column::needs_support(state) {
+        return None;
+    }
+    let prop = |k: &str| state.split(['[', ',', ']']).find_map(|kv| kv.strip_prefix(k).and_then(|v| v.strip_prefix('='))).unwrap_or("");
+    let n = state.trim_start_matches("minecraft:");
+    Some(if n.starts_with("lever") && prop("face") == "ceiling" {
+        [c[0], c[1] + 1, c[2]]
+    } else if (n.starts_with("lever") && prop("face") == "wall") || n.starts_with("tripwire_hook") {
+        match prop("facing") {
+            "north" => [c[0], c[1], c[2] + 1],
+            "south" => [c[0], c[1], c[2] - 1],
+            "east" => [c[0] - 1, c[1], c[2]],
+            _ => [c[0] + 1, c[1], c[2]],
+        }
+    } else {
+        [c[0], c[1] - 1, c[2]]
+    })
+}
+
 /// The stop's local frame. Its ORIGIN frame was the fold's: loop = local + (0,-27,-1) (the stop 9
 /// down, ironspec 12:23; onechunk's module explore/farmopt-onechunk2 f52f712d7); the re-laid stop
 /// sits in V's loop frame at [`V_OFFSET`].
@@ -768,6 +805,26 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
 pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool, rs_ready: bool, park_sense: bool, relaid: Option<i32>, sensor_west: bool, stamp_route: bool, latch_b: bool, seal_p: bool) -> Result<String> {
+    let (mut b, lines) = design_a2_inner(bench, loop_booster, head_open, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense, relaid, sensor_west, stamp_route, latch_b, seal_p)?;
+    // (ironspec 10:37a (1), car 7: a bench file declares every bench-only cell as `emulated:`, the
+    // only key settle-check exempts, listed by diffing it against its own record so the list can't
+    // drift from what the bench lays; the bench's stand-in guard reads its own declarations
+    // (`--declare-emulated`), never this key, so it keeps judging every stand-in against its reach)
+    if bench {
+        let (rec, _) = design_a2_inner(false, loop_booster, head_open, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense, relaid, sensor_west, stamp_route, latch_b, seal_p)?;
+        // (the ruled grammar, ironspec 12:12p / 12:13p: `x,y,z=STATE (support=X,Y,Z; drive=<role>; why)`:
+        // the state alone before " (", then support= first and drive= second, `;`-separated, then the
+        // reason; support= omitted only for a block that needs none)
+        let only: Vec<String> = b.d.blocks.iter().filter(|(c, s)| rec.d.blocks.get(*c) != Some(*s)).map(|(c, s)| format!("{},{},{}={} ({}{}bench only: a stand-in, its support or the bench's run-out / queue rail, the record leaves {})", c[0], c[1], c[2], s.trim_start_matches("minecraft:"), support_of(*c, s).map_or(String::new(), |p| format!("support={},{},{}; ", p[0], p[1], p[2])), drive_role(*c).map_or(String::new(), |r| format!("drive={r}; ")), rec.d.blocks.get(c).map_or("air".to_string(), |r| r.trim_start_matches("minecraft:").to_string()))).collect();
+        if !only.is_empty() {
+            b.d.meta.insert("emulated".into(), only.join("; "));
+        }
+    }
+    let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+    Ok(b.text(&refs))
+}
+
+fn design_a2_inner(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool, rs_ready: bool, park_sense: bool, relaid: Option<i32>, sensor_west: bool, stamp_route: bool, latch_b: bool, seal_p: bool) -> Result<(Builder, Vec<String>)> {
     anyhow::ensure!(!seal_p || relaid.is_some(), "--seal-p is the re-laid stop's: with --relaid");
     anyhow::ensure!(!latch_b || relaid.is_some(), "--latch-b is laid on the re-laid stop: with --relaid 1");
     anyhow::ensure!(!sensor_west || relaid.is_some(), "--bed-sensor-west is the re-laid stop's candidate: with --relaid");
@@ -1411,9 +1468,10 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             over(&mut b, [2, -1, 1], "glass");
             // (G1 12:26, non-blocking: the reset row's end dust points at the controller's input cell)
             lines.push(format!("Open input (G1 12:26): the dust (5,-2,-5)'s east side points at ARM_IN ({},{},{}), the controller's input cell, empty in the record (the stop-arm stand-in, then subsystem 5's driver, lands there).", LATCH_ARM_IN[0], LATCH_ARM_IN[1], LATCH_ARM_IN[2]));
-            lines.push("The P_HOLD latch (day-1's form (b), a/1902620467569082; latching in 26.3, tick-exact a/1841767613704681), transplanted one level down (rig (x,0,z) -> stop (x+2,-2,z-2), every wire and repeater on glass at y -3): B2 (2,-2,-2) stone, QBAR (3,-2,-2) wall torch, BASE (5,-2,-2) stone, Q (6,-2,-2) wall torch; the branch repeater (2,-2,-3) and the reset repeater (5,-2,-3) facing north; the reset chain five delay-2 repeaters (0..4,-2,-6) facing west (20 gt); Q's feedback along z 0 into B2's south face; the OR line RLS + Q climbs (0,-2,1) -> (1,-1,1) on glass (1,-2,1) -> (2,0,1) on glass (2,-1,1) into the drive repeater (2,0,2); Q's tap line along x 8 and z 2 into the slope's tap repeater (1,-2,4) (TAP = Q + 2); RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) are the logic block's inputs (ARM held >= 3 gt; RLS's source a component, never a torch on a block: Q backfeeds the OR line); expected PARK lit [RLS + 2, RLS + 26).".to_string());
+            lines.push("The P_HOLD latch (day-1's form (b), a/1902620467569082; latching in 26.3, tick-exact a/1841767613704681), transplanted one level down (rig (x,0,z) -> stop (x+2,-2,z-2), but the reset row one cell north at z -5 since the column re-lay; every wire and repeater on glass at y -3): B2 (2,-2,-2) stone, QBAR (3,-2,-2) wall torch, BASE (5,-2,-2) stone, Q (6,-2,-2) wall torch; the branch repeater (2,-2,-3) and the reset repeater (5,-2,-3) facing north; the reset chain five delay-2 repeaters (0..4,-2,-5) facing west (20 gt; the row at z -5 since the column re-lay, ironspec 08:12a, its ends the dusts (-1,-2,-5) and (5,-2,-5)); Q's feedback along z 0 into B2's south face; the OR line RLS + Q climbs (0,-2,1) -> (1,-1,1) on glass (1,-2,1) -> (2,0,1) on glass (2,-1,1) into the drive repeater (2,0,2); no tap line (no exit hold, ironspec 05:33 / 06:11: Q drives only the park); RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) are the logic block's inputs (ARM held >= 3 gt; RLS's source a component, never a torch on a block: Q backfeeds the OR line); expected PARK lit [RLS + 2, RLS + 26).".to_string());
             // (9fc3155f 06:19, part 51: the OR line's climb into the drive repeater steps UP over
             // glass, never down: declared one-way by its upper dust, the direction named)
+            lines.push("Keep-free (vcompose 12:04, 58f770cc 12:06): (1,-1,0) and (0,-1,1) stay EMPTY: the dust (1,-1,1)'s north and west sides are its step-down connections to the OR line's dusts (1,-2,0) and (0,-2,1) one level below; a block in either cell cuts that step and the OR line's feed (they are not open ends: the controller drives RLS_IN and ARM_IN only).".to_string());
             lines.push("one-way: 2,0,1=the OR line's climb into the drive repeater (2,0,2): the latch's signal (RLS / Q on y -2) flows UP over glass into the drive, never down (the PARK window lit [RLS + 2, RLS + 26) on every bench visit carries it end to end); 1,-1,1=the same climb's first up-step, from (0,-2,1) and (1,-2,0) below it".to_string());
             // (vcompose 10:10 / 9fc3155f 05:00: the glass over the latch's two stones is load-bearing)
             lines.push("Load-bearing (9fc3155f 05:00, vcompose 10:10): the glass (2,-1,-2) and (5,-1,-2) covers the latch's stones (2,-2,-2) / (5,-2,-2), which hold the wall torches (3,-2,-2) / (6,-2,-2); without it each stone's top is an off-pad golem floor and an unreachable stroll target; fault: a cover glass lost; repair: the glass replaced.".to_string());
@@ -1463,7 +1521,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.retain(|l| !(l.starts_with("The bed stop (A) with the run-up") || l.starts_with("E sets the rider down on the bed foot's top") || l.starts_with("The drives, no lever and no stand-in in this file") || l.starts_with("The bench file lays the stand-in levers")));
         lines.insert(0, format!("The bed stop (A), re-laid (ironspec 21:42 -> 00:08; local frame; V's loop frame = local + ({vo0},{vo1},{vo2}), V rev 3.1's placement (G1 12:26 [5]: the fold's (0,-27,-1) is this frame's origin only); the bed's head at (-3,0,4)): A6's arrival (the entry booster, the slope down, the capped flat, the curve south, the flats), the arming detector ARM (-2,0,1), the activator E (-2,0,2) (always on: its torch (-3,0,2) on glass), K (-2,0,3) the driven T (north_east for the arrival onto the siding, south_east for the return to P), the siding (-1,0,3) / (0,0,3) out and back, the park ({px},0,3) a braked powered rail ascending east on its slime ({},0,3) under glass ({},3,3), its drive a plain repeater ({},0,2) facing north, the pickup cell P (-2,0,4) straight north_south, A6's exit (the cap (-2,1,5), the curve, the capped booster, the slope (1,-1,5) a plain rail (no exit hold: lane 7's braked R holds outside the bed's 16-ball, ironspec 05:33 / 06:04), R (4,-1,5) a plain rail (RS_ready's evidence is V's ball-exit detector (7,-3,4), outside the 16-ball: ironspec 07:30), the napper lift's foot (6,-1,5) two cells on).", px + 1, px + 1, px + 1, vo0 = V_OFFSET[0], vo1 = V_OFFSET[1], vo2 = V_OFFSET[2]));
         lines.insert(1, "E sets the rider down on the bed head's top (the landing in `stand-up:`): SleepInBed fires at once. The empty cart runs E -> K -> the siding and brakes on the park; DAY-1's controller (rev 20:00) opens the window once the napper sleeps; the zombie wakes it; it stands up on P (its only stand-up cell) and presses P_STRING; RLS releases the park (PARK [RLS + 2, RLS + 26) by day-1's form-(b) latch in the -latch file, the bench's named stand-in in the plain file); the cart runs back through K (south_east) into P, seats the napper and runs on through R to the napper lift (RS_ready is V's: the ball-exit detector (7,-3,4)). One cart per visit, the park released once per visit.".to_string());
-        lines.insert(2, format!("The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's ({},{},{}) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2]));
+        lines.insert(2, format!("The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's ({},{},{}) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2), but the reset row at z -5), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2]));
         // (the re-laid bench file's own stand-ins, not the fold's (its park drive (2,-1,4)))
         if bench {
             lines.insert(3, format!("The bench file lays the stand-in levers (bench overrides, never in the record): ({},{},{}) the shutter's drive (the controller unpowers it to open the window and powers it to shut it); (-2,-2,3) K's drive (a ceiling lever under K's slime (-2,-1,3)); {}", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2], if latch_b { "RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5), floor levers on glass (the latch's inputs; ARM_IN follows ARM's detector power)." } else { "(2,0,1) the park's drive (a floor lever on glass into the repeater (2,0,2))." }));
@@ -1515,8 +1573,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.push(format!("Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at ({},{},{}), its cage inside the stop's footprint to z {}) to the exit's rider positions within 6; fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the exit); repair: the glass replaced.", WAKER_POST_S[0], WAKER_POST_S[1], WAKER_POST_S[2], WAKER_POST_S[2] + 1));
         lines.push(format!("The re-laid stop (ironspec 21:42 / 21:51 / 22:58, 58f770cc 21:44 / 22:32): P (-2,0,4) straight north_south and dry, reached from the north through K; the empty cart's out-and-back siding along z 3, all dry (ironspec 23:40 (1): no water at the stop): K, (-1,0,3) .. ({},0,3) plain, the park ({px},0,3) a braked powered rail ascending east; its drive the slime ({},0,3) by the repeater ({},0,2) from its input ({},0,1) (DAY-1's PARK line; the bench's stand-in a redstone block there); SENSED a tripwire over the park cell ({px},1,3), hooks ({px},1,2) / ({px},1,4) on glass ({px},1,1) / ({px},1,5): pressed while the cart rests on the slope (its box's top past 1.0625), released when it leaves; P_STRING east-west at (-2,1,4), hooks (-3,1,4) on (-4,1,4) and (-1,1,4) on (0,1,4); (-1,0,4) and (-1,2,4) glass; no head-top guard (ironspec 23:40 (3)(a)); the bed column's keep-clear (-3,2,4) (-3,3,4) guards the riders' HOME route's final drop onto the head node (-3,1,4), which holds P_STRING's west hook by design (no collision box: the route completes onto it, 9fc3155f 01:01; vcompose 03:28 / ironspec 03:30 (3)).", px - 1, px + 1, px + 1, px + 1));
     }
-    let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
-    Ok(b.text(&refs))
+    Ok((b, lines))
 }
 
 /// (ironspec 06:14 / G1, tick-exact's on-farm re-claim question) The strand's dusk on (A)'s bed
@@ -9813,6 +9870,38 @@ mod tests {
         assert_eq!(strip(&text), strip(&committed), "the fold changed beyond the strings' and the placeholder's lines");
         assert!(text.contains("# Load-bearing (G1 10:16, tick-exact 10:13): the lone guard strings"));
         assert!(text.contains("# Fold placeholder, not for build (ironspec 10:37a)"));
+    }
+
+    /// (ironspec 10:37a (1), car 7: every bench-only cell declared `emulated:`, by diff against the
+    /// record; the record declares none)
+    #[test]
+    fn the_bench_files_declare_their_emulated_cells() {
+        for latch in [false, true] {
+            let bench = design_a2(true, false, true, true, true, true, false, true, false, true, Some(1), false, false, latch, true).unwrap();
+            let rec = design_a2(false, false, true, true, true, true, false, true, false, true, Some(1), false, false, latch, true).unwrap();
+            let em = bench.lines().find(|l| l.starts_with("emulated: ")).expect("the bench file declares its emulated cells");
+            assert!(em.contains("-2,-2,3=lever[face=ceiling,facing=north,powered=true] (support=-2,-1,3; drive=stop-k; "), "K's stand-in lever declared, hung from K's slime: {em}");
+            assert!(em.contains(&format!("{},{},{}=lever[face=floor,facing=north,powered=true] (support={},{},{}; drive=stop-f; ", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2], WAKER_CTRL[0], WAKER_CTRL[1] - 1, WAKER_CTRL[2])), "the shutter's stand-in declared on its glass");
+            assert!(if latch { em.contains("-1,-2,-2=lever[face=floor,facing=north,powered=false] (support=-1,-3,-2; drive=stop-rls; ") && em.contains("6,-2,-5=lever[face=floor,facing=north,powered=false] (support=6,-3,-5; drive=stop-arm; ") } else { em.contains("2,0,1=lever[face=floor,facing=north,powered=false] (support=2,-1,1; bench only") });
+            assert!(em.contains("=glass (bench only"), "a glass block needs no support: no support= at all");
+            // (the ruled grammar, read the way part 72's one parser reads it: the state alone before
+            // " (", then inside the parentheses support= first, drive= second, `;`-separated; one
+            // parser per rule: this test switches to declkeys::emulated_entries once 9fc3155f's
+            // parsers car is on main)
+            for e in crate::pushscan::header_entries(&format!("# {em}"), "emulated:") {
+                let (head, rest) = e.split_once(" (").unwrap_or_else(|| panic!("an entry without its parentheses: {e}"));
+                let (_cell, state) = head.split_once('=').unwrap_or_else(|| panic!("an entry without its state: {e}"));
+                assert!(!state.contains(' '), "the state alone before \" (\": {e}");
+                let fields: Vec<&str> = rest.trim_end_matches(')').split("; ").collect();
+                let needs = crate::column::needs_support(state);
+                assert_eq!(fields[0].starts_with("support="), needs, "support= first exactly when the block needs one: {e}");
+                if let Some(i) = fields.iter().position(|f| f.starts_with("drive=")) {
+                    assert_eq!(i, if needs { 1 } else { 0 }, "drive= right after support=: {e}");
+                }
+                assert!(!fields.iter().any(|f| *f == "support=none"), "support=none is refused: {e}");
+            }
+            assert!(!rec.lines().any(|l| l.starts_with("emulated: ")), "the record declares no emulated cell");
+        }
     }
 
     /// (the re-laid header's contact declarations and their speed sets parse with the judge's own
