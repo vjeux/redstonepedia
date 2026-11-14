@@ -901,7 +901,7 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
     // (cc767b78, G1 14:55 H2) any other light read the check needed that failed (the golems' and the
     // statics' sky, the fire spread's rain test): each a failure, listed first (the cap of 8 never cuts
     // them)
-    let light: Vec<String> = w.take_light_errors().into_iter().map(|e| format!("lightning: a light read failed (pending since the world's last tick or take: it may predate this check): {e}")).collect();
+    let light: Vec<String> = w.take_light_errors().into_iter().map(|e| format!("lightning: a light read failed (untaken since the world's last take: pending, or moved into its errors by a tick: it may predate this check): {e}")).collect();
     out.splice(0..0, light);
     out
 }
@@ -1319,10 +1319,10 @@ pub fn measure_own(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64
     }
     m.natural_in_reach = reach.natural.iter().filter(|p| !reach.own.contains(p)).count() as u32;
     // (cc767b78, G1 14:55 H2) a light read the measure's fire reach needed that failed: the measure is
-    // refused (the fire spread's rain test records them; pending since the world's last tick or take)
+    // refused (the fire spread's rain test records them; untaken since the world's last take: pending, or moved into its errors by a tick)
     let errors = w.take_light_errors();
     if !errors.is_empty() {
-        return Err(format!("lightning: {} light read(s) failed (pending since the world's last tick or take: some may predate this measure): {}", errors.len(), errors.join("; ")));
+        return Err(format!("lightning: {} light read(s) failed (untaken since the world's last take: pending, or moved into its errors by a tick: some may predate this measure): {}", errors.len(), errors.join("; ")));
     }
     Ok(m)
 }
