@@ -1,6 +1,13 @@
 # V's way-in, seat and R1 re-route (b8949c96, Nov 13 2026; ironspec 20:35 (2) (c), day-1 20:40)
 # Frame: the module (loop) frame, as the (b+) file de143a70 and record7f13b. V's stop = 58f770cc's fold bfa0c8098 at loop = local + (0,-20,-1)
 # base: designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt
+# base-md5: ea985422495c77636591c505a2bbab1b (main's V, rev 2.1 with WAYIN rev 2, at f76916e02; REQUIRED: vcompose's composer
+# refuses this file on any other base by name; ironspec 13:09p)
+# How it is verified (ironspec 13:09p, G1 13:06's route): vcompose COMPOSES V + this file (its --delta path), then the existing
+# settle-check and would-pop run on the composed record. Against V this file is an 8-cell change (G1's count): 48 lays repeat
+# V's own cells (harmless repeats under vcompose's owner rule), 4 re-lay V's WAYLEG rails (the boosters (9,22,-4) / (9,22,2),
+# the exit detector (9,22,3), the braked P1 (9,22,5): composer --supersede entries naming this file, both states printed), and
+# 4 are new on air; the bare REMOVE lines below target the cells of vcompose's earlier parts and change nothing on V itself.
 # (bed head (-3,-20,3), ENTRY (3,-18,-5), its torch (3,-18,-6) on glass (3,-19,-6): 58f770cc's cells, not listed here).
 # Rule: today's way-in raised 4 above the drop (the queue (9,-14,-4) -> (9,-10,-4): the seat 17.154 from the head's centre, 9fc3155f's
 # convention), the drop and the roll raised 7 (the roll at y -18 into ENTRY), R1's N group re-routed down to y -10 (day-1 20:40), the
@@ -126,9 +133,6 @@
 ## (9,21,5) stays glass until day-1's token cells say otherwise;
 ## its rest range z 5.1222..5.7322 (148 roll-ins at 0.10..0.46 x 4 phases) is redsim's slope rests, GAME-CONFIRMED within
 ## 0.007 (tick-exact's roll-in 04:48, a/1136138559338059: ridden 5.1284..5.7349, empty 5.1410..5.7611)
-## (ironspec 11:52a, vcompose's trial compose 11:49) V's leg rail here CLEARED first by this file (a bare line), then re-laid:
-## one owner, no precedence line (the compose ledger prints both states and the owner)
-9,22,5
 9,22,5 minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
 ## booster 1 (ironspec 02:49, cites for normal running 03:34; the TORCH FORM adopted 04:37, G1 04:36: the block's solid-render
 ## top added an unreached calm stroll target each to (-1,22,6) and (3,22,6), which arms a stamp; 9fc3155f 04:32: with both
@@ -141,8 +145,6 @@
 ## (G1 02:50; 9fc3155f 02:51 / 04:32 / 05:14: each torch's only consumer is its booster; the block above each torch is air);
 ## read POWERED on every tick of the leg-train rows (1,500 / 1,800 ticks, R6 9f1877688)
 # always-on: 8,22,-4=booster 1's torch: lit on a glass pane (8,21,-4) that can't be powered, so it never toggles
-## (ironspec 11:52a) V's leg rail here CLEARED first (a bare line), then re-laid
-9,22,-4
 9,22,-4 minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
 8,22,-4 minecraft:redstone_torch[lit=true]
 8,21,-4 minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=false]
@@ -154,8 +156,6 @@
 ## empty all-phase 0.27; the game 0.38766); the torch: no collision box, the cart's box (x 9.01..9.99) passes beside it; read
 ## POWERED on every tick of the leg-train rows
 # always-on: 8,22,2=booster 2's torch: lit on a glass pane (8,21,2) that can't be powered, so it never toggles
-## (ironspec 11:52a) V's leg rail here CLEARED first (a bare line), then re-laid
-9,22,2
 9,22,2 minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
 8,22,2 minecraft:redstone_torch[lit=true]
 8,21,2 minecraft:glass_pane[east=true,north=false,south=false,waterlogged=false,west=false]
@@ -165,8 +165,6 @@
 ## P1's exit detector (day-1 06:07 / G1 05:23, b8949c96 05:20: two cells from P1, never (9,22,4), whose press would power P1):
 ## its rising edge CLEARS the token (reset-dominant); its power reaches booster 2 (9,22,2), already always on, and its glass
 ## support (9,21,3), which conducts nothing; day-1's file owns its tap and line
-## (ironspec 11:52a) V's leg rail here CLEARED first (a bare line), then re-laid
-9,22,3
 9,22,3 minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
 #
 # REMOVE (x,y,z): today's way-in cells V doesn't keep (moved above, or dropped)
