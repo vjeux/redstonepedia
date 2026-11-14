@@ -5375,6 +5375,49 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
     Ok((lines, bad))
 }
 
+/// (G1 Nov 13 21:30, ironspec 21:32: component-bound cells, kind and facing asserted) Each expectation
+/// `x,y,z=ID[key=value,...]` against the settled design: the cell's block id must be ID and every listed
+/// property must hold (a repeater facing B2, a torch, a diode's facing). Returns the lines and the count
+/// of failures; an expectation that doesn't parse errs.
+pub fn assert_blocks(spec: &FarmSpec, expect: &[(BlockPos, String)]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    for (c, want) in expect {
+        let want = want.trim().trim_start_matches("minecraft:");
+        let (id, props) = match want.split_once('[') {
+            Some((i, rest)) => (i.to_string(), rest.trim_end_matches(']').split(',').filter(|s| !s.trim().is_empty()).map(|s| s.trim().to_string()).collect::<Vec<_>>()),
+            None => (want.to_string(), Vec::new()),
+        };
+        if id.is_empty() || props.iter().any(|p| !p.contains('=')) {
+            return Err(format!("assert-blocks: {},{},{}={want}: expected ID[key=value,...]", c.x, c.y, c.z));
+        }
+        let have = w.get(*c).to_string();
+        let have = have.trim_start_matches("minecraft:");
+        let have_id = have.split('[').next().unwrap_or("");
+        let have_props: Vec<&str> = have.split_once('[').map(|(_, r)| r.trim_end_matches(']').split(',').collect()).unwrap_or_default();
+        let missing: Vec<&String> = props.iter().filter(|p| !have_props.contains(&p.as_str())).collect();
+        let ok = have_id == id && missing.is_empty();
+        if !ok {
+            bad += 1;
+        }
+        lines.push(format!(
+            "component {},{},{}: expected {want}, holds {have}: {}",
+            c.x,
+            c.y,
+            c.z,
+            if ok {
+                "PASS".to_string()
+            } else if have_id != id {
+                format!("FAIL (the block is {have_id}, not {id})")
+            } else {
+                format!("FAIL ({} doesn't hold)", missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+            }
+        ));
+    }
+    Ok((lines, bad))
+}
+
 /// (ironspec Nov 13 20:39 / 20:43, G1 20:42 / 21:38, ironfarm 20:41) The band-contact audit of every
 /// string: a tripwire presses only when a box meets its outline (the band: attached y + 1/16..2.5/16,
 /// loose y 0..8/16, its full cell in x and z; 26.3's `getEntityInsideCollisionShape`), and the game tests
@@ -9429,6 +9472,28 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+    }
+
+    /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: a repeater
+    /// facing west passes its expectation; the wrong facing fails naming the property; the wrong kind
+    /// fails naming the block; a malformed expectation errs.
+    #[test]
+    fn assert_blocks_kind_and_facing() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = vec![(b(1, 1, 1), p("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"))];
+        for x in 0..=2 {
+            for z in 0..=2 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(2, 2, 2), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, n) = super::assert_blocks(&spec, &[(b(1, 1, 1), "repeater[facing=west]".to_string())]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n == 0 && l[0].ends_with("PASS"), "{l:?}");
+        let (l2, n2) = super::assert_blocks(&spec, &[(b(1, 1, 1), "repeater[facing=east]".to_string())]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n2 == 1 && l2[0].contains("FAIL (facing=east doesn't hold)"), "{l2:?}");
+        let (l3, n3) = super::assert_blocks(&spec, &[(b(1, 1, 1), "comparator[facing=west]".to_string())]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n3 == 1 && l3[0].contains("FAIL (the block is repeater, not comparator)"), "{l3:?}");
+        assert!(super::assert_blocks(&spec, &[(b(1, 1, 1), "repeater[west]".to_string())]).is_err(), "malformed");
     }
 
     /// (ironspec Nov 13 20:39 / 20:43, G1 20:42) The band-contact audit, each class: a string one up
