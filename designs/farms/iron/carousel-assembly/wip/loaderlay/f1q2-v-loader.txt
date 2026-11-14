@@ -27,6 +27,12 @@
 # (20,12,14) / (20,13,14) / (20,14,14) recur every 6 gt (tools16b's settle-check, Nov 14), every other cell holds its stored
 # state; stored as placed, the build's initial state.
 # clock: 20,12,14; 20,13,14; 20,13,15; 20,13,16; 20,14,14 = period=6; start: the pair's placement, as built
+# quasi-connected: 20,12,14=intended (one pulse: the pair's observer (20,13,15), facing south, strongly powers the dropper (20,13,14) at its back, a conductor that powers (20,12,14) below it directly in the same pulse; QC through (20,13,14) re-powers only the same dropper from the same pulse; its timing is the clock's, judged by settle's declared period 6 and by tick-exact's loader-x8 game rows a/3742200425927507, ~1,190 crossings a side per 24,000 gt); nether:3,12,-1=intended (one pulse: the Nether pair's observer (3,13,-2), facing north, strongly powers the dropper (3,13,-1) at its back, which powers (3,12,-1) below it directly in the same pulse; QC through (3,13,-1) re-powers only the same dropper from the same pulse; its timing judged by the same game rows, the round trip on both sides)
+# BUILD STEP (G1 Nov 14 14:00, with its check): place the farm so V's anchor (-6,0,-6) sits on a world CHUNK CORNER (world x and z both 0 mod 16).
+# This part's overworld portal then has its west x at 1 mod 8 and its z at 3 mod 8 (world 25 and 19 for copy 1 at (6,80,6)), the
+# condition its Nether link needs (the return leg's exit blocks fall inside this portal). CHECK, before lighting it: read the
+# portal's bottom-left interior cell's world x mod 8 = 1 and z mod 8 = 3; after lighting both portals, throw one item through each
+# way and see it come out of the partner (the Nether portal at x 0..4, y 90..94, z 2 in the Nether, for copy 1 placed so).
 name: f1q2-v-loader
 circuit: mob-farm iron_ingot
 port nether-anchor: -5 0 13
