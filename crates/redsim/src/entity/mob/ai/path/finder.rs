@@ -79,6 +79,10 @@ fn search_inner(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, Block
         f.g = 0.0;
         f.h = h0;
         f.f = h0;
+        // (G1 Nov 14 03:33 (i) / 03:39b, tick-exact's pin: the start's type and malus when the search
+        // took it)
+        f.acc_ty = f.ty;
+        f.acc_malus = f.cost_malus;
     }
     open.insert(&mut eval.arena.nodes, from);
     let mut count = 0i32;
@@ -117,6 +121,11 @@ fn search_inner(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, Block
                     let h = best_h(eval, nb, targets) * FUDGING;
                     let m = eval.arena.n_mut(nb);
                     m.came_from = current;
+                    // (G1 Nov 14 03:33 (i) / 03:39b) the node's type and malus when this link accepted it:
+                    // 26.3 can re-type a cached node later (getBlockedNode forces BLOCKED,
+                    // getNodeAndUpdateCostToMax rewrites), so the path's final types alone can hide a link
+                    m.acc_ty = n.ty;
+                    m.acc_malus = n.cost_malus;
                     m.g = tentative;
                     m.h = h;
                     let fnew = m.g + m.h;
@@ -153,17 +162,23 @@ fn search_inner(eval: &mut WalkEval, from: NodeId, targets: &mut [(Target, Block
     best
 }
 
-/// `reconstructPath(closest, target, reached)`.
+/// `reconstructPath(closest, target, reached)`; each node's type and malus at its acceptance kept
+/// beside it (`Path.accepted`).
 fn reconstruct(eval: &WalkEval, closest: NodeId, target: BlockPos, reached: bool) -> Path {
     let mut nodes = Vec::new();
+    let mut accepted = Vec::new();
     let mut id = closest;
     while id != NONE {
         let n = eval.arena.n(id);
         nodes.push(PathNode::of(n));
+        accepted.push((n.acc_ty, n.acc_malus));
         id = n.came_from;
     }
     nodes.reverse();
-    Path::new(nodes, target, reached, eval.level.w.next_path_uid())
+    accepted.reverse();
+    let mut p = Path::new(nodes, target, reached, eval.level.w.next_path_uid());
+    p.accepted = accepted;
+    p
 }
 
 #[cfg(test)]
