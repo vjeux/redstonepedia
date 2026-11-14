@@ -1386,6 +1386,12 @@ pub enum MobfarmCmd {
     /// villager places, the golem pad, --target-box cells), for a baby zombie (any 1 x 1 opening) and a spider (any face,
     /// glass included); endermen's interior teleport destinations; creepers from --afk; water open to the outside and
     /// wet zombie eyes; each failure by name, an Err when any
+    /// (ironspec Nov 14 15:01p, part 95) The CONSUMER CENSUS: every powered consumer of the design with the sources that
+    /// can power it (power-into's reach), each consumer powered by NOTHING in the design or only by STAND-IN cells (the
+    /// design's `# stand-in:` and `emulated:` cells) FLAGGED; a listing (day-1's whole-netlist audit maps the rest)
+    Consumers {
+        design: PathBuf,
+    },
     Enclosure {
         design: PathBuf,
         /// The ground plane's y (its top face; below the design's lowest block, within 64)
@@ -15858,6 +15864,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::Consumers { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let text = std::fs::read_to_string(&design)?;
+            // (the stand-in cells: each `# stand-in:` entry's leading x,y,z (its support and reason after it), and every
+            // `emulated:` cell)
+            let mut standins: Vec<redsim::pos::BlockPos> = Vec::new();
+            for l in text.lines().filter_map(|l| l.strip_prefix("# stand-in:")) {
+                for e in crate::settle::split_outside(l, ';') {
+                    let lead = e.split_whitespace().next().unwrap_or("").split('=').next().unwrap_or("");
+                    for c in lead.split('+') {
+                        let v: Vec<i32> = c.split(',').filter_map(|t| t.trim().parse::<i32>().ok()).collect();
+                        if v.len() == 3 {
+                            standins.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                        }
+                    }
+                }
+            }
+            for e in crate::declkeys::emulated_entries(&text).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?.0 {
+                standins.extend(e.cells.iter().map(|c| redsim::pos::BlockPos::new(c[0], c[1], c[2])));
+            }
+            standins.sort_by_key(|p| (p.y, p.z, p.x));
+            standins.dedup();
+            let (lines, _, _) = crate::fleecheck::consumer_census(&spec, &standins).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
         }
         MobfarmCmd::Enclosure { design, ground_y, margin, target_box, afk } => {
             let (_c, spec) = load(version, &design)?;

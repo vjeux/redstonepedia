@@ -6762,69 +6762,122 @@ pub fn sources_into(w: &redsim::World, s: BlockPos, skip: Option<BlockPos>) -> V
     hits
 }
 
+/// (part 95: power-into's per-consumer reach, one definition for `power_into` and the consumer census) The sources that
+/// can power the consumer at `c` in the settled world `w`: its own inputs (a diode consumer only its input side, a side
+/// diode pointing in a LOCK, not power), its block above for a piston / dropper / dispenser (quasi-connectivity, unless
+/// `no_qc`), and the same-kind rails joined to a powered / activator rail within 8 (`sources_into` for those); Err for a
+/// cell holding no power consumer (NOT JUDGED). Returns (the sources, the locks, the joined rails, whether QC was read).
+pub fn consumer_hits(w: &redsim::World, c: BlockPos, no_qc: bool) -> Result<(Vec<(BlockPos, String)>, Vec<String>, Vec<BlockPos>, bool), String> {
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let cid = name(c).split('[').next().unwrap_or("").to_string();
+    if !power_consumer(&cid) {
+        return Err(format!("power into: NOT JUDGED: {},{},{} holds {} (no power consumer)", c.x, c.y, c.z, name(c)));
+    }
+    let qc = !no_qc && ["piston", "sticky_piston", "dropper", "dispenser"].contains(&cid.as_str());
+    let mut into = vec![c];
+    if qc {
+        into.push(c.above());
+    }
+    // a powered / activator rail: the same-kind rails joined to it within 8 (26-neighbours, as the
+    // rail's line may climb)
+    let chain = rail_chain(w, c);
+    into.extend(chain.iter().copied());
+    let mut hits: Vec<(BlockPos, String)> = Vec::new();
+    let mut locks: Vec<String> = Vec::new();
+    let cstate = w.get(c).to_string();
+    for s in &into {
+        // (part 93) a cell other than the consumer itself (its block above, a joined rail): `sources_into`, the one
+        // reach the QC static shares
+        if *s != c {
+            hits.extend(sources_into(w, *s, None));
+            continue;
+        }
+        for q in n6(*s) {
+            let b = w.get(q);
+            // (part 53) a diode consumer reads only its input side (part 34's `diode_reads`, as power-out
+            // has it): a source or conductor beside it elsewhere (a hook above a repeater) feeds nothing;
+            // (G1 Nov 14 07:14, part 57) a side diode pointing into a repeater LOCKS it: named, not power
+            if !diode_reads(c, &cstate, q, &b.to_string()) {
+                if diode_locks(c, &cstate, q, &b.to_string()) {
+                    locks.push(format!("{} at {},{},{} (a side diode pointing in)", name(q), q.x, q.y, q.z));
+                }
+                continue;
+            }
+            // (G1 Nov 14 05:38, part 50) a source counts only by its real faces (`source_faces`): its weak
+            // signal must face the cell to feed it directly; a conductor beside the cell passes on only the
+            // strong signal a source beside it points into that conductor
+            if may_source(w, &b) {
+                if source_faces(q, &b.to_string())(*s).0 {
+                    hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                }
+            } else if redsim::behavior::is_conductor(w, &b, q) {
+                for r in n6(q) {
+                    let rb = w.get(r);
+                    if r != *s && may_source(w, &rb) && source_faces(r, &rb.to_string())(q).1 {
+                        hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{} beside {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                    }
+                }
+            }
+        }
+    }
+    hits.sort_by_key(|(q, t)| (q.y, q.z, q.x, t.clone()));
+    hits.dedup_by(|a, b| a.1 == b.1);
+    Ok((hits, locks, chain, qc))
+}
+
+/// (ironspec Nov 14 15:01p, part 95) The CONSUMER CENSUS: every powered consumer of the design (a rail of any kind, a
+/// hold / trapdoor / door, a piston, a dropper, a dispenser, a lamp, …: `power_consumer`) with the sources that can power
+/// it (`consumer_hits`, power-into's reach), each classed: NOTHING in the design powers it, only STAND-IN cells (the
+/// design's `# stand-in:` and `emulated:` cells), or real sources. Returns the lines, the unsourced count and the
+/// stand-in-only count.
+pub fn consumer_census(spec: &FarmSpec, standins: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
+    let w = settled_world_void(spec)?;
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    // (a plain rail takes power only at a junction (3 or more potential connections: a T, power-switched in 26.3); a
+    // detector rail is a source, not a consumer; both left out otherwise)
+    let counts = |p: BlockPos| -> bool {
+        let b = w.get(p);
+        match b {
+            redsim::block::Block::PlainRail { .. } => redsim::rails::RailState::new(p, b).count_potential_connections(&w) >= 3,
+            _ => !name(p).starts_with("detector_rail"),
+        }
+    };
+    let mut cells: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| power_consumer(name(*p).split('[').next().unwrap_or("")) && counts(*p)).collect();
+    cells.sort_by_key(|p| (p.y, p.z, p.x));
+    cells.dedup();
+    let (mut lines, mut none, mut stand) = (Vec::new(), 0usize, 0usize);
+    for c in &cells {
+        let (hits, _, _, _) = consumer_hits(&w, *c, false)?;
+        let class = if hits.is_empty() {
+            none += 1;
+            "NOTHING in the design powers it"
+        } else if hits.iter().all(|(q, _)| standins.contains(q)) {
+            stand += 1;
+            "only STAND-IN cells power it"
+        } else {
+            "sourced"
+        };
+        lines.push(format!("  {} {},{},{} ({}): {}", if class == "sourced" { "consumer" } else { "FLAG" }, c.x, c.y, c.z, name(*c), if hits.is_empty() { class.to_string() } else { format!("{class}: {}", hits.iter().map(|(q, t)| if standins.contains(q) { format!("{t} [STAND-IN]") } else { t.clone() }).collect::<Vec<_>>().join("; ")) }));
+    }
+    lines.insert(0, format!("the consumer census (ironspec Nov 14 15:01p): {} powered consumer(s); {none} with NOTHING in the design powering it, {stand} powered only by STAND-IN cells ({} stand-in cell(s) declared)", cells.len(), standins.len()));
+    Ok((lines, none, stand))
+}
+
 pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
-    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
     let mut lines = Vec::new();
     let mut bad = 0usize;
     let mut matched: Vec<BlockPos> = Vec::new();
     let mut qc_kinds = 0usize;
     for c in cells {
         let cid = name(*c).split('[').next().unwrap_or("").to_string();
-        if !power_consumer(&cid) {
-            return Err(format!("power into: NOT JUDGED: {},{},{} holds {} (no power consumer)", c.x, c.y, c.z, name(*c)));
-        }
-        let qc = !no_qc && ["piston", "sticky_piston", "dropper", "dispenser"].contains(&cid.as_str());
         if ["piston", "sticky_piston", "dropper", "dispenser"].contains(&cid.as_str()) {
             qc_kinds += 1;
         }
-        let mut into = vec![*c];
-        if qc {
-            into.push(c.above());
-        }
-        // a powered / activator rail: the same-kind rails joined to it within 8 (26-neighbours, as the
-        // rail's line may climb)
-        let chain = rail_chain(&w, *c);
-        into.extend(chain.iter().copied());
-        let mut hits: Vec<(BlockPos, String)> = Vec::new();
-        let mut locks: Vec<String> = Vec::new();
+        let (mut hits, locks, chain, qc) = consumer_hits(&w, *c, no_qc)?;
         let cstate = w.get(*c).to_string();
-        for s in &into {
-            // (part 93) a cell other than the consumer itself (its block above, a joined rail): `sources_into`, the one
-            // reach the QC static shares
-            if s != c {
-                hits.extend(sources_into(&w, *s, None));
-                continue;
-            }
-            for q in n6(*s) {
-                let b = w.get(q);
-                // (part 53) a diode consumer reads only its input side (part 34's `diode_reads`, as power-out
-                // has it): a source or conductor beside it elsewhere (a hook above a repeater) feeds nothing;
-                // (G1 Nov 14 07:14, part 57) a side diode pointing into a repeater LOCKS it: named, not power
-                if s == c && !diode_reads(*c, &cstate, q, &b.to_string()) {
-                    if diode_locks(*c, &cstate, q, &b.to_string()) {
-                        locks.push(format!("{} at {},{},{} (a side diode pointing in)", name(q), q.x, q.y, q.z));
-                    }
-                    continue;
-                }
-                // (G1 Nov 14 05:38, part 50) a source counts only by its real faces (`source_faces`): its weak
-                // signal must face the cell to feed it directly; a conductor beside the cell passes on only the
-                // strong signal a source beside it points into that conductor
-                if may_source(&w, &b) {
-                    if source_faces(q, &b.to_string())(*s).0 {
-                        hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
-                    }
-                } else if redsim::behavior::is_conductor(&w, &b, q) {
-                    for r in n6(q) {
-                        let rb = w.get(r);
-                        if r != *s && may_source(&w, &rb) && source_faces(r, &rb.to_string())(q).1 {
-                            hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{} beside {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
-                        }
-                    }
-                }
-            }
-        }
         hits.sort_by_key(|(q, t)| (q.y, q.z, q.x, t.clone()));
         hits.dedup_by(|a, b| a.1 == b.1);
         matched.extend(hits.iter().map(|(q, _)| *q).filter(|q| allow.contains(q)));
