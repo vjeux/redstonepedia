@@ -1,7 +1,11 @@
-//! (tickexact 2026-11-14, ironspec 03:10 / 03:14, b8949c96 03:12: the y-22 line's end, the P1 booster's closing
-//! evidence) `mctas mobai y22-end <design>`: on the official 26.3 server, the design pasted at its own coordinates (9fc3155f's
-//! scratch V rev 1 + the booster, a/3427690490750214 md5 f39e08f258ef: the line along x 9 at y 22, plain north_south rails
-//! (9,22,-3..4), the booster (9,22,-4) a powered rail on its redstone block (9,21,-4), the column (9,22,-5) open air, the
+//! (tickexact 2026-11-14, ironspec 03:10 / 03:14, b8949c96 03:12: the y-22 line's end, the P1 booster's closing, one cart
+//! at a time on the real cells, as evidence) `mctas mobai y22-end <design>`: on the official 26.3 server, the design pasted
+//! at its own coordinates (the
+//! evidence file crates/mobai/scenes/f1q2-v-booster-f39e08f258ef.txt, md5 f39e08f258ef: vcompose's composed V record rev 1
+//! (9d4a0895d's designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt, md5 ff171ee30346; its own name line
+//! `f1q2-module-v-rev1`) with 9fc3155f's booster laid on top (a/3427690490750214): exactly two cells differ, `mctas design
+//! cell-diff`: (9,21,-4) glass -> redstone_block and (9,22,-4) rail -> powered_rail[powered=true]: the line along x 9 at
+//! y 22, plain north_south rails (9,22,-3..4), the booster (9,22,-4), the column (9,22,-5) open air, the
 //! wall (9,22,-6)), P1 (9,22,5) laid as b8949c96's braked powered rail ascending south on its glass (9,21,5); one cart at a
 //! time, RIDDEN then EMPTY, resting in P1 at z 5.1222 / 5.15 / 5.19 / 5.3 / 5.45 / 5.6 / 5.7322 (its 148-run rest range,
 //! the north edge 5.12 .. 5.19), released at t0 by P1 POWERED (its support swapped for a redstone block, the bench's
@@ -20,7 +24,12 @@
 //! - `--front-at Z [--front-empty]`: a ridden (or empty) cart planted at rest on the landing slope, a napper onto it, then
 //!   the next napper; the arrival detector (9,-9,-5) per tick (assert 8 at the fronts run);
 //! - `--front-string [--long-rest]`: a hooked string at (9,-9,-4) over the front slope, carts braked at rest under it, the
-//!   string every tick for 100 gt (assert 9), or every rest position empty and ridden for 1,200 gt (assert 10).
+//!   string every tick for 100 gt (assert 9), or every rest position empty and ridden for 1,200 gt (assert 10);
+//! - `--front-hold`: a ridden front at rest 1,200 gt at -3.887 / -3.8048 / -3.69, both start phases (asserts 11..12);
+//! - `--p1-hold`: a ridden cart (AI on) at rest in the braked P1 at z 5.1222 / 5.7322, both start phases, 1,200 gt (13).
+//! A flag its mode does not read is refused; MCTAS_Y22_ROW is taken only as `2` with `--follow-on --token-latch`; a front
+//! with no known answer, `--unheld` without booster 2, or a planted run that never reaches its assert fails ("control
+//! planted nothing"), so no run exits 0 having judged nothing.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -55,7 +64,7 @@ fn plant() -> Result<Option<u32>> {
         Err(_) => Ok(None),
         Ok(s) => {
             let k: u32 = s.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_Y22_END_PLANT={s:?} is not an assert number"))?;
-            anyhow::ensure!((1..=12).contains(&k), "MCTAS_Y22_END_PLANT={k}: y22-end has asserts 1..12");
+            anyhow::ensure!((1..=13).contains(&k), "MCTAS_Y22_END_PLANT={k}: y22-end has asserts 1..13");
             Ok(Some(k))
         }
     }
@@ -83,7 +92,33 @@ impl SummonCart for VanillaServer {
     }
 }
 
-pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster2: bool, torch: bool, roll_in: bool, unheld: bool, front_at: Option<f64>, token_latch: bool, pane: bool, front_empty: bool, front_string: bool, long_rest: bool, front_hold: bool) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster2: bool, torch: bool, roll_in: bool, unheld: bool, front_at: Option<f64>, token_latch: bool, pane: bool, front_empty: bool, front_string: bool, long_rest: bool, front_hold: bool, p1_hold: bool) -> Result<()> {
+    plant()?;
+    // (G1 car-13 CHANGES 6 (3)) a flag its mode never reads is refused, never silently ignored
+    anyhow::ensure!(!token_latch || follow_on, "--token-latch is a --follow-on option");
+    anyhow::ensure!(!front_empty || front_at.is_some(), "--front-empty is a --front-at option");
+    anyhow::ensure!(!long_rest || front_string, "--long-rest is a --front-string option");
+    let modes = [follow_on, roll_in, unheld, front_at.is_some(), front_string, front_hold, p1_hold].iter().filter(|&&m| m).count();
+    anyhow::ensure!(modes <= 1, "one mode at a time (--follow-on, --roll-in, --unheld, --front-at, --front-string, --front-hold, --p1-hold)");
+    // MCTAS_Y22_ROW: read strictly, and only where it is documented (the token latch's row 2)
+    match std::env::var("MCTAS_Y22_ROW") {
+        Err(_) => anyhow::ensure!(!token_latch, "--token-latch is judged on its row 2 only: run it with MCTAS_Y22_ROW=2"),
+        Ok(s) => {
+            let k: u32 = s.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_Y22_ROW={s:?} is not a row number"))?;
+            anyhow::ensure!(token_latch && k == 2, "MCTAS_Y22_ROW={k}: only --follow-on --token-latch takes a row, and only row 2 (its one judged row)");
+        }
+    }
+    y22_end_run(version, design, follow_on, booster2, torch, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, p1_hold)?;
+    // (ironspec 08:37a, G1 CHANGES 6 (3)) a planted run that never reached its assert planted nothing: it fails
+    if let Some(k) = plant()? {
+        anyhow::bail!("control planted nothing: MCTAS_Y22_END_PLANT={k} never failed its assert (this mode does not run assert {k})");
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn y22_end_run(version: &str, design: &std::path::Path, follow_on: bool, booster2: bool, torch: bool, roll_in: bool, unheld: bool, front_at: Option<f64>, token_latch: bool, pane: bool, front_empty: bool, front_string: bool, long_rest: bool, front_hold: bool, p1_hold: bool) -> Result<()> {
     let torch = torch || pane;
     let booster2 = booster2 || torch;
     plant()?;
@@ -180,6 +215,8 @@ pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster
         return roll_in_rows(&mut srv);
     }
     if unheld {
+        // (G1 CHANGES 6 (3)) the unheld rows have a known answer only with booster 2
+        anyhow::ensure!(booster2, "--unheld is judged only with booster 2 (--booster2 / --torch-boosters / --pane): without it nothing would be judged");
         return unheld_rows(&mut srv, booster2);
     }
     if let Some(zf) = front_at {
@@ -187,6 +224,9 @@ pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster
     }
     if front_hold {
         return front_hold_rows(&mut srv);
+    }
+    if p1_hold {
+        return p1_hold_rows(&mut srv);
     }
     if front_string {
         return front_string_rows(&mut srv, &blocks, long_rest);
@@ -330,8 +370,8 @@ fn follow_on_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String)],
     for park in [-0.31, -2.09] {
         for rel in [5.1222, 5.7322] {
             k += 1;
-            // MCTAS_Y22_ROW=k: only row k (1: park -0.31 / z 5.1222, 2: -0.31 / 5.7322, 3: -2.09 / 5.1222, 4: -2.09 / 5.7322)
-            if std::env::var("MCTAS_Y22_ROW").ok().and_then(|s| s.trim().parse::<u32>().ok()).is_some_and(|only| only != k) {
+            // MCTAS_Y22_ROW=2 (the token latch's one judged row; the caller refuses any other use): only row 2
+            if std::env::var("MCTAS_Y22_ROW").is_ok_and(|s| s.trim() == "2") && k != 2 {
                 continue;
             }
             let (e, r) = (format!("fe{k}"), format!("fr{k}"));
@@ -568,7 +608,7 @@ fn follow_on_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String)],
     } else if !booster2 {
         // the north-edge releases push the parked empty through: both fall, the napper perched on it, unhurt
         let north: Vec<&FoRow> = [row(-0.31, 5.1222), row(-2.09, 5.1222)].into_iter().flatten().collect();
-        pin(4, north.iter().all(|o| self_clears(o)), format!("(4) from P1's north edge (z 5.1222) the napper pushes the parked empty cart through: both fall, the napper rests on the empty cart, its rider at 20.0 HP ({} rows judged)", north.len()))?;
+        pin(4, north.len() == 2 && north.iter().all(|o| self_clears(o)), format!("(4) from P1's north edge (z 5.1222) the napper pushes the parked empty cart through: both fall, the napper rests on the empty cart, its rider at 20.0 HP ({} rows judged)", north.len()))?;
         // the deep releases jam: (-0.31) thrown back onto R and released into lane 7's slot 1 by R's pulse (P1 held
         // powered), or stopped in P1 (the token latch); (-2.09) the empty pushed through, the napper stopped on the line
         let mut ok5 = true;
@@ -583,7 +623,7 @@ fn follow_on_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String)],
         }
         pin(
             5,
-            ok5,
+            judged == 2 && ok5,
             format!(
                 "(5) from P1's deepest rest (z 5.7322) the napper jams: parked at -0.31 it is thrown back onto R (5,24,7), and R's pulse (powered 4 gt after the line end) releases it into lane 7's slot 1 (7,17,1), its rider seated at 20.0 HP; parked at -2.09 the empty is pushed through and the napper stops on the line ({judged} rows judged)"
             ),
@@ -594,7 +634,7 @@ fn follow_on_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String)],
         let all: Vec<&FoRow> = outcomes.iter().collect();
         pin(
             4,
-            all.iter().all(|o| !o.3 && if (o.0 + 0.31).abs() < 1e-9 { napper_cell(o) == Some([5, 24, 7]) } else { o.2 && o.4.is_some_and(|p| cell_of(p)[1] == 22 && p[2] > -2.0 && p[2] < 0.0) }),
+            all.len() == 4 && all.iter().all(|o| !o.3 && if (o.0 + 0.31).abs() < 1e-9 { napper_cell(o) == Some([5, 24, 7]) } else { o.2 && o.4.is_some_and(|p| cell_of(p)[1] == 22 && p[2] > -2.0 && p[2] < 0.0) }),
             format!("(4) with booster 2 a parked empty cart jams every napper: parked at -0.31 the napper is thrown onto R (5,24,7); parked at -2.09 the empty is pushed through and the napper stops on the line ({} rows judged)", all.len()),
         )?;
         println!("  every known answer held (assert 4)");
@@ -836,7 +876,7 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
     let yf = -10.0 + (1.0 - frac) + 0.0625;
     let mut k = 0u32;
     // per release: (the napper's rider died, its health, the next napper's rider died)
-    let mut front_seen: Vec<(bool, Option<f64>, bool, Option<f64>, bool)> = Vec::new();
+    let mut front_seen: Vec<(bool, Option<f64>, bool, Option<f64>, bool, Option<f64>, Option<f64>)> = Vec::new();
     for rel in [5.1222, 5.7322] {
         k += 1;
         let (f, r) = (format!("ff{k}"), format!("fn{k}"));
@@ -908,10 +948,14 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
             fmt3(&fp3)
         );
         println!("    the arrival detector (9,-9,-5) powered while the NEXT napper fell and landed: {}", ticks_text(&tn.det));
-        front_seen.push((hn.is_none() && death.is_some(), hn, hx.is_none() && death2.is_some(), tr.last.map(|p| p[2]), tr.det.last() == Some(&tr.t_end)));
+        front_seen.push((hn.is_none() && death.is_some(), hn, hx.is_none() && death2.is_some(), tr.last.map(|p| p[2]), tr.det.last() == Some(&tr.t_end), fp.get(2).copied(), hf));
         clear_carts(srv, &[&f, &r, &nx])?;
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
+    // (G1 CHANGES 6 (4)) the planted front itself: it settled exactly where planted, and a ridden front's rider is alive
+    // (20.0 HP) after the napper's landing; an empty front has no rider to read
+    let front_ok = front_seen.iter().all(|s| s.5 == Some(zf) && if front_empty { s.6.is_none() } else { s.6 == Some(20.0) });
+    println!("  the planted front: settled at z {zf} exactly in every row: {}; its rider: {}", front_seen.iter().all(|s| s.5 == Some(zf)), if front_empty { "none (an empty front)".to_string() } else { format!("{:?}", front_seen.iter().map(|s| s.6).collect::<Vec<_>>()) });
     // (G1's pattern) the first runs' answers, for the fronts they were run at (another Z prints only)
     let at = |z: f64| (zf - z).abs() < 1e-6;
     let first_dies = front_seen.iter().all(|s| s.0);
@@ -920,26 +964,27 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
     // the lander's cart rests at `want` (+- 5e-4), inside the cover (z < -3.71), the detector powered at its rest tick
     let covered = |want: f64| front_seen.iter().all(|s| s.3.is_some_and(|z| (z - want).abs() < 5e-4 && z < -3.71) && s.4);
     if !front_empty && at(-3.887) {
-        pin(8, front_seen.len() == 2 && first_dies && next_dies, "(8) a RIDDEN front at its game rest z -3.887: the napper's rider dies (its death line), and so does the next napper's".into())?;
+        pin(8, front_seen.len() == 2 && front_ok && first_dies && next_dies, "(8) a RIDDEN front at its game rest z -3.887 (settled exactly there, its rider alive at 20.0 HP after): the napper's rider dies (its death line), and so does the next napper's".into())?;
         println!("  every known answer held (assert 8)");
     } else if !front_empty && at(-3.5) {
-        pin(8, front_seen.len() == 2 && first_unhurt, "(8) a RIDDEN front at z -3.5: the napper perches on it unhurt (20.0 HP)".into())?;
+        pin(8, front_seen.len() == 2 && front_ok && first_unhurt, "(8) a RIDDEN front at z -3.5 (settled exactly there, its rider alive at 20.0 HP after): the napper perches on it unhurt (20.0 HP)".into())?;
         println!("  every known answer held (assert 8)");
     } else if front_empty && (at(-3.887) || at(-3.880) || at(-3.5) || at(-4.2)) {
-        pin(8, front_seen.len() == 2 && first_unhurt && next_dies, format!("(8) an EMPTY front at z {zf}: the napper lands unhurt (20.0 HP), and the NEXT napper's rider dies on the pile (its death line)"))?;
+        pin(8, front_seen.len() == 2 && front_ok && first_unhurt && next_dies, format!("(8) an EMPTY front at z {zf} (settled exactly there): the napper lands unhurt (20.0 HP), and the NEXT napper's rider dies on the pile (its death line)"))?;
         println!("  every known answer held (assert 8)");
     } else if front_empty && at(-3.2197) {
         // (ironspec 06:37 (2), b8949c96's PE1) the shoved empty alone: the napper lands on the front rail unhurt; the
         // next one, onto the napper's own cart still at the front, dies
-        pin(8, front_seen.len() == 2 && first_unhurt && next_dies && covered(-3.9155), "(8) an EMPTY front alone at z -3.2197 (the perch-shoved rest): the napper lands unhurt (20.0 HP), its cart at z -3.9155 inside the arrival detector's cover (z < -3.71) and pressing it; the NEXT napper, onto the first napper's cart still at the front, dies (its death line)".into())?;
+        pin(8, front_seen.len() == 2 && front_ok && first_unhurt && next_dies && covered(-3.9155), "(8) an EMPTY front alone at z -3.2197 (the perch-shoved rest; settled exactly there): the napper lands unhurt (20.0 HP), its cart at z -3.9155 inside the arrival detector's cover (z < -3.71) and pressing it; the NEXT napper, onto the first napper's cart still at the front, dies (its death line)".into())?;
         println!("  every known answer held (assert 8)");
     } else if front_empty && (at(-3.65) || at(-3.35) || at(-3.08) || at(-3.05)) {
         // (ironspec 06:48 (2)(i), b8949c96 06:52) the landers onto an empty alone: unhurt, their own cart inside the cover
         let want = if at(-3.65) { -3.9799 } else if at(-3.35) { -3.9748 } else { -3.8867 };
-        pin(8, front_seen.len() == 2 && first_unhurt && next_dies && covered(want), format!("(8) an EMPTY front alone at z {zf}: the napper lands unhurt (20.0 HP), its cart at z {want} inside the arrival detector's cover (z < -3.71) and pressing it at its rest; the NEXT napper, onto the first napper's cart still at the front, dies (its death line)"))?;
+        pin(8, front_seen.len() == 2 && front_ok && first_unhurt && next_dies && covered(want), format!("(8) an EMPTY front alone at z {zf} (settled exactly there): the napper lands unhurt (20.0 HP), its cart at z {want} inside the arrival detector's cover (z < -3.71) and pressing it at its rest; the NEXT napper, onto the first napper's cart still at the front, dies (its death line)"))?;
         println!("  every known answer held (assert 8)");
     } else {
-        println!("  (no known answer for this front: printed only)");
+        // (G1 CHANGES 6 (3)) a front with no known answer judges nothing: the rows above are printed, the run fails
+        anyhow::bail!("no known answer for a {} front at z {zf}: the rows above are printed, nothing was judged, so this run is not evidence", if front_empty { "EMPTY" } else { "RIDDEN" });
     }
     Ok(())
 }
@@ -950,7 +995,7 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
 fn front_hold_rows(srv: &mut VanillaServer) -> Result<()> {
     anyhow::ensure!(srv.test_block([9, -10, -4], "minecraft:powered_rail[powered=false,shape=ascending_north]")?, "the front slope (9,-10,-4) is not a braked ascending_north powered rail");
     anyhow::ensure!(srv.test_block([9, -9, -5], "minecraft:detector_rail[powered=false]")?, "the arrival detector (9,-9,-5) is not an unpowered detector rail before the rows");
-    let mut seen: Vec<(f64, u32, u32, u32, Option<f64>)> = Vec::new();
+    let mut seen: Vec<(f64, u32, u32, u32, Option<f64>, bool)> = Vec::new();
     // (G1 07:10 (2)(b)/(e)) both start phases (summoned on an even and an odd tick) at each rest, and a ridden front at
     // the cover's edge (z -3.69); the least overlap of the cart's box with the detector's cell (z -5 .. -4) printed
     let mut rows: Vec<(f64, u32)> = Vec::new();
@@ -985,8 +1030,9 @@ fn front_hold_rows(srv: &mut VanillaServer) -> Result<()> {
             if pos.len() == 3 {
                 least_overlap = least_overlap.min((-4.0f64).min(pos[2] + 0.49) - (-5.0f64).max(pos[2] - 0.49));
             }
+            // (G1 CHANGES 6 (4)) compared exactly with the tick before; a missing read (a vanished cart) counts as a move
             if let Some(q) = &prev {
-                if pos.len() == 3 && q.len() == 3 && (0..3).any(|i| (pos[i] - q[i]).abs() > 1e-9) {
+                if pos.len() != 3 || *q != pos {
                     moves += 1;
                 }
             }
@@ -1002,7 +1048,7 @@ fn front_hold_rows(srv: &mut VanillaServer) -> Result<()> {
             first.map(|f| format!(", first at t{f}")).unwrap_or_default(),
             hp.map(|h| format!("{h:.1} HP")).unwrap_or_else(|| "GONE".into())
         );
-        seen.push((z, on, longest, moves, hp));
+        seen.push((z, on, longest, moves, hp, seated));
         srv.cmd(&format!("execute as @e[tag={tag}] run tp @s 9.5 -40 30"))?;
         srv.cmd(&format!("kill @e[tag={tag}]"))?;
         srv.cmd("kill @e[type=minecraft:villager]")?;
@@ -1017,9 +1063,60 @@ fn front_hold_rows(srv: &mut VanillaServer) -> Result<()> {
     // detector never powers on any tick, though the cart's box overlaps the detector's cell by 0.18
     let inside: Vec<_> = seen.iter().filter(|s| s.0 < -3.71).collect();
     let edge: Vec<_> = seen.iter().filter(|s| s.0 >= -3.71).collect();
-    pin(11, inside.len() == 4 && inside.iter().all(|s| s.1 == 1200 && s.2 == 0 && s.3 == 0 && s.4 == Some(20.0)), "(11) a RIDDEN front at rest at z -3.887 and -3.8048 (inside the cover), each from an even and an odd start tick, holds the arrival detector (9,-9,-5) powered all 1,200 ticks (longest unpowered run 0), never moves, its rider at 20.0 HP".into())?;
-    pin(12, edge.len() == 2 && edge.iter().all(|s| s.1 == 0 && s.3 == 0 && s.4 == Some(20.0)), "(12) a RIDDEN front at rest at z -3.69 (0.02 outside the cover bound -3.71), from an even and an odd start tick, NEVER powers the arrival detector in 1,200 ticks and never moves, its rider at 20.0 HP".into())?;
+    pin(11, inside.len() == 4 && inside.iter().all(|s| s.1 == 1200 && s.2 == 0 && s.3 == 0 && s.4 == Some(20.0) && s.5), "(11) a RIDDEN front at rest at z -3.887 and -3.8048 (inside the cover), each from an even and an odd start tick, holds the arrival detector (9,-9,-5) powered all 1,200 ticks (longest unpowered run 0), never moves (compared exactly; a vanished cart counts as moved), its rider seated at the end at 20.0 HP".into())?;
+    pin(12, edge.len() == 2 && edge.iter().all(|s| s.1 == 0 && s.3 == 0 && s.4 == Some(20.0) && s.5), "(12) a RIDDEN front at rest at z -3.69 (0.02 outside the cover bound -3.71), from an even and an odd start tick, NEVER powers the arrival detector in 1,200 ticks and never moves, its rider seated at the end at 20.0 HP".into())?;
     println!("  every known answer held (asserts 11..12)");
+    Ok(())
+}
+
+/// (ironspec 09:22a (2), G1 09:22 (a): the P1-occupied level may come only from a RESTING napper) `--p1-hold`: a RIDDEN cart
+/// (its villager's AI on) planted at rest in the braked P1 (9,22,5) at its north edge (z 5.1222) and its deepest rest (z
+/// 5.7322), each from an even and an odd start tick, 1,200 gt: its position every tick compared exactly with the tick
+/// before (a missing read counts as a move), its seat and its rider's health
+fn p1_hold_rows(srv: &mut VanillaServer) -> Result<()> {
+    anyhow::ensure!(srv.test_block([9, 22, 5], "minecraft:powered_rail[shape=ascending_south,powered=false]")?, "P1 (9,22,5) is not a braked ascending_south powered rail");
+    let mut seen: Vec<(f64, u32, u32, u32, Option<f64>)> = Vec::new();
+    let mut k = 0;
+    for z in [5.1222, 5.7322] {
+        for phase in [0u32, 1] {
+            let tag = format!("ph{k}");
+            k += 1;
+            srv.step(phase)?;
+            srv.summon_cart(&format!("summon minecraft:minecart 9.5 {:.4} {z:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]}}", 22.0 + (z - 5.0) + 0.0625))?;
+            let (mut moves, mut seated_n) = (0u32, 0u32);
+            let mut prev: Option<Vec<f64>> = None;
+            let mut first: Option<Vec<f64>> = None;
+            for _t in 1..=1200u32 {
+                srv.step(1)?;
+                let pos = nums(&srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Pos"))?);
+                if let Some(q) = &prev {
+                    if pos.len() != 3 || *q != pos {
+                        moves += 1;
+                    }
+                }
+                if srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Passengers"))?.contains(&format!("\"{tag}v\"")) {
+                    seated_n += 1;
+                }
+                first.get_or_insert_with(|| pos.clone());
+                prev = Some(pos);
+            }
+            let hp = health(srv, &format!("{tag}v"))?;
+            println!(
+                "  => RIDDEN at rest in P1 from z {z}, start phase {phase}: first at {:?}, last at {:?}; moved on {moves} of 1199 ticks; seated on {seated_n} of 1200; its rider {}",
+                first.unwrap_or_default(),
+                prev.unwrap_or_default(),
+                hp.map(|h| format!("{h:.1} HP")).unwrap_or_else(|| "GONE".into())
+            );
+            seen.push((z, moves, seated_n, phase, hp));
+            srv.cmd(&format!("execute as @e[tag={tag}] run tp @s 9.5 -40 30"))?;
+            srv.cmd(&format!("kill @e[tag={tag}]"))?;
+            srv.cmd("kill @e[type=minecraft:villager]")?;
+            srv.step(30)?;
+        }
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    pin(13, seen.len() == 4 && seen.iter().all(|s| s.1 == 0 && s.2 == 1200 && s.4 == Some(20.0)), "(13) a RIDDEN cart (AI on) at rest in the braked P1 at z 5.1222 and 5.7322, each from an even and an odd start tick, never moves in 1,200 gt (compared exactly, tick to tick), its villager seated every tick and at 20.0 HP".into())?;
+    println!("  every known answer held (assert 13)");
     Ok(())
 }
 

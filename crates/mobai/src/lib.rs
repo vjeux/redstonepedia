@@ -56,6 +56,8 @@ pub mod railenddrop;
 pub mod riderstring;
 pub mod gamedrive;
 pub mod riderair;
+pub mod columntop;
+pub mod railplace;
 pub mod y22end;
 pub mod loginwall;
 pub mod latchformb;

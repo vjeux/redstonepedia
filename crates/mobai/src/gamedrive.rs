@@ -145,7 +145,13 @@ pub fn item_set(snbt: &str) -> Result<BTreeSet<String>> {
         let mut kv: Vec<(String, String)> = Vec::new();
         for pair in body.split(',') {
             let (k, v) = pair.split_once(':').with_context(|| format!("a stack field without a value: {pair}"))?;
-            kv.push((k.trim_matches('"').to_string(), v.trim_matches('"').trim_end_matches(['b', 'B']).to_string()));
+            // (G1 car-14 non-blocking) a byte suffix is trimmed from NUMBERS only (`0b` -> `0`), never from an id
+            let v = v.trim_matches('"');
+            let v = match v.strip_suffix(['b', 'B']) {
+                Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit() || c == '-') => n,
+                _ => v,
+            };
+            kv.push((k.trim_matches('"').to_string(), v.to_string()));
         }
         kv.sort();
         let keys: Vec<&str> = kv.iter().map(|(k, _)| k.as_str()).collect();
@@ -369,5 +375,8 @@ mod tests {
         assert!(item_set("{Items:[{id:\"minecraft:stone\",count:1}]}").is_err(), "a stack without its slot");
         assert!(item_set("{CustomName:\"x\"}").is_err(), "not an Items fill");
         assert!(item_set("{Items:[{Slot:0b,id:\"minecraft:stone\",count:1,components:{}}]}").is_err(), "components");
+        // an id ending in b keeps its b
+        let tub = item_set("{Items:[{Slot:0b,id:\"minecraft:tnt_minecart_tub\",count:1}]}").expect("an id ending in b");
+        assert!(tub.iter().next().is_some_and(|s| s.contains("id=minecraft:tnt_minecart_tub")), "{tub:?}");
     }
 }

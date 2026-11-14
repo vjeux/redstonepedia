@@ -59,7 +59,19 @@ pub const RECORDING_DIRS: &[&str] = &[
     "designs/redsim/recorded/brewer",
     "designs/redsim/recorded/composter",
     "designs/redsim/recorded/mobai",
+    PENDING,
 ];
+
+/// (tickexact 2026-11-14, G1 car-14 CHANGES 1 (3)) the pending mob AI recordings: listed in RECORDING_DIRS (their manifest
+/// kept current by `recorded check`) and replayed by `sim:recorded-pending`
+pub const PENDING: &str = "designs/redsim/recorded/pending";
+
+/// The pending recordings `sim:recorded-pending` does not replay, each with why (never silently: the piece's verdict names
+/// how many it excluded)
+pub const PENDING_EXCLUDED: &[(&str, &str)] = &[(
+    "e-string-empty.rec",
+    "redsim differs from the game at its first tick: the minecart #0's own random (the game made 212 more next() calls than redsim at tick 1; redsim does not model what draws them yet), open for the gating car",
+)];
 
 const A: &str = "designs/piston-door-3x3/archive";
 const C79: &str = "designs/piston-door-3x3/tracks/c79/c79-closed.txt";
@@ -1686,6 +1698,24 @@ fn sim_checks(v: &mut Vec<Check>) {
         steps: vec![args("mobai replay designs/redsim/recorded/mobai")],
         timeout: 300,
         pred: Box::new(move |o| has(&o[0], &format!("REPLAY: {nm}/{nm} mob AI recordings exact")).map(|_| format!("{nm}/{nm} mob AI recordings exact"))),
+    });
+    // (tickexact 2026-11-14, G1 car-14 CHANGES 1 (3)) the PENDING recordings (`designs/redsim/recorded/pending`: recorded by
+    // a lane, waiting for the gating car that moves them into recorded/mobai), replayed every run like the gated ones; a
+    // recording whose scene changed since it was recorded fails the replay by name (`mobai replay` checks each header's
+    // `scene_hash` against the scene now: fixture.rs, "the scene changed since it was recorded"); the ones that do not
+    // replay exactly are named here with the reason, and every other one must
+    let np: Vec<String> = files_in(PENDING, "rec").into_iter().filter(|f| !PENDING_EXCLUDED.iter().any(|(n, _)| f.ends_with(&format!("/{n}")))).collect();
+    let npn = np.len();
+    let mut pending_step = args("mobai replay");
+    pending_step.extend(np);
+    v.push(Check {
+        name: "sim:recorded-pending".into(),
+        what: "the pending mob AI recordings (designs/redsim/recorded/pending: a lane's game recordings waiting for their gating car), replayed on redsim at 0 differences, the excluded ones named in PENDING_EXCLUDED with their reason",
+        quick: true,
+        jvm: false,
+        steps: vec![pending_step],
+        timeout: 300,
+        pred: Box::new(move |o| has(&o[0], &format!("REPLAY: {npn}/{npn} mob AI recordings exact")).map(|_| format!("{npn}/{npn} pending mob AI recordings exact ({} excluded by name)", PENDING_EXCLUDED.len()))),
     });
     // the judges' runs recorded in the game for `mctas test` (circuit record, 2026-11-08): the
     // sorter, smelter, brewer and composter exact gates (their old `*-compare` checks: every cell

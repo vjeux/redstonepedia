@@ -83,7 +83,8 @@ pub fn rider_air(version: &str) -> Result<()> {
                     seated_alive[k] += 1;
                 }
             }
-            // a seated villager's eye: its feet + 1.62 (the villager's standing eye height; seated it keeps it)
+            // a seated villager's eye: its feet + 1.62 (the villager's eye height, EntityTypes 1068 `eyeHeight(1.62F)`; a
+            // seated villager keeps its standing pose; its feet AT its cart's position: seat-offset)
             let eye = if vp.len() == 3 { Some([vp[0].floor() as i32, (vp[1] + 1.62).floor() as i32, vp[2].floor() as i32]) } else { None };
             let in_column = match eye {
                 Some(e) => Some(srv.test_block(e, "minecraft:bubble_column")?),
@@ -109,19 +110,27 @@ pub fn rider_air(version: &str) -> Result<()> {
         }
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
-    // the plain-water copy's hits: the ticks its Health drops
-    let hits: Vec<u32> = rows[1].windows(2).enumerate().filter(|(_, w)| matches!((w[0].1, w[1].1), (Some(a), Some(b)) if b < a) || (w[0].1.is_some() && w[1].1.is_none())).map(|(i, _)| i as u32 + 2).collect();
-    println!("  PLAIN WATER: Health drops at ticks {hits:?}; seated: BUBBLE {} of 540 ticks, PLAIN {} of 540 ({} of the {} ticks its villager read alive)", seated[0], seated[1], seated_alive[1], rows[1].iter().filter(|r| r.1.is_some()).count());
+    // the plain-water copy's hits: the ticks its Health drops while it lives; its death: the first tick its Health no longer
+    // reads (a dead villager is not matched by @e; its corpse stays seated until its removal 20 gt later, not a hit)
+    let hits: Vec<u32> = rows[1].windows(2).enumerate().filter(|(_, w)| matches!((w[0].1, w[1].1), (Some(a), Some(b)) if b < a)).map(|(i, _)| i as u32 + 2).collect();
+    let death: Option<u32> = rows[1].windows(2).position(|w| w[0].1.is_some() && w[1].1.is_none()).map(|i| i as u32 + 2);
+    println!("  PLAIN WATER: Health drops at ticks {hits:?}, dead at t{}; seated: BUBBLE {} of 540 ticks, PLAIN {} of 540 ({} of the {} ticks its villager read alive)", death.map(|d| d.to_string()).unwrap_or_else(|| "-".into()), seated[0], seated[1], seated_alive[1], rows[1].iter().filter(|r| r.1.is_some()).count());
+    // (G1 car-14 non-blocking) each held cart's rest asserted: its y never changes
+    let rests = |k: usize| rows[k].first().and_then(|r| r.3).is_some_and(|y0| rows[k].iter().all(|r| r.3 == Some(y0)));
+    println!("  the held carts' y: BUBBLE constant {}, PLAIN constant {}", rests(0), rests(1));
     let bubble = &rows[0];
-    let ok1 = bubble.len() == 540 && bubble.iter().all(|r| r.0 == Some(300.0) && r.1 == Some(20.0) && r.2 == Some(true)) && seated[0] == 540;
+    let ok1 = bubble.len() == 540 && bubble.iter().all(|r| r.0 == Some(300.0) && r.1 == Some(20.0) && r.2 == Some(true)) && seated[0] == 540 && rests(0);
     let plain = &rows[1];
     let falls = (0..319).all(|i| plain[i].0 == Some(299.0 - i as f64));
     let alive = rows[1].iter().filter(|r| r.1.is_some()).count() as u32;
-    let ok2 = falls && hits.first() == Some(&320) && plain[319].1 == Some(18.0) && seated_alive[1] == alive;
-    let ok3 = hits.len() >= 2 && hits.windows(2).all(|w| w[1] - w[0] == 20);
-    pin(1, ok1, "(1) in the downward bubble column the rider, read back SEATED every tick, has its eye in a bubble-column block every tick, its Air stays 300 and its Health 20.0 (540 ticks)".into())?;
-    pin(2, ok2, "(2) in plain water the rider, read back SEATED on every tick it lives, loses 1 Air every tick from 300 (299 at the first tick) and takes its first drowning hit (Health 18.0) on the 320th tick".into())?;
-    pin(3, ok3, format!("(3) in plain water every later drowning hit lands 20 ticks after the one before: {hits:?}"))?;
+    let ok2 = falls && hits.first() == Some(&320) && plain[319].1 == Some(18.0) && seated_alive[1] == alive && rests(1);
+    let ok3 = hits.len() == 9 && hits.windows(2).all(|w| w[1] - w[0] == 20) && death.is_some_and(|d| hits.last().is_some_and(|&l| d - l == 20));
+    pin(1, ok1, "(1) in the downward bubble column the rider, read back SEATED every tick, has its eye in a bubble-column block every tick, its Air stays 300 and its Health 20.0 (540 ticks), its cart's y never changing".into())?;
+    pin(2, ok2, "(2) in plain water the rider, read back SEATED on every tick it lives, loses 1 Air every tick from 300 (299 at the first tick) and takes its first drowning hit (Health 18.0) on the 320th tick, its cart's y never changing".into())?;
+    pin(3, ok3, format!("(3) in plain water 9 hits 20 ticks apart (2 damage each) and its death 20 ticks after the 9th (the 10th hit): hits {hits:?}, dead at {death:?}"))?;
+    if let Some(k) = plant()? {
+        anyhow::bail!("control planted nothing: MCTAS_RIDER_AIR_PLANT={k} never failed its assert");
+    }
     println!("  every known answer held (asserts 1..3)");
     Ok(())
 }

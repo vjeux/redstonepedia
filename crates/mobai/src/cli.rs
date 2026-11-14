@@ -1036,8 +1036,52 @@ pub enum MobaiCmd {
         /// from an even and an odd start tick) for 1,200 gt, the arrival detector (9,-9,-5) every tick
         #[arg(long)]
         front_hold: bool,
+        /// (ironspec 09:22a (2), G1 09:22 (a)) a RIDDEN cart (AI on) at rest in the braked P1 (9,22,5) at its north edge and
+        /// its deepest rest, each from an even and an odd start tick, 1,200 gt: its position (exact), seat and health
+        #[arg(long)]
+        p1_hold: bool,
         #[arg(long, default_value = "26.3")]
         version: String,
+    },
+    /// (tickexact 2026-11-14, dfb89499 09:30) Candidate A's flat (x,0,2) and landing (x,-1,3) rails placed in each order and
+    /// set strict: each copy's two shapes read back from the game
+    RailPlace {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// (dfb89499 / farmopt 09:59) the station's JOIN T (-1,0,7) on LIFT's slime and lit torch instead
+        #[arg(long)]
+        join: bool,
+    },
+    /// (tickexact 2026-11-14, ironfarm 09:15, vcompose 09:20) A design's lift column in the game: each probed cell's live
+    /// block beside the design's (fluids named exactly), optional `--set` cells (a candidate fix), and a ridden riser
+    /// stranded under a held cart: its eye cell, the block there, its Air and Health every tick
+    ColumnTop {
+        design: std::path::PathBuf,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// a probed cell x,y,z (repeatable; default the lift column (-5,16..26,7) and the exit curve (-3,25,9))
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
+        /// a cell changed after the paste, x,y,z=STATE (repeatable)
+        #[arg(long, allow_hyphen_values = true)]
+        set: Vec<String>,
+        /// where the first ridden riser cart is summoned, x,y,z (the others 2, 4, 6 blocks below it)
+        #[arg(long, allow_hyphen_values = true)]
+        riser: Option<String>,
+        /// how many ridden risers queue behind the held cart (1 .. 4)
+        #[arg(long, default_value_t = 1)]
+        risers: u32,
+        /// where the held cart is kept (put back with Motion 0 after every tick), x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        held: Option<String>,
+        #[arg(long, default_value_t = 600)]
+        ticks: u32,
+        /// the live block expected at the column's top fluid cell (e.g. minecraft:water[level=1])
+        #[arg(long)]
+        expect_top: Option<String>,
+        /// one verdict per rider, comma-separated: drowns or breathes
+        #[arg(long)]
+        expect_air: Option<String>,
     },
     /// (tickexact 2026-11-14, ironfarm 08:10 (4)) A ridden cart held underwater: the rider's eye in a downward bubble column
     /// (over magma) and in plain water (over stone): Air, Health and the seat every tick
@@ -2432,9 +2476,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RailEndDrop { version } => crate::railenddrop::rail_end_drop(&version),
         MobaiCmd::RiderString { version } => crate::riderstring::rider_string(&version),
         MobaiCmd::GameDrive { design, drive, cart, version } => crate::gamedrive::game_drive(&version, &design, &drive, cart),
-        MobaiCmd::Y22End { design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, version } => crate::y22end::y22_end(&version, &design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold),
+        MobaiCmd::Y22End { design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, p1_hold, version } => crate::y22end::y22_end(&version, &design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, p1_hold),
         MobaiCmd::LoginWall { version } => crate::loginwall::login_wall(&version),
         MobaiCmd::RiderAir { version } => crate::riderair::rider_air(&version),
+        MobaiCmd::RailPlace { version, join } => crate::railplace::rail_place(&version, join),
+        MobaiCmd::ColumnTop { version, design, cell, set, riser, risers, held, ticks, expect_top, expect_air } => {
+            crate::columntop::column_top(&version, &design, &cell, &set, riser.as_deref(), risers, held.as_deref(), ticks, expect_top.as_deref(), expect_air.as_deref())
+        }
         MobaiCmd::RailEndThreshold { version } => crate::railenddrop::rail_end_threshold(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {

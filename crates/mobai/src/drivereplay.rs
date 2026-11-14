@@ -1934,14 +1934,24 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             }
         }
         if let Some(fb) = fall_box {
+            // (G1 car-13 CHANGES 6 (6)) EVERY minecart meeting the box, by its UUID (a cart with no `eN` tag included),
+            // labelled with its tag when it has one
             let sel = format!("@e[type=minecraft:minecart,x={},y={},z={},dx={},dy={},dz={}]", fb[0], fb[1] + DY, fb[2], fb[3] - fb[0], fb[4] - fb[1], fb[5] - fb[2]);
-            let tags_out = srv.cmd_long(&format!("execute as {sel} run data get entity @s Tags"))?;
-            let mut tags: Vec<String> = tags_out.split('"').filter(|s| s.len() > 1 && s.starts_with('e') && s[1..].chars().all(|c| c.is_ascii_digit())).map(str::to_string).collect();
-            tags.dedup();
-            for tag in tags {
-                let p = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
-                let m = srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Motion"))?;
-                let rp = srv.cmd_long(&format!("execute as @e[tag={tag},limit=1] on passengers run data get entity @s Pos"))?;
+            let uu_out = srv.cmd_long(&format!("execute as {sel} run data get entity @s UUID"))?;
+            let mut uuids: Vec<String> = Vec::new();
+            for chunk in uu_out.split("[I;").skip(1) {
+                let v: Vec<i64> = chunk.split(']').next().unwrap_or("").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if v.len() == 4 {
+                    let (a, b, c, d) = (v[0] as u32, v[1] as u32, v[2] as u32, v[3] as u32);
+                    uuids.push(format!("{a:08x}-{:04x}-{:04x}-{:04x}-{:04x}{d:08x}", b >> 16, b & 0xffff, c >> 16, c & 0xffff));
+                }
+            }
+            for uuid in uuids {
+                let tags_out = srv.cmd_long(&format!("data get entity {uuid} Tags"))?;
+                let label = tags_out.split('"').find(|s| s.len() > 1 && s.starts_with('e') && s[1..].chars().all(|c| c.is_ascii_digit())).map(str::to_string).unwrap_or_else(|| format!("cart {uuid}"));
+                let p = pos_of(&mut srv, &uuid)?;
+                let m = srv.cmd_long(&format!("data get entity {uuid} Motion"))?;
+                let rp = srv.cmd_long(&format!("execute as {uuid} on passengers run data get entity @s Pos"))?;
                 let r: Vec<f64> = rp.split('[').nth(1).unwrap_or("").split(',').filter_map(|s| s.trim().trim_end_matches(|c: char| c == ']' || c == 'd' || c.is_whitespace()).parse().ok()).collect();
                 let rider = if r.len() == 3 {
                     let q = [r[0], r[1] - DY as f64, r[2]];
@@ -1950,7 +1960,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 } else {
                     "no rider".to_string()
                 };
-                fall_rows.push(format!("t{t}: {tag} cart {} motion {} {rider}", p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()), m.split("data: ").nth(1).unwrap_or("?").trim()));
+                fall_rows.push(format!("t{t}: {label} cart {} motion {} {rider}", p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()), m.split("data: ").nth(1).unwrap_or("?").trim()));
             }
         }
         // (cc767b78's divergence trace) MCTAS_REPLAY_TRACE=<eN>:<from>-<to>: that cart's position,
@@ -2317,6 +2327,29 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         for r in &fall_rows {
             println!("    {r}");
         }
+        // (G1 CHANGES 6 (6)) a watch that caught nothing proves nothing
+        anyhow::ensure!(!fall_rows.is_empty(), "MCTAS_REPLAY_FALL: no minecart met the box on any tick: nothing was watched");
+    }
+    // (G1 CHANGES 6 (6): the committed reference compared) MCTAS_REPLAY_EXPECT_ERASE=T1,T2,…: the FALLERS' ValidateNearbyPoi
+    // HOME erasures (those whose villager stands inside the MCTAS_REPLAY_FALL box: the c19 reference 2635,2990) must fall
+    // exactly on those ticks, in order. Other erasures in the night (a sleeper's, when another villager took its bed) are
+    // the AI's own and vary from run to run; they are printed, not compared.
+    if let Ok(s) = std::env::var("MCTAS_REPLAY_EXPECT_ERASE") {
+        let fb = fall_box.ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_EXPECT_ERASE compares the fallers' erasures: it needs MCTAS_REPLAY_FALL (the fall box)"))?;
+        let want: Vec<u32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("MCTAS_REPLAY_EXPECT_ERASE={s}: {e}"))?;
+        anyhow::ensure!(!want.is_empty(), "MCTAS_REPLAY_EXPECT_ERASE names no tick");
+        let in_box = |e: &str| -> bool {
+            let Some(at) = e.split(" at (").nth(1).and_then(|r| r.split(')').next()) else { return false };
+            let v: Vec<f64> = at.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+            v.len() == 3 && (0..3).all(|i| v[i] >= fb[i] as f64 && v[i] < fb[i + 3] as f64 + 1.0)
+        };
+        let all: Vec<&String> = events.iter().filter(|e| e.contains(" HOME ERASED ") && e.contains("ValidateNearbyPoi")).collect();
+        let tick_of = |e: &str| -> Option<u32> { e.trim_start_matches('t').split(':').next().and_then(|n| n.parse().ok()) };
+        let got: Vec<u32> = all.iter().filter(|e| in_box(e)).filter_map(|e| tick_of(e)).collect();
+        let others: Vec<u32> = all.iter().filter(|e| !in_box(e)).filter_map(|e| tick_of(e)).collect();
+        let first: Vec<u32> = got.iter().take(want.len()).copied().collect();
+        println!("  MCTAS_REPLAY_EXPECT_ERASE: the fallers' erasures (inside the fall box) at t{first:?} (of {} in the run), the reference t{want:?}; other ValidateNearbyPoi erasures, not compared: t{others:?}", got.len());
+        anyhow::ensure!(first == want, "the game's first fallers' ValidateNearbyPoi HOME erasures fell at t{first:?}, the committed reference says t{want:?}");
     }
     if let Some((who, from, to)) = trace_spec.as_ref() {
         println!("  {who}'s trace t{from}..t{to} (game side; position after each tick, the block at its feet):");

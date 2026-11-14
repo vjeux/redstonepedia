@@ -181,12 +181,19 @@ pub fn rider_string(version: &str) -> Result<()> {
     pin(2, resting_empty.len() == 2 && resting_empty.iter().all(|s| s.iter().all(|&b| !b)), "(2) no resting EMPTY cart ever presses its string (its box tops out 0.300 below the band; 2 rows)".into())?;
     pin(3, rolling_ridden.len() == 16 && rolling_ridden.iter().all(|s| s.iter().any(|&b| b)), "(3) every rolling ridden cart presses its string while passing, AI on and NoAI (16 rows)".into())?;
     pin(4, never.len() == 3 && never.iter().all(|s| s.iter().all(|&b| !b)), "(4) the rolling empty carts and the no-cart control never press theirs (3 rows)".into())?;
-    // (G1 06:54 non-blocking) the AI-vs-NoAI comparison, asserted as the game shows it over runs: each rolling AI row
-    // first presses within ONE tick of its NoAI twin (identical in most runs; an AI rider's own move control can nudge
-    // its cart, one row a tick early in one plant run of car 12)
+    // (G1 06:54 / car-14 non-blocking, ironspec 09:41a) the AI-vs-NoAI comparison, asserted as the game shows it over runs:
+    // each rolling AI row first presses within ONE tick of its NoAI twin. The observed spread (car 14, 6 runs on tree
+    // 5a69cfc4e8ce): the 0.20 b/t row from z -2.5 AI t23 vs NoAI t24 in 2 runs, t24 / t24 in 4; every other row the same tick
+    // in every run; no 26.3 path found that lets a seated AI villager move its cart (OldMinecartBehavior takes rider input
+    // from a Player only), so it stands as variance. Each row's AI - NoAI difference is printed every run.
     let ai_ticks = class(&|r| r.rider == Some(true) && r.v > 0.0);
     let noai_ticks = class(&|r| r.rider == Some(false) && r.v > 0.0);
-    let within_one = ai_ticks.len() == 8 && noai_ticks.len() == 8 && ai_ticks.iter().zip(&noai_ticks).all(|(a, b)| matches!((a, b), (Some(a), Some(b)) if a.abs_diff(*b) <= 1));
+    let diffs: Vec<Option<i64>> = ai_ticks.iter().zip(&noai_ticks).map(|(a, b)| match (a, b) {
+        (Some(a), Some(b)) => Some(*a as i64 - *b as i64),
+        _ => None,
+    }).collect();
+    println!("  each rolling row's first press, AI minus NoAI (gt): {diffs:?}");
+    let within_one = ai_ticks.len() == 8 && noai_ticks.len() == 8 && diffs.iter().all(|d| d.is_some_and(|d| d.abs() <= 1));
     pin(5, within_one, format!("(5) every rolling AI rider first presses within one tick of its NoAI twin: {ai_ticks:?} / {noai_ticks:?}"))?;
     // the read-backs: every ridden row's villager seated all 60 ticks with its NoAI flag as summoned
     let back_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_some()).all(|(k, r)| seated[k] == 60 && noai_ok[k] == 60 && noai[k] == Some(r.rider == Some(false)));
@@ -195,6 +202,9 @@ pub fn rider_string(version: &str) -> Result<()> {
     // on at least one tick
     let ctl_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_none() && r.v >= 0.0).all(|(k, r)| if r.v == 0.0 { in_cell[k] == 60 } else { in_cell[k] >= 1 });
     pin(7, ctl_ok, "(7) every control cart is read back under the string: the resting empties inside its cell (z 1 .. 2) on all 60 ticks, the rolling ones passing through it".into())?;
+    if let Some(k) = plant()? {
+        anyhow::bail!("control planted nothing: MCTAS_RIDER_STRING_PLANT={k} never failed its assert");
+    }
     println!("  every known answer held (asserts 1..7)");
     Ok(())
 }
