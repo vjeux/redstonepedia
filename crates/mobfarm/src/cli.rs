@@ -7467,6 +7467,91 @@ pub enum MobfarmCmd {
         /// The approach flats covered by top-half trapdoors (the contact mode's positive control).
         #[arg(long)]
         trapdoor_caps: bool,
+        /// T5b (ironspec 22:11 / 22:20, the restart trap's fix candidate): the activator in the
+        /// entry's cell (the eject onto the second chest), its lever where the entry booster's torch
+        /// was, a plain rail where the activator was, glass over the lever.
+        #[arg(long)]
+        eject_at_entry: bool,
+        /// The curve contact's positive control: the wall east of the pickup cell (-1,0,4) glass, as
+        /// before the curve fix (adopted ironspec 00:32: a closed top-half iron trapdoor there).
+        #[arg(long)]
+        curve_glass: bool,
+        /// (A) (ironspec 00:07 (4A), approved for benching 00:37): the eject within SleepInBed's
+        /// reach of the bed head (E over the bed foot's NE, the park one cell north of the pickup
+        /// cell, the arming detector before E); the landing chests and the ledge gone.
+        #[arg(long)]
+        eject_at_bed: bool,
+        /// (A) with the run-up (B3, ironspec 02:27): E at the flats' level, a loop east to a park
+        /// on the U-turn, two run-up flats into the pickup cell (under 0.2 b/t there).
+        #[arg(long)]
+        runup: bool,
+        /// (A) with the run-up: the loop's flat (0,0,3) a plain rail, not a booster (the climb on
+        /// the empty cart's own speed; the U-turn slower).
+        #[arg(long)]
+        no_loop_booster: bool,
+        /// (A) with the run-up: KEEP the glass over the bed head (the as-built cell, the re-claim's
+        /// known positive: ironspec 06:24 removed it, so the default has no glass there).
+        #[arg(long)]
+        head_glass: bool,
+        /// (A) with the run-up: the exit one cell further south (a straight after P, the curve east
+        /// at (-2,0,6), the exit along z 6 and back to z 5 at x 2): no curve-to-curve junction
+        /// beside the bed head.
+        #[arg(long)]
+        exit_south: bool,
+        /// (A) with the run-up: the waker moved south beyond the flee's 6 from P (58f770cc's Z1:
+        /// a zombie in a boat at (-5,0,10), its shutter (-5,1,9), the sight channel and screens;
+        /// A6's hatch and post gone). With --exit-south.
+        #[arg(long)]
+        waker_south: bool,
+        /// (A) with --exit-south: a booster on the straight right after P ((-2,0,5)), powered
+        /// through a slime support by a torch under it (day-1's entry -> R budget).
+        #[arg(long)]
+        exit_boost: bool,
+        /// (A) with --exit-south: the tap hold with the napper aboard (ironspec 09:38): the exit
+        /// slope (1,-1,5) an unpowered powered rail (the bench powers it at the tap with
+        /// `--pulse-cell 1,-1,6@T=redstone_block`; DAY-1's tap cells in the build).
+        #[arg(long)]
+        hold_slope: bool,
+        /// (A) with --exit-south: the wake sensor (G1 12:04 / day-1 12:03): an observer at
+        /// (-3,-1,4) facing up at the bed head, its output into (-3,-2,4) (OCCUPIED's edges: the
+        /// lie-down and the wake; DAY-1's F line and the park's release key on it).
+        #[arg(long)]
+        wake_sensor: bool,
+        /// (A) with --exit-south: the rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire
+        /// string at (4,0,5) over R's detector, hooks at (4,0,4) / (4,0,6) on glass (4,0,3) / (4,0,7).
+        #[arg(long)]
+        rs_ready: bool,
+        /// (A) with --exit-south, no loop booster: the sensed park (ironspec 17:35 / 17:39): a
+        /// detector rail at (0,0,3), the cell the cart last passes into the park, for DAY-1's PARKED.
+        #[arg(long)]
+        park_sense: bool,
+        /// (ironspec 21:42 / 21:51, 58f770cc's 21:44 / 22:32) THE RE-LAID STOP: P straight
+        /// north_south reached from the north through K (a driven T), the empty cart's out-and-back
+        /// siding along z 3 to a braked park at (X,0,3) under a rest-keyed tripwire, P_STRING east-west
+        /// at P + 1, (-1,0,4) / (-1,2,4) solid, the head-top guard (-3,2,4). X is the park's cell (1..3).
+        #[arg(long)]
+        relaid: Option<i32>,
+        /// (9fc3155f 23:21, the re-laid stop's candidate) The bed sensor west of the head: the observer
+        /// at (-4,0,4) facing east (its output out of its back at (-5,0,4), for DAY-1's wake line),
+        /// glass under the head (-3,-1,4): both bed halves stand on glass, so neither passes
+        /// `LandRandomPos`'s `isNotStable` draw (the bed top no stroll target).
+        #[arg(long)]
+        bed_sensor_west: bool,
+        /// (ironspec 23:40 (3)(c), candidate R1) The stamp-free HOME route on the re-laid stop: glass
+        /// steps (2,1,4) / (1,2,4) / (0,2,4) from K's rider-only siding to the roof, then a one-way drop
+        /// onto the bed head's node.
+        #[arg(long)]
+        stamp_route: bool,
+        /// (ironspec 23:45: lay day-1's form-(b) P_HOLD latch, transplanted one level down) The
+        /// latch's cells at y -2 on glass, the OR line's climb into the drive repeater (2,0,2) and
+        /// Q's tap line into the slope's tap repeater (1,-2,4); the bench lays stand-in levers at
+        /// RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5).
+        #[arg(long)]
+        latch_b: bool,
+        /// (ironspec 00:05 / 00:08) SEAL P on the re-laid stop: the exit's first cap (-2,1,5) glass
+        /// instead of the iron trapdoor, so no walker leaves P by the exit channel.
+        #[arg(long)]
+        seal_p: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -7477,6 +7562,40 @@ pub enum MobfarmCmd {
     /// --hours. Prints each visit (one row) or each row's clean count, and the totals: seated, not
     /// out, HOME losses, the pickup speeds, each exit's delay against the same seed and speed's
     /// night.
+    /// (ironspec 05:10 real / G1) R1's strand window from b8949c96's `way-cell --visit` files: per
+    /// visit, the window from the release in which a night skip strands the napper (its stamp armed,
+    /// the leg sink still running, that sink's stop at least --lag gt after the skip), ending at the
+    /// first COMPLETE compute after the release, or at the stop's lie-down (--lie-after-entry gt
+    /// after the entry) when that comes first; P(strand | a skip) = the mean window over the visit
+    /// spacing. Every input printed with its validation (the implied sink duration, the stamp's age
+    /// at the release plus the first complete compute's offset, against the game's 150 + U(0..100)).
+    StrandWindow {
+        /// The visit files (one or more).
+        files: Vec<PathBuf>,
+        /// The visit spacing at the stop, gt (a list prints each).
+        #[arg(long, value_delimiter = ',', default_value = "300")]
+        spacing: Vec<i64>,
+        /// The leg sink's stop must come this many gt after the skip (REST lingers up to 20 gt after
+        /// the skip behind Brain's schedule gate: tick-exact's strand trace).
+        #[arg(long, default_value_t = 21)]
+        lag: i64,
+        /// The stop's lie-down this many gt after the cart's entry ((A)'s eject at E): it ends the
+        /// window when it comes before the first complete compute. Without it, the file's own stop
+        /// (A6's) is taken as recorded.
+        #[arg(long)]
+        lie_after_entry: Option<i64>,
+        /// Print every row's inputs and window.
+        #[arg(long)]
+        rows: bool,
+    },
+    /// (58f770cc, the waker's placement) Every non-air block of a design inside a box, one
+    /// `x,y,z state` per line (the design's own frame), with the box's free cells counted per layer.
+    Cells {
+        design: PathBuf,
+        /// The box's two corners, `x0,y0,z0:x1,y1,z1` (inclusive).
+        #[arg(long, allow_hyphen_values = true)]
+        r#box: String,
+    },
     BedtierBench {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -7489,9 +7608,11 @@ pub enum MobfarmCmd {
         /// defaults are the accepted design; 10 is the pre-cut control).
         #[arg(long, default_value_t = 2)]
         after_sleep: i64,
-        /// The park's release, gt after the wake edge: the accepted design's 0 (ironspec 19:18; 30
-        /// is the pre-cut control).
-        #[arg(long, default_value_t = 0)]
+        /// The park's release, gt after the wake edge (a named stand-in for DAY-1's adopted stop,
+        /// ironspec 16:09: the park at RLS + 8, about the wake + 20..28; 20 is the earliest: the
+        /// first (-2,0,5) entry clears the close + 27 by >= 13 gt, the bar; 30 is the pre-cut
+        /// control).
+        #[arg(long, default_value_t = 20)]
         release_after: i64,
         /// By day (2,000): the napper should not sleep.
         #[arg(long)]
@@ -7604,6 +7725,233 @@ pub enum MobfarmCmd {
         /// --module-offset in the stop's frame): an experiment on the composed geometry.
         #[arg(long)]
         set_cell: Vec<String>,
+        /// A block set at a tick of every visit, before the tick (`x,y,z@T=state`, repeatable; the
+        /// stop's frame like --set-cell): measures the navigation's recompute trigger (a
+        /// collision-shape change near the path, ironspec 00:03 (2c)); each prints whether the
+        /// collision shape changed and the napper's last recompute before and after.
+        #[arg(long)]
+        pulse_cell: Vec<String>,
+        /// (ironspec 00:31, the re-runs on record7 itself) A declared lever held ON from the start
+        /// (`x,y,z`, the module's frame with --module-offset; repeatable): REST_l's line end.
+        #[arg(long)]
+        lever_on: Vec<String>,
+        /// record7's built release: its declared NOT-ready lever (`x,y,z`, the module's frame), ON
+        /// through the wait, OFF at the release (the built R1 then powers the queue rail), ON again
+        /// once the cart leaves the seat; no R1 stand-ins laid, --queue-release not needed.
+        #[arg(long)]
+        built_release: Option<String>,
+        /// DAY's declared lever (`x,y,z`, the module's frame), following the daylight detector's
+        /// real rule: set to DAY only at game time % 20 == 0 (ironspec 00:25).
+        #[arg(long)]
+        day_lever: Option<String>,
+        /// The design of record to compare the bench's world against (record-match, ironspec 21:43 /
+        /// 23:46): the rows count only by its verdicts, which fail the run.
+        #[arg(long)]
+        record: Option<std::path::PathBuf>,
+        /// The record's offset, record-match's: a record cell + it = the bench's cell (default: minus
+        /// the module offset, the module moved into the stop's frame).
+        #[arg(long, allow_hyphen_values = true)]
+        record_offset: Option<String>,
+        /// The margin over the bench's world box for record-match.
+        #[arg(long, default_value_t = 2)]
+        record_margin: i32,
+        /// Extra declaration header text for record-match (`# stand-in:`, `# candidate:`,
+        /// `# bench-entity:` lines; repeatable), as record-match's --declare.
+        #[arg(long)]
+        record_declare: Vec<std::path::PathBuf>,
+        /// (ironspec 03:30, the head-space rule) New solid cells (`x,y,z`, repeatable; the stop's
+        /// frame, or the module's with --module-offset) checked every tick against every villager's
+        /// box and eye box: bar 0 eye overlap; plant one with --set-cell for the positive control.
+        #[arg(long)]
+        head_cell: Vec<String>,
+        /// Bars this run's declared scope excludes (`visits`, `pickups`, `riderless`; repeatable):
+        /// their 0 samples print NOT JUDGED without failing (ironspec 23:56).
+        #[arg(long)]
+        scope_excludes: Vec<String>,
+        /// (day-1 10:49) Print one line per visit (seed, entry speed, wake, release, pickup, rest on
+        /// the exit slope, departure, R, the wait on the slope): the hold lead's data.
+        #[arg(long)]
+        visit_table: bool,
+        /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
+        /// worst-case braking interval + 3, printed by the bench). Default: the design's 70 (G1's
+        /// C17); the positive control passes 0 explicitly.
+        #[arg(long, default_value_t = 70)]
+        arm_delay: i64,
+        /// ((A)'s at-rest bar's positive control) The park released this many gt after the arming
+        /// detector's edge, whatever the napper does (0: the cart still moving; the bar must fail).
+        #[arg(long)]
+        release_after_arm: Option<i64>,
+        /// (ironspec 06:31 real, the farm-stop bar's known positive) The napper's HOME erased at
+        /// this tick of each visit: the bar must fail.
+        #[arg(long)]
+        erase_home_at: Option<i64>,
+        /// (ironspec 23:00 (3) / 23:04) The NO-HOME row: the napper's HOME erased K gt after its wake
+        /// while it stands awake on P, the bed's ticket taken (no re-claim); its cells afterwards
+        /// printed (tick-exact's AK wanderer stepped onto the bed head's top).
+        #[arg(long)]
+        erase_home_on_p: Option<i64>,
+        /// (G1 00:02) The no-HOME row's ticket after the erase: `free` (the real erasure path: its
+        /// releasePoi frees the bed's ticket; AK's state) or `taken` (a declared stand-in claimant).
+        #[arg(long, default_value = "free")]
+        erase_home_ticket: String,
+        /// (tick-exact 00:07, AK's state: day, IDLE, no HOME, ticket free) The day time set at the
+        /// no-HOME erase (e.g. 6000), so the HOME-less napper runs IDLE's strolls.
+        #[arg(long)]
+        erase_home_day_time: Option<i64>,
+        /// (`bedtier --latch-b`) RLS_IN's width, gt: the logic block's RLS line held from the release
+        /// (the laid latch then holds PARK [RLS + 2, RLS + 26)).
+        #[arg(long, default_value_t = 6)]
+        latch_rls_width: i64,
+        /// (ironspec 16:35: the self-heal, the FREE-ticket case) The napper's HOME released at this
+        /// tick of each visit as a stamp release does (the memory erased, a fresh CANT_REACH stamp),
+        /// the bed's ticket free: the napper must re-acquire it at the stop and nap.
+        #[arg(long)]
+        release_home_at: Option<i64>,
+        /// (ironspec 06:14, the on-farm re-claim question) The strand's dusk instead of a visit: a
+        /// napper on the bed foot's top in the afternoon with HOME = the bed and a stamp armed
+        /// 1,300 gt ago, run through dusk; prints the release, the re-claim and the lie-down, with
+        /// the bed's free tickets and holders.
+        #[arg(long)]
+        reclaim_row: bool,
+        /// With --reclaim-row: the known positive, a second villager holding the bed's ticket.
+        #[arg(long)]
+        reclaim_blocked: bool,
+        /// (G1 C12) A free `--reclaim-row`'s expected outcome, judged: reclaimed | not-reclaimed.
+        #[arg(long)]
+        reclaim_expect: Option<String>,
+        /// (ironspec 11:37 (3)) The exit boost's carry threshold: a loaded cart set on (-2,0,5)
+        /// moving south at each listed speed (comma-separated), carried to R or stalled.
+        #[arg(long)]
+        boost_probe: Option<String>,
+        /// (ironspec 11:39 / G1: the build positions) Build the whole stop at design + dx,dy,dz
+        /// (every laid cell, entity and stand-in write) and judge it there, the rows printed in the
+        /// design frame; the stop's own bench only.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
+        /// (day-1 12:03 / ironspec 16:09) Z1's window shut this many gt after the wake edge (a named
+        /// stand-in: on DAY-1's adopted stop the woken napper's press on P resets OPEN, about the
+        /// wake + 4). The stand-in controller's term (default 4); refused under the adopted one.
+        #[arg(long)]
+        close_after: Option<i64>,
+        /// (G1's Q2) The slope hold's tap on its built path: T,W[,PERIOD]: the stand-in input lever
+        /// (1,-2,3) into DAY-1's repeater (1,-2,4) on for W gt at T, and with a PERIOD at every
+        /// T + k PERIOD (k of either sign: a free-running train at phase T).
+        #[arg(long)]
+        tap: Option<String>,
+        /// (G1 12:38 / ironspec 12:38; SUPERSEDED at 15:37) DAY-1's guard-free latch on the real
+        /// wake sensor's pulses, T_MAX,LOGIC_LAT,REL_AFTER: TIMEOUT at ARM + T_MAX, the shutter
+        /// LOGIC_LAT gt behind OPEN, the park's release REL_AFTER gt after OPEN's fall (replaces the
+        /// controller; needs `bedtier --wake-sensor`).
+        #[arg(long)]
+        latch: Option<String>,
+        /// (G1's B1) The stop's controller: `adopted` (default: DAY-1's gate list rev 20:00 at the
+        /// --adopted-terms, emulated on the real cells, P_STRING and PARKED named stand-ins) or
+        /// `stand-in` (F at max(lie-down + --after-sleep, ARM + --arm-delay), the close at the wake +
+        /// --close-after, the release at the wake + --release-after).
+        #[arg(long, default_value = "adopted")]
+        controller: String,
+        /// (G1's B1) The adopted controller's terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,
+        /// LAG,ONSET (default 52,0,12,54,6,6,2,6,2,10,1: DAY-1's gate list rev 20:00 with the re-laid
+        /// stop's ruled terms (ironspec 21:51 / 22:22: W: the W line 48, the latest RLS at pulse + 59,
+        /// RLS 6 after its read; PARK at RLS + 2 by the plain repeater drive, held 24 gt by
+        /// --park-width) at ctl-shutter's designed timing,
+        /// with ironspec 17:32 (4) (OPEN's set on PARKED: A70
+        /// 0), 17:53 (p = 2; COOL's tap ARM + 52) and 17:39 (PARKED = the sensed park AND COOL, the
+        /// PARKED term); PARKED 0 = the stand-in "the cart at rest in the park cell"; ONSET -1 = no
+        /// onset term).
+        #[arg(long)]
+        adopted_terms: Option<String>,
+        /// (G1's B1 control twin) Block P's headroom (-2,1,4) one tick after the lie-down: the woken
+        /// napper can't stand on P. (G1's CHANGES 8 B1: named for its true moment; the old name stays
+        /// an alias.)
+        #[arg(long = "block-p-after-lie", alias = "block-p-at-wake")]
+        block_p_at_wake: bool,
+        /// (ironspec 21:10 (3), the POWER-UP row) The park drive ON from the first tick (P_HOLD's latch
+        /// come up SET): `reset` clears it at ARM's edge (DAY-1 21:10), `keep` leaves it on (the
+        /// control: the first cart unbraked).
+        #[arg(long)]
+        park_initial_on: Option<String>,
+        /// (rev 20:00 G21 / ironspec 22:22 / 22:24) PARK's stretch in gt: the bench's park drive off this
+        /// long after it rose; `none` leaves it on. Default 24 under the adopted controller (the
+        /// ruled PARK_W 20 = 24 gt); refused under the stand-in controller.
+        #[arg(long)]
+        park_width: Option<String>,
+        /// (ironspec 21:15 (c)) The R-press row's positive control: Q lit by hand at the rider's
+        /// RS_ready press (RLS low), for PARK's width: the RLS-low pulse count must catch it.
+        #[arg(long)]
+        light_q_at_rs: bool,
+        /// (ironspec 21:20) A world open K gt after RLS: `K,ORDER[/idle:N|/stress:F]` as --restart's
+        /// (`/stress:2` holds the entities 3 behind the blocks: G21's motivating row).
+        #[arg(long)]
+        restart_at_rls: Option<String>,
+        /// (G1 21:20 (1)) The napper moved off P onto the bed foot's top K gt after RLS (an empty
+        /// departure): PARK's firing printed.
+        #[arg(long)]
+        step_off_at_rls: Option<i64>,
+        /// (ironspec 21:21 (4)) A planted hurt K gt after ARM's edge (ARM + 9: the earliest wake the
+        /// forced rows carry): first-window boarding or the next wake's, the extra visit length, the
+        /// stamp's age at boarding, HOME, no permanent hold.
+        #[arg(long)]
+        hurt_at_arm: Option<i64>,
+        /// (day-1 21:33) An impulse `DX,DZ` (plus 0.1 up) given to the woken napper the tick after
+        /// the wake (a knockback's forced move): does it carry the napper off P?
+        #[arg(long)]
+        shove_at_wake: Option<String>,
+        /// (ironspec 21:51 (5), the re-laid stop) K's drive held for the whole visit: north_east (the
+        /// released cart's path) or south_east (the arriving empty cart's path): each outcome printed.
+        #[arg(long)]
+        k_stuck: Option<String>,
+        /// (ironspec 22:38 (1)(b)) The pickup's first-contact speed band LO,HI, judged per visit
+        /// (the re-laid stop: 0.13,0.2).
+        #[arg(long)]
+        pickup_band: Option<String>,
+        /// (ironspec 23:34 / G1 23:27) One line per visit with the observer's pulse ticks, wakes and
+        /// lie-downs (the west bed sensor's condition: an empty diff, under vs west).
+        #[arg(long)]
+        pulse_log: bool,
+        /// (ironspec 23:54 (b)) The boarding cooldown the eject sets, in gt (26.3's
+        /// `Entity.removeVehicle`; ironspec expects 60, tick-exact pins it): every pickup is judged at
+        /// least this long after the eject.
+        #[arg(long, default_value_t = 60)]
+        boarding_cooldown: i64,
+        /// (G1's N13 planted row) With --tap T,W,PERIOD: leave out the train's K-th pulse (k = 0 at
+        /// T, either sign), so a held cart waits a full period (the full-period bar must fail).
+        #[arg(long)]
+        tap_skip: Option<i64>,
+        /// (G1 19:26's planted row) Replace E (-2,0,2) by a plain rail at the first tick: it never
+        /// ejects and the ridden cart rides on over the activator (-1,0,3) (printed).
+        #[arg(long)]
+        plant_e_off: bool,
+        /// (ironspec 17:35 / 17:39 / 17:51 (c), the sensed park) X,Y,Z,DELAY: PARKED is latched from the
+        /// cart's first end-of-tick on X,Y,Z after ARM, through DELAY gt (a named stand-in for the
+        /// detector rail there and SENSED's delay d >= the worst press -> rest settle + 2: 26 + 2 on
+        /// 4caaec86f's band), ANDed with the COOL timer (the PARKED term); `none`: the timer alone.
+        /// Default 0,0,3,28 under the adopted controller (the re-laid stop reads its park string);
+        /// refused under the stand-in controller.
+        #[arg(long)]
+        parked_sense: Option<String>,
+        /// (G1 12:38: the merge row) A hurt this many gt after the lie-down (a reverse merge at <= 3).
+        #[arg(long)]
+        hurt_after_lie: Option<i64>,
+        /// (ironspec 02:16, row 39's fault record) An EMPTY cart planted at X,Y,Z (stop-local) at the
+        /// visit's start: a cart left on the siding, the stop blocked; the visit then runs 14,000 gt
+        /// and prints where the planted cart ends and the napper's fate (seated, its stamp, HOME).
+        #[arg(long, value_delimiter = ',', num_args = 3, allow_hyphen_values = true)]
+        plant_empty: Option<Vec<f64>>,
+        /// Fail when a contact declaration's stated bounds don't equal this run's measured extremes
+        /// (main's `contacts::reference_check`, ironspec Nov 13 10:58 / G1 11:12 (b)): for the
+        /// declaration's own `ref=` run.
+        #[arg(long)]
+        reference_check: bool,
+        /// (G1 15:29 / b8949c96 15:45: R4's planter) Write the cart's states on each tick its centre
+        /// is within 1.5 of a top-half trapdoor's column (its layer or the one above) to FILE: one
+        /// line `x,y,z,vx,vy,vz,rider|none` (the design frame, the stored motion).
+        #[arg(long)]
+        cart_states: Option<std::path::PathBuf>,
+        /// With --reclaim-row: the napper's feet at X,Y,Z instead of the bed foot's top (A6's
+        /// control: its landing, 2.5,2,-2.5).
+        #[arg(long, allow_hyphen_values = true)]
+        reclaim_at: Option<String>,
         /// With --module-offset: the module's stop brought up to date, `OLD,NEW` (two stop files
         /// in the stop's frame): every cell where they differ set in the moved module to NEW's
         /// block (air where NEW has none), the cells they agree on left as composed.
@@ -17992,8 +18340,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps } => {
-            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps)?)?;
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense, relaid, bed_sensor_west, stamp_route, latch_b, seal_p } => {
+            anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
+            anyhow::ensure!(!runup || eject_at_bed, "--runup is (A)'s variant: with --eject-at-bed");
+            anyhow::ensure!(!no_loop_booster || runup, "--no-loop-booster is (A) with the run-up's variant: with --runup (G1's Q12: no silent no-op)");
+            anyhow::ensure!(!(head_glass || exit_south) || runup, "--head-glass and --exit-south are (A) with the run-up's variants: with --runup");
+            anyhow::ensure!(!(waker_south || exit_boost || hold_slope || wake_sensor || rs_ready) || exit_south, "--waker-south, --exit-boost, --hold-slope, --wake-sensor and --rs-ready go with --exit-south");
+            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor, rs_ready, park_sense, relaid, bed_sensor_west, stamp_route, latch_b, seal_p)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
@@ -18008,13 +18361,98 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in crate::bedtier::zombie_post_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("zombie post: {l}");
             }
+            // (G1's Q16: a trapdoor that changes at its next update fails the generator)
+            let tlines = crate::bedtier::trapdoor_signal_lines(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &tlines {
+                println!("{l}");
+            }
             for l in crate::bedtier::waker_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("waker: {l}");
             }
+            let mism = tlines.iter().filter(|l| l.contains("MISMATCH")).count();
+            anyhow::ensure!(mism == 0, "{mism} iron trapdoors in {} change at their next update (MISMATCH lines above; G1's Q16)", out.display());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, restop, queue_dusk, jobs } => {
+        MobfarmCmd::Cells { design, r#box } => {
+            let (_c, spec) = load(version, &design)?;
+            let (a, b) = r#box.split_once(':').ok_or_else(|| anyhow::anyhow!("--box x0,y0,z0:x1,y1,z1"))?;
+            let p = |s: &str| -> Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a corner is x,y,z");
+                Ok([v[0], v[1], v[2]])
+            };
+            let (a, b) = (p(a)?, p(b)?);
+            let lo = [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])];
+            let hi = [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])];
+            let mut cells: std::collections::BTreeMap<(i32, i32, i32), String> = std::collections::BTreeMap::new();
+            for (q, blk) in &spec.blocks {
+                if (lo[0]..=hi[0]).contains(&q.x) && (lo[1]..=hi[1]).contains(&q.y) && (lo[2]..=hi[2]).contains(&q.z) && !blk.is_air() {
+                    cells.insert((q.y, q.z, q.x), format!("{blk}"));
+                }
+            }
+            for ((y, z, x), s) in &cells {
+                println!("{x},{y},{z} {s}");
+            }
+            let per_layer = (hi[0] - lo[0] + 1) * (hi[2] - lo[2] + 1);
+            for y in lo[1]..=hi[1] {
+                let n = cells.keys().filter(|k| k.0 == y).count() as i32;
+                println!("layer y {y}: {n} blocks, {} free of {per_layer}", per_layer - n);
+            }
+        }
+        MobfarmCmd::StrandWindow { files, spacing, lag, lie_after_entry, rows } => {
+            let lines = crate::strandwindow::report(&files, &spacing, lag, lie_after_entry, rows)?;
+            for l in &lines {
+                println!("{l}");
+            }
+            // (G1's C18: a failed validation fails the run)
+            let failed: Vec<&String> = lines.iter().filter(|l| l.starts_with("FAILED: ")).collect();
+            anyhow::ensure!(failed.is_empty(), "strand-window: {} validation failures", failed.len());
+        }
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
+            // (G1's CHANGES 8 item 0: every run, refusals and the boost probe included, prints its
+            // command line before anything is validated)
+            println!("command: {}", std::env::args().collect::<Vec<_>>().join(" "));
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
+            // (G1's N15: no negative --release-after-arm)
+            anyhow::ensure!(release_after_arm.is_none_or(|n| n >= 0), "--release-after-arm can't be negative");
+            // (ironspec 06:14: the strand's dusk, the re-claim row)
+            // (ironspec 11:37 (3): the exit boost's carry threshold, a forced row)
+            if let Some(s) = &boost_probe {
+                let vs: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--boost-probe {s}: {e}"))?;
+                // (G1's N15: no negative or zero speeds)
+                anyhow::ensure!(vs.iter().all(|&v| v > 0.0), "--boost-probe {s}: speeds above 0");
+                for l in crate::bedtier::boost_probe(&spec, &vs).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if reclaim_row {
+                let at = match &reclaim_at {
+                    None => None,
+                    Some(s) => {
+                        let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--reclaim-at {s}: {e}"))?;
+                        anyhow::ensure!(v.len() == 3, "--reclaim-at wants X,Y,Z");
+                        Some([v[0], v[1], v[2]])
+                    }
+                };
+                for seed in from..=to {
+                    let lines = crate::bedtier::reclaim_row(&spec, seed, reclaim_blocked, at).map_err(|e| anyhow::anyhow!("seed {seed}: {e}"))?;
+                    for l in &lines {
+                        println!("seed {seed}: {l}");
+                    }
+                    // (G1's C12: a free row is judged against --reclaim-expect, never exit 0 both ways)
+                    if !reclaim_blocked {
+                        let got = lines.iter().any(|l| l == "re-claimed: true");
+                        match reclaim_expect.as_deref() {
+                            Some("reclaimed") => anyhow::ensure!(got, "seed {seed}: expected the re-claim (--reclaim-expect reclaimed); it didn't happen"),
+                            Some("not-reclaimed") => anyhow::ensure!(!got, "seed {seed}: expected no re-claim (--reclaim-expect not-reclaimed); it happened"),
+                            Some(x) => anyhow::bail!("--reclaim-expect {x}: reclaimed | not-reclaimed"),
+                            None => anyhow::bail!("--reclaim-row without --reclaim-blocked needs --reclaim-expect reclaimed | not-reclaimed (G1 C12: the verdict is judged)"),
+                        }
+                    }
+                }
+                return Ok(());
+            }
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (the real approach: the module moved into the stop's frame, its own queue rider out)
             let triple = |s: &Option<String>| -> Result<Option<[f64; 3]>> {
@@ -18029,7 +18467,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             };
-            let approach = match (triple(&module_offset)?, triple(&queue_seat)?, triple(&queue_release)?) {
+            let release_src = queue_release.clone().or(built_release.clone());
+            let approach = match (triple(&module_offset)?, triple(&queue_seat)?, triple(&release_src)?) {
                 (Some([ox, oy, oz]), Some([sx, sy, sz]), Some([rx, ry, rz])) => {
                     let (ox, oy, oz) = (ox as i32, oy as i32, oz as i32);
                     let (rx, ry, rz) = (rx as i32, ry as i32, rz as i32);
@@ -18043,7 +18482,60 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Some(crate::bedtier::Approach { seat, release: [rx - ox, ry - oy, rz - oz], wait: queue_wait, dusk: queue_dusk })
                 }
                 (None, None, None) => None,
-                _ => anyhow::bail!("--module-offset, --queue-seat and --queue-release go together"),
+                _ => anyhow::bail!("--module-offset, --queue-seat and --queue-release (or --built-release) go together"),
+            };
+            // (ironspec 00:31: record7's declared line-bench levers, the module's frame -> the stop's)
+            let off = triple(&module_offset)?.map_or([0, 0, 0], |v| [v[0] as i32, v[1] as i32, v[2] as i32]);
+            let to_stop = |s: &str| -> Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "{s:?}: x,y,z");
+                Ok([v[0] - off[0], v[1] - off[1], v[2] - off[2]])
+            };
+            let levers_on: Vec<[i32; 3]> = lever_on.iter().map(|s| to_stop(s)).collect::<Result<_>>()?;
+            let head_cells: Vec<[i32; 3]> = head_cell.iter().map(|s| to_stop(s)).collect::<Result<_>>()?;
+            // (ironspec 00:31: the module's declared emulated cells, laid by the bench)
+            let lay_emulated = if module_offset.is_some() { crate::bedtier::emulated_entries(&std::fs::read_to_string(&design)?, off).map_err(|e| anyhow::anyhow!(e))? } else { Vec::new() };
+            let built_release = built_release.as_deref().map(to_stop).transpose()?;
+            let day_lever = day_lever.as_deref().map(to_stop).transpose()?;
+            // (record-match: the design of record, the offset (default: the module offset), the
+            // declarations from the bench design's header and --record-declare files)
+            let record = match &record {
+                Some(rp) => {
+                    let rt = std::fs::read_to_string(rp)?;
+                    let r = mctas::design::Design::parse(&rt).map_err(|e| anyhow::anyhow!("{}: {e}", rp.display()))?;
+                    let offset = match &record_offset {
+                        Some(s) => {
+                            let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--record-offset dx,dy,dz");
+                            [v[0], v[1], v[2]]
+                        }
+                        None => [-off[0], -off[1], -off[2]],
+                    };
+                    let mut header = std::fs::read_to_string(&design)?;
+                    for f in &record_declare {
+                        header.push('\n');
+                        header.push_str(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--record-declare {}: {e}", f.display()))?);
+                    }
+                    let mut declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                    // (the module's declared emulated cells: a declared candidate for record-match)
+                    for (c, _) in &lay_emulated {
+                        declared.candidates.insert(*c, "emulated (the module's `emulated:` line)".to_string());
+                    }
+                    let ents = r
+                        .entities
+                        .iter()
+                        .map(|e| -> anyhow::Result<crate::recordmatch::Ent> {
+                            // (the record's vehicles compared with their passengers, as main's record-match does)
+                            let passengers = match e.nbt.as_deref() {
+                                Some(n) => crate::recordmatch::passengers_of_nbt(n).map_err(|why| anyhow::anyhow!("{} at {:?}: {why}", e.kind, e.pos))?,
+                                None => Vec::new(),
+                            };
+                            Ok(crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos, passengers })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    Some(std::sync::Arc::new(crate::bedtier::RecordCtx { cells: r.blocks, ents, offset, margin: record_margin, declared, name: rp.display().to_string() }))
+                }
+                None => None,
             };
             // (the module's stop brought up to date: OLD's and NEW's differing cells)
             if let Some(pair) = &restop {
@@ -18055,13 +18547,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let mut cells: Vec<redsim::pos::BlockPos> = mo.keys().chain(mn.keys()).copied().filter(|p| mo.get(p) != mn.get(p)).collect();
                 cells.sort_by_key(|p| (p.y, p.x, p.z));
                 cells.dedup();
+                let mut not_old = Vec::new();
                 for p in &cells {
+                    let cur = spec.blocks.iter().find(|(q, _)| q == p).map(|(_, b)| *b);
+                    if cur != mo.get(p).copied() {
+                        not_old.push(format!("({},{},{}) the module {} vs OLD {}", p.x, p.y, p.z, cur.map_or("air".to_string(), |b| format!("{b}")), mo.get(p).map_or("air".to_string(), |b| format!("{b}"))));
+                    }
                     spec.blocks.retain(|(q, _)| q != p);
                     if let Some(b) = mn.get(p) {
                         spec.blocks.push((*p, *b));
                     }
                 }
+                // (ironspec 04:07: every replaced cell held OLD's block, else the override isn't the
+                // update it claims)
+                anyhow::ensure!(not_old.is_empty(), "--restop: the module doesn't hold OLD's stop at {} cell(s): {}", not_old.len(), not_old.join("; "));
                 println!("the module's stop brought up to date: {} cells differ between {old} and {new}: {}", cells.len(), cells.iter().map(|p| format!("({},{},{}) {}", p.x, p.y, p.z, mn.get(p).map_or("air".to_string(), |b| format!("{b}")))).collect::<Vec<_>>().join("; "));
+                // (ironspec 04:07: the override must change the module: the cells of the module's
+                // stop before it, OLD's, else the module doesn't hold OLD's stop)
+                anyhow::ensure!(!cells.is_empty(), "--restop {pair}: OLD and NEW don't differ (an override that changes nothing fails the run, ironspec 04:07)");
             }
             // (the experiment's cells: set in the (moved) design before the runs)
             for s in &set_cell {
@@ -18070,11 +18573,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let [x, y, z] = v.as_slice() else { anyhow::bail!("--set-cell {s:?}: x,y,z=state") };
                 let p = redsim::pos::BlockPos::new(*x, *y, *z);
                 let b = redsim::block::Block::parse(&format!("minecraft:{}", st.trim_start_matches("minecraft:"))).map_err(|e| anyhow::anyhow!(e))?;
+                // (ironspec 04:07: an override that doesn't change its cell fails the run; the cell's
+                // state before and after printed)
+                let before = spec.blocks.iter().find(|(q, _)| *q == p).map(|(_, b)| *b).unwrap_or(redsim::block::Block::Air);
+                anyhow::ensure!(before != b, "--set-cell {s:?}: the cell already holds {before} (an override that changes nothing fails the run, ironspec 04:07)");
                 spec.blocks.retain(|(q, _)| *q != p);
                 if !b.is_air() {
                     spec.blocks.push((p, b));
                 }
-                println!("set {x},{y},{z} = {st}");
+                println!("set {x},{y},{z}: {before} -> {b}");
             }
             let shift = triple(&module_offset)?.map(|[x, y, z]| [x as i32, y as i32, z as i32]).unwrap_or([0, 0, 0]);
             let declared_emulated: Vec<[i32; 3]> = declare_emulated
@@ -18092,18 +18599,155 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 21:25: the cart contacts the design declares, `# contacts: x,y,z=REASON;
             // ...` in its header (a stop or a buffer); the design's frame, the loop frame with
             // --module-offset)
-            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
+            let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (ironspec Nov 13 10:42 (3) / 10:58: the bounded declarations, by main's ONE reader;
+            // the ONE judge reads them over every visit)
+            let contact_decls = crate::bedtier::bounded_decls(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1's B3: the contacts decided by the entry speed)
+            let contact_speeds = crate::bedtier::parse_contact_speeds(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1's Q15: the stranded bound read from the design's key)
+            let stranded_bound = crate::bedtier::parse_stranded_bound(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1's Q14: no negative delays)
+            anyhow::ensure!(release_after >= 0 && after_sleep >= 0 && arm_delay >= 0 && close_after.is_none_or(|c| c >= 0), "--release-after, --after-sleep, --arm-delay and --close-after are delays: never negative (G1's Q14)");
+            // (G1's Q13: the design's `# integrity:` shapes, judged every tick)
+            let integrity = crate::bedtier::parse_integrity(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (`--pulse-cell x,y,z@T=state`, the stop's frame)
+            let pulses: Vec<(redsim::pos::BlockPos, i64, String)> = pulse_cell
                 .iter()
-                .map(|d| {
-                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
+                .map(|s| {
+                    let (c, rest) = s.split_once('@').ok_or_else(|| anyhow::anyhow!("--pulse-cell {s:?}: x,y,z@T=state"))?;
+                    let (t, st) = rest.split_once('=').ok_or_else(|| anyhow::anyhow!("--pulse-cell {s:?}: x,y,z@T=state"))?;
                     let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
-                    match v.as_slice() {
-                        &[x, y, z] => Ok([x - shift[0], y - shift[1], z - shift[2]]),
-                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
-                    }
+                    anyhow::ensure!(v.len() == 3, "--pulse-cell {s:?}: x,y,z@T=state");
+                    Ok((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.trim().parse::<i64>()?, st.trim().to_string()))
                 })
                 .collect::<Result<_>>()?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts };
+            // (ironspec 11:39 / G1: the build positions)
+            let offset: [i32; 3] = match offset.len() {
+                0 => [0, 0, 0],
+                3 => [offset[0], offset[1], offset[2]],
+                _ => anyhow::bail!("--offset wants dx,dy,dz"),
+            };
+            // (G1's Q2: the tap T,W[,PERIOD], strictly parsed)
+            let tap: Option<(i64, i64, Option<i64>)> = match &tap {
+                None => None,
+                Some(s) => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--tap {s}: T,W[,PERIOD] ({e})"))?;
+                    match v.as_slice() {
+                        &[t, w] if t >= 0 && w > 0 => Some((t, w, None)),
+                        &[t, w, p] if t >= 0 && w > 0 && p > w => Some((t, w, Some(p))),
+                        _ => anyhow::bail!("--tap {s}: T,W[,PERIOD] with T >= 0, W > 0 and PERIOD > W"),
+                    }
+                }
+            };
+            // (G1 12:38: DAY-1's latch T_MAX,LOGIC_LAT,REL_AFTER, strictly parsed)
+            let latch: Option<crate::bedtier::Latch> = match &latch {
+                None => None,
+                Some(s) => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--latch {s}: T_MAX,LOGIC_LAT,REL_AFTER ({e})"))?;
+                    match v.as_slice() {
+                        &[t_max, logic_lat, rel_after] if t_max > 0 && logic_lat >= 0 && rel_after >= 0 => Some(crate::bedtier::Latch { t_max, logic_lat, rel_after }),
+                        _ => anyhow::bail!("--latch {s}: T_MAX,LOGIC_LAT,REL_AFTER, T_MAX > 0, the others >= 0"),
+                    }
+                }
+            };
+            if let Some(k) = hurt_after_lie {
+                anyhow::ensure!(k >= 1, "--hurt-after-lie {k}: at least 1 gt after the lie-down");
+            }
+            // (G1's B1: the stop's controller; the adopted list's terms, strictly parsed; the
+            // superseded latch replaces it)
+            let adopted: Option<crate::bedtier::Adopted> = match (controller.as_str(), &latch) {
+                (_, Some(_)) => None,
+                ("adopted", None) => Some(match &adopted_terms {
+                    None => crate::bedtier::Adopted::default(),
+                    Some(s) => {
+                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--adopted-terms {s}: PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG,ONSET ({e})"))?;
+                        match v.as_slice() {
+                            &[parked, a70, d, w, open_set, open_reset, torch, rls, park, lag, onset] if v[..10].iter().all(|&x| x >= 0) && onset >= -1 => crate::bedtier::Adopted { parked, a70, d, w, open_set, open_reset, torch, rls, park, lag, onset: (onset >= 0).then_some(onset) },
+                            _ => anyhow::bail!("--adopted-terms {s}: eleven terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG,ONSET, none negative but ONSET (-1: no onset term)"),
+                        }
+                    }
+                }),
+                ("stand-in", None) => {
+                    anyhow::ensure!(adopted_terms.is_none(), "--adopted-terms goes with --controller adopted");
+                    None
+                }
+                (o, None) => anyhow::bail!("--controller {o}: adopted or stand-in"),
+            };
+            // (ironspec 17:35: the sensed park's stand-in, strictly parsed; "none": the timer alone;
+            // G1's N-d: an explicit value under the stand-in controller is refused, not dropped)
+            anyhow::ensure!(adopted.is_some() || parked_sense.is_none(), "--parked-sense is the adopted controller's term (the stand-in controller has no PARKED): add no --controller stand-in, or drop the flag");
+            // (G1's D9: --close-after is the stand-in controller's term)
+            anyhow::ensure!(adopted.is_none() || close_after.is_none(), "--close-after is the stand-in controller's term (the adopted controller closes on OPEN's reset): add --controller stand-in, or drop the flag");
+            let close_after = close_after.unwrap_or(4);
+            let parked_sense_s = parked_sense.unwrap_or_else(|| "0,0,3,28".to_string());
+            let parked_sense: Option<([i32; 3], i64)> = match parked_sense_s.as_str() {
+                "none" => None,
+                s => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--parked-sense {s}: X,Y,Z,DELAY or none ({e})"))?;
+                    match v.as_slice() {
+                        &[x, y, z, dl] if dl >= 0 => Some(([x as i32, y as i32, z as i32], dl)),
+                        _ => anyhow::bail!("--parked-sense {s}: X,Y,Z,DELAY (DELAY not negative) or none"),
+                    }
+                }
+            };
+            let parked_sense = if adopted.is_some() { parked_sense } else { None };
+            // (ironspec 21:10 (3): the power-up row's two forms)
+            let park_initial_on = match park_initial_on.as_deref() {
+                None => None,
+                Some("reset") => Some(false),
+                Some("keep") => Some(true),
+                Some(o) => anyhow::bail!("--park-initial-on takes reset (ARM's edge clears it, DAY-1 21:10) or keep (the control), not {o:?}"),
+            };
+            // (ironspec 21:15 (g): PARK's stretch, on the adopted controller only)
+            // (G1's D2 / N-d: one term set: the ruled PARK_W 20 = 24 gt by default under the adopted
+            // controller (ironspec 22:22 / 22:24); an explicit value under the stand-in refused)
+            anyhow::ensure!(adopted.is_some() || park_width.is_none(), "--park-width is the adopted controller's term: refused under --controller stand-in");
+            let park_width_s = park_width.unwrap_or_else(|| "24".to_string());
+            let park_width: Option<i64> = if adopted.is_none() || park_width_s == "none" {
+                None
+            } else {
+                let w: i64 = park_width_s.parse().map_err(|_| anyhow::anyhow!("--park-width takes a gt count or none, not {park_width_s:?}"))?;
+                anyhow::ensure!(w >= 1, "--park-width must be >= 1");
+                Some(w)
+            };
+            anyhow::ensure!(!light_q_at_rs || park_width.is_some(), "--light-q-at-rs needs PARK's stretch (--park-width N): the drive must be off when the hand lights Q");
+            // (ironspec 21:20: the world open keyed on RLS)
+            let restart_at_rls = match restart_at_rls.as_deref() {
+                None => None,
+                Some(s) => Some(crate::liveness::parse_restart(s).map_err(|e| anyhow::anyhow!("--restart-at-rls: {e}"))?),
+            };
+            anyhow::ensure!((restart_at_rls.is_none() && step_off_at_rls.is_none() && hurt_at_arm.is_none()) || adopted.is_some(), "--restart-at-rls, --step-off-at-rls and --hurt-at-arm need the adopted controller (RLS, ARM's edge)");
+            anyhow::ensure!(erase_home_ticket == "free" || erase_home_ticket == "taken", "--erase-home-ticket takes free or taken, not {erase_home_ticket:?}");
+            // (day-1 21:33: the shove's impulse)
+            let k_stuck: Option<bool> = match k_stuck.as_deref() {
+                None => None,
+                Some("north_east") => Some(true),
+                Some("south_east") => Some(false),
+                Some(o) => anyhow::bail!("--k-stuck takes north_east or south_east, not {o:?}"),
+            };
+            let pickup_band: Option<(f64, f64)> = match pickup_band.as_deref() {
+                None => None,
+                Some(s) => {
+                    let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--pickup-band {s}: {e}"))?;
+                    anyhow::ensure!(v.len() == 2 && v[0] < v[1], "--pickup-band takes LO,HI");
+                    Some((v[0], v[1]))
+                }
+            };
+            let shove_at_wake: Option<(f64, f64)> = match shove_at_wake.as_deref() {
+                None => None,
+                Some(s) => {
+                    let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--shove-at-wake {s}: {e}"))?;
+                    anyhow::ensure!(v.len() == 2, "--shove-at-wake takes DX,DZ");
+                    Some((v[0], v[1]))
+                }
+            };
+            // (G1's C3 on bfa0c8098: the stand-in controller's own flags are refused under the
+            // adopted controller (they'd be silent no-ops there))
+            if adopted.is_some() {
+                anyhow::ensure!(release_after_arm.is_none() && !early_release && !no_presence_gate, "--release-after-arm, --early-release and --no-presence-gate are the stand-in controller's terms: add --controller stand-in (the adopted controller releases by RLS)");
+            }
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty: plant_empty.map(|v| [v[0], v[1], v[2]]) };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
@@ -18112,17 +18756,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let (_c, spec) = load(version, &design)?;
             // (ironspec 21:25: the design's declared cart contacts, `# contacts: x,y,z=REASON`)
-            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
-                .iter()
-                .map(|d| {
-                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
-                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
-                    match v.as_slice() {
-                        &[x, y, z] => Ok([x, y, z]),
-                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
-                    }
-                })
-                .collect::<Result<_>>()?;
+            let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, [0, 0, 0]).map_err(|e| anyhow::anyhow!(e))?;
             crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at, skip_phases.as_deref(), day_on, jobs, day_gate, a_hours.as_deref(), after_sleep, release_after, Box::leak(declared_contacts.into_boxed_slice()))?;
         }
     }
