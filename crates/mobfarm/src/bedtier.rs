@@ -118,6 +118,15 @@ pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
 /// (A)'s wake sensor (G1 12:04 / day-1 12:03): an observer under the bed head, facing up at it;
 /// its output face down into (-3,-2,4).
 pub const WAKE_SENSOR: [i32; 3] = [-3, -1, 4];
+/// (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready) A tripwire string one cell over R's rail
+/// (4,-1,5): a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band;
+/// its hooks N-S off the rail line on glass backings; DAY-1 reads the north hook by a repeater at
+/// (5,0,4) (its cell).
+pub const RS_STRING: [i32; 3] = [4, 0, 5];
+pub const RS_HOOK_N: [i32; 3] = [4, 0, 4];
+pub const RS_HOOK_S: [i32; 3] = [4, 0, 6];
+pub const RS_BACK_N: [i32; 3] = [4, 0, 3];
+pub const RS_BACK_S: [i32; 3] = [4, 0, 7];
 /// (G1's Q3 / Q15) The budget's term for the slope's departure -> R (ironspec's provisional
 /// budget 73 + 170 + 15 + d_RS 10 + 7 + 10 = 285 <= 300).
 pub const HOLD_TO_R_BUDGET: i64 = 15;
@@ -668,7 +677,8 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool, rs_ready: bool) -> Result<String> {
+    anyhow::ensure!(!rs_ready || exit_south, "--rs-ready lays its string over R (4,-1,5), the --exit-south row");
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -854,6 +864,17 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             put(&mut b, [x, -1, 5], &rail("east_west"))?;
             put(&mut b, [x, -2, 5], "glass")?;
         }
+        // (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready: a tripwire string one cell over
+        // R's rail, pressed by a seated rider's box, never by an empty cart's (its top at y -0.24);
+        // the hooks N-S off the rail line, each on a glass backing; DAY-1 reads the north hook by a
+        // repeater at (5,0,4), its cell)
+        if rs_ready {
+            put(&mut b, RS_BACK_N, "glass")?;
+            put(&mut b, RS_HOOK_N, "tripwire_hook[attached=true,facing=south,powered=false]")?;
+            put(&mut b, RS_STRING, "tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]")?;
+            put(&mut b, RS_HOOK_S, "tripwire_hook[attached=true,facing=north,powered=false]")?;
+            put(&mut b, RS_BACK_S, "glass")?;
+        }
         // ((-1,0,5), the old exit's cell between P's straight and the new curve: a top-half
         // trapdoor: it keeps the run-up's water ((-1,0,4) is waterlogged) from flowing out through
         // it (with the cell empty and unfloored the water fell out of the build), its collision over
@@ -1022,6 +1043,9 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     ];
     if wake_sensor {
         lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
+    }
+    if rs_ready {
+        lines.push("The rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire string at (4,0,5), one cell over R's detector (4,-1,5), its hooks at (4,0,4) facing south and (4,0,6) facing north on glass (4,0,3) / (4,0,7), off the rail line: a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band (y 0.0625..0.156); hooks and string have no collision and block no sight line; DAY-1 reads the north hook by a repeater at (5,0,4) on (5,-1,4) (its cells, not laid here)".to_string());
     }
     if exit_south {
         lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5), the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped at P, a stall | events<=1 why=one hand-off per visit, a second is the cart back at P | depth<=0.0440+eps=0.0001 why=main's depth is the clipped amount, the part of the cart's westward request at P's turn that the face stops (the boxes flush, overlap 0.0000), the deepest 0.0440 at every one of 21 build positions and over the 2040 visits of seeds 1-40 (a spread of 0 at four decimals), 0.0001 one unit of the stated fourth decimal (main's judge compares to contacts::EPS 1e-9, its reference check to half a unit), so a deeper clip (the turn's request changed) fails | speed_out>=0.0336+eps=0.0001 why=the least 0.0336 at every one of 21 build positions and over the 2040 visits of seeds 1-40 (a spread of 0 at four decimals), 0.0001 one unit of the stated fourth decimal, main's speed_out being the contact tick's returned move, so a slower hand-off fails, and the exit boost's carry threshold 0.0101 (--boost-probe on 2af606b9d sets the cart's velocity on (-2,0,5), another measure: 0.0101 carried and 0.0100 stalled) is a floor this bound doesn't lean on (the carry itself is judged directly: NO STALL by IRONSPEC_1042 after every event and every visit's cart at R), the game's booster start pending tick-exact | ref=e25e3b01c `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 8 --offset=X,Y,Z` (main's one judge, 774111605's code, 21 build positions (the design frame, ironspec's P1-P4 as written and as restated on the column convention with P2 at loop + (6,0,6) and + (6,24,6), every module copy A-D at loop + (0,0,0) and + (0,80,0) among them), identical extremes and exit 0 at each: 296 events over 296 of 408 visits (the 37 of 51 entry speeds that meet the face, every seed of each), 1 tick each, at most 1 per cart, the deepest 0.0440, speed_in 0.0450..0.0839, speed_out 0.0336..0.0808, the rate below judged two-sided at P < 0.001 over each run's visits, main's STALE failing an under-rate and the bench's over-rate check an over-rate (over 408 visits about 268 or fewer and 324 or more, the exact band printed with each run), either a geometry change) | rate=296/408 visits".to_string());
@@ -1438,6 +1462,31 @@ pub struct Row {
     pub r_at: Option<i64>,
     /// (ironspec 22:14 (3a)) R's real rise: the first tick the detector rail at EXIT_DET is powered.
     pub r_real_at: Option<i64>,
+    /// (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready, when the design lays its string)
+    /// The string's rising edges this visit, each with whether the napper was riding in R's column
+    /// at that tick (the only allowed presser); the rider box's least overlap with the string's band
+    /// (y 0.0625..0.15625 over (4,0,5)) and the cart's least gap under it while the cart was in R's
+    /// column; the string's state last tick.
+    pub rs_press: Vec<(i64, bool)>,
+    pub rs_present: bool,
+    pub rs_on_prev: bool,
+    pub rs_rider_overlap_min: Option<f64>,
+    pub rs_cart_gap_min: Option<f64>,
+    /// (ironspec 15:46 (2): the STALE guard's evidence) the napper's least gap to P_STRING's band
+    /// (the awake guard's string at P + 1, (-2,1,4): x -2..-1, y 1.0625..1.15625, z 4..5) over the 12
+    /// gt before its lie-down (the ring holds the last 12 ticks' gaps).
+    pub pstring_gap_before_lie: Option<f64>,
+    pub pstring_ring: Vec<(i64, f64)>,
+    /// (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME) the boarded rider's
+    /// distance to the bed head's centre at R's rise and at its last tick in the bench, and the first
+    /// tick it is over 16.
+    pub ride_dist_at_r: Option<f64>,
+    pub ride_dist_last: Option<(i64, f64)>,
+    pub ride_over16_at: Option<i64>,
+    /// (G1 15:29 / b8949c96 15:45: R4's planter) the cart's states on each tick its centre is within
+    /// 1.5 of a top-half trapdoor's column at its layer or the one above: `x,y,z,vx,vy,vz,rider`
+    /// (the design frame, the stored motion), with --cart-states.
+    pub cart_states: Vec<String>,
     /// The cart a block past R (the visit's end), and whether the napper rode it.
     pub out_at: Option<i64>,
     pub seated_out: bool,
@@ -1578,6 +1627,9 @@ pub struct Faults {
     /// Fail when a declaration's stated bounds don't equal this run's measured extremes (the
     /// reference re-run check, `contacts::reference_check`: for the declaration's own `ref=` run).
     pub reference_check: bool,
+    /// (G1 15:29 / b8949c96 15:45) write the cart's states near the top-half trapdoors to this file
+    /// (`bench_cmd`, one line per tick: `x,y,z,vx,vy,vz,rider`, the design frame).
+    pub cart_states: Option<std::path::PathBuf>,
     /// (G1 12:38 / ironspec 12:38) DAY-1's guard-free latch emulated on the real wake sensor's
     /// pulses, replacing the bench's stand-in F / close / release.
     pub latch: Option<Latch>,
@@ -2193,6 +2245,25 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut zid = run.world.entities.list.iter().find(|e| e.id >= first && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id);
     // ((A)'s exit-slope hold present: the slope (1,-1,5) a powered rail (ironspec 09:38))
     let hold_slope_on = format!("{}", run.world.get(wp(1, -1, 5))).contains("powered_rail");
+    // (ironspec 15:23: the rider-keyed RS_ready's string present (the design's --rs-ready))
+    let rs_present = format!("{}", run.world.get(wc(RS_STRING))).contains("tripwire[");
+    // (G1 15:29 / b8949c96 15:45: the top-half trapdoors, for the cart states near them)
+    let trapdoors: Vec<[i32; 3]> = if f.cart_states.is_some() {
+        let mut v = Vec::new();
+        for x in -8..=10 {
+            for y in -4..=5 {
+                for z in -7..=12 {
+                    let s = format!("{}", run.world.get(wp(x, y, z)));
+                    if s.contains("iron_trapdoor") && s.contains("half=top") {
+                        v.push([x, y, z]);
+                    }
+                }
+            }
+        }
+        v
+    } else {
+        Vec::new()
+    };
     // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
     let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
     // (G1's Q12: no silent no-op: Z1 shuts its window on the wake edge as its normal operation)
@@ -3169,6 +3240,39 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.hits.push(h);
             }
             row.motion.push((w.time, c.delta_movement.x.hypot(c.delta_movement.z), c.delta_movement.y));
+            // (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready's string: its rising edges and
+            // whether the riding napper's box was over its cell then; the rider box's overlap with the
+            // band and the cart's gap under it while each box is over the string's cell)
+            if rs_present {
+                row.rs_present = true;
+                let over = |bb: &redsim::entity::Aabb| bb.max_x - off[0] as f64 > 4.0 && bb.min_x - (off[0] as f64) < 5.0 && bb.max_z - off[2] as f64 > 5.0 && bb.min_z - (off[2] as f64) < 6.0;
+                let rider = vill.and_then(|id| idx(w, id)).map(|i| &w.entities.list[i]).filter(|v| v.vehicle.is_some());
+                if over(&c.bb) {
+                    let top = c.bb.max_y - off[1] as f64;
+                    row.rs_cart_gap_min = Some(row.rs_cart_gap_min.map_or(0.0625 - top, |g: f64| g.min(0.0625 - top)));
+                }
+                let rider_over = rider.is_some_and(|v| over(&v.bb));
+                if let Some(v) = rider.filter(|v| over(&v.bb)) {
+                    let (y0, y1) = (v.bb.min_y - off[1] as f64, v.bb.max_y - off[1] as f64);
+                    let ov = y1.min(0.15625) - y0.max(0.0625);
+                    row.rs_rider_overlap_min = Some(row.rs_rider_overlap_min.map_or(ov, |o: f64| o.min(ov)));
+                }
+                let on = format!("{}", w.get(wc(RS_STRING))).contains("powered=true");
+                if on && !row.rs_on_prev {
+                    row.rs_press.push((t, rider_over));
+                }
+                row.rs_on_prev = on;
+            }
+            // (G1 15:29 / b8949c96 15:45: the cart's states near the top-half trapdoors)
+            if !trapdoors.is_empty() {
+                let cp = dpos(c.pos);
+                let ly = cp.y.floor() as i32;
+                if trapdoors.iter().any(|d| (d[1] == ly || d[1] == ly + 1) && (cp.x - (d[0] as f64 + 0.5)).abs() <= 1.5 && (cp.z - (d[2] as f64 + 0.5)).abs() <= 1.5) {
+                    let rider = vill.and_then(|id| idx(w, id)).is_some_and(|i| w.entities.list[i].vehicle.is_some());
+                    let d = c.delta_movement;
+                    row.cart_states.push(format!("{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{}", cp.x, cp.y, cp.z, d.x, d.y, d.z, if rider { "rider" } else { "none" }));
+                }
+            }
         }
         let vi = vill.and_then(|id| idx(w, id));
         if vill.is_some() && vi.is_none() {
@@ -3195,6 +3299,35 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             had_home = has_home;
             let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
+            // (ironspec 15:46 (2): the stale press: the napper's box's gap to P_STRING's band (the
+            // awake guard's string at P + 1, (-2,1,4)) over the 12 gt before its lie-down)
+            {
+                let bb = v.bb;
+                let (x0, y0, z0) = (bb.min_x - off[0] as f64, bb.min_y - off[1] as f64, bb.min_z - off[2] as f64);
+                let (x1, y1, z1) = (bb.max_x - off[0] as f64, bb.max_y - off[1] as f64, bb.max_z - off[2] as f64);
+                let sep = |lo: f64, hi: f64, a: f64, b: f64| (lo - b).max(a - hi).max(0.0);
+                let (dx, dy, dz) = (sep(-2.0, -1.0, x0, x1), sep(1.0625, 1.15625, y0, y1), sep(4.0, 5.0, z0, z1));
+                let gap = (dx * dx + dy * dy + dz * dz).sqrt();
+                if asleep && row.pstring_gap_before_lie.is_none() {
+                    row.pstring_gap_before_lie = Some(row.pstring_ring.iter().filter(|(tt, _)| *tt >= t - 12).map(|(_, g)| *g).fold(f64::INFINITY, f64::min));
+                }
+                row.pstring_ring.push((t, gap));
+                if row.pstring_ring.len() > 12 {
+                    row.pstring_ring.remove(0);
+                }
+            }
+            // (G1 16:00: the boarded rider's ride away from the bed: its distance to the bed head's
+            // centre (-2.5,0.5,4.5) per tick after the pickup)
+            if riding && row.pickup.is_some() {
+                let dd = ((vp.x + 2.5).powi(2) + (vp.y - 0.5).powi(2) + (vp.z - 4.5).powi(2)).sqrt();
+                if row.r_real_at.is_some() && row.ride_dist_at_r.is_none() {
+                    row.ride_dist_at_r = Some(dd);
+                }
+                row.ride_dist_last = Some((t, dd));
+                if dd > 16.0 && row.ride_over16_at.is_none() {
+                    row.ride_over16_at = Some(t);
+                }
+            }
             // (ironspec 16:29, the escape row: the napper on foot on the entry or the approach (x 3
             // and east at z -4 and north, y 2 and up), or out of the stop's box)
             if !riding
@@ -4570,6 +4703,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1's C15: no environment teleport in a judged run)
     anyhow::ensure!(std::env::var("MCTAS_BT_TP").is_err(), "MCTAS_BT_TP is set: an environment teleport; unset it (no judged run carries one)");
     println!("bench setup: --arm-delay {} gt, --release-after {release_after} gt, --scope-excludes {:?}; natural spawning OFF by construction (the bench's MobWorld never sets `natural`: Z1 and the napper are placed, nothing spawns; ironspec 14:57)", base.arm_delay, base.scope_excludes);
+    // (G1 15:59's bench rule: a verdict on the stop's controller terms emulates DAY-1's adopted list
+    // or carries NAMED STAND-INS)
+    println!("the stop's controller terms here are NAMED STAND-INS, not DAY-1's adopted list (G1 15:59): the window opens at F = max(the lie-down + {after_sleep}, ARM's rise + {}) gt, shuts at the wake + {}, the park releases at the wake + {release_after} (the stand-in levers (-5,1,8) and (3,0,4)){}; no P_STRING, no RLS / RECENT / PARKED, no RS_ready latch; verdicts that turn on those carry this label; the contact judge, the stand-up cell, the RS_ready string's press and the wake timings don't depend on them", base.arm_delay, base.close_after.max(1), if base.latch.is_some() { "; with --latch: DAY-1's 12:38 guard-free latch (SLEPT / OPEN / TIMEOUT), superseded by the adopted list" } else { "" });
     if base.offset != [0, 0, 0] {
         println!("bench setup: --offset {},{},{}: the whole stop built at design + offset (every laid cell, entity and stand-in write), every row in the design frame", base.offset[0], base.offset[1], base.offset[2]);
     }
@@ -4722,6 +4858,35 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 sk.judge_motion.insert((vi, t), (sp, vy));
                             }
                         }
+                        // (the rider-keyed RS_ready, the stale press's evidence, the trapdoor states)
+                        if r.rs_present {
+                            sk.rs_visits += 1;
+                            if r.seated_out {
+                                sk.rs_seated += 1;
+                                sk.rs_pressed += r.rs_press.iter().any(|p| p.1) as usize;
+                            }
+                            sk.rs_spurious += r.rs_press.iter().filter(|p| !p.1).count();
+                            if let (Some(p), Some(rr)) = (r.rs_press.iter().find(|p| p.1).map(|p| p.0), r.r_real_at) {
+                                sk.rs_to_r.push(p - rr);
+                            }
+                            if let Some(o) = r.rs_rider_overlap_min {
+                                sk.rs_overlap_min = Some(sk.rs_overlap_min.map_or(o, |m: f64| m.min(o)));
+                            }
+                            if let Some(g) = r.rs_cart_gap_min {
+                                sk.rs_gap_min = Some(sk.rs_gap_min.map_or(g, |m: f64| m.min(g)));
+                            }
+                        }
+                        if let Some(g) = r.pstring_gap_before_lie {
+                            sk.pstring_gaps.push(g);
+                        }
+                        sk.cart_states.extend(r.cart_states.iter().cloned());
+                        if let Some(d) = r.ride_dist_at_r {
+                            sk.ride_at_r.push(d);
+                        }
+                        if let Some((_, d)) = r.ride_dist_last {
+                            sk.ride_last.push(d);
+                        }
+                        sk.ride_over16 += r.ride_over16_at.is_some() as usize;
                         seated += r.seated_out as usize;
                         seated_here += r.seated_out as usize;
                         not_out += r.out_at.is_none() as usize;
@@ -5615,6 +5780,51 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         if v.failed() {
             failed.push(format!("the ONE bounded contact judge: undeclared {}, exceeded {}, stalls {}, stale {}, wiring errors {}", v.undeclared.len(), v.exceeded.len(), v.stalls.len(), v.stale.len(), v.errors.len()));
         }
+        // (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready string's bars: the riding napper
+        // presses it on every seated visit, nothing else ever does, the rider box overlaps its band,
+        // the cart's box stays under it; the press - R's detector rise is d_RS's new reference)
+        if sk.rs_visits > 0 {
+            let mut d = sk.rs_to_r.clone();
+            d.sort();
+            println!("the rider-keyed RS_ready string (4,0,5) over R (ironspec 15:23, day-1 15:29): pressed by the riding napper on {} of {} seated visits ({} visits lay it); presses by anything else {} (bar 0); its first press - R's detector rise {:?}..{:?} gt (median {:?}); the rider box's least overlap with the band (y 0.0625..0.15625) {} (> 0: it presses); the cart box's least gap under the band {} (> 0: an empty cart never reaches it)", sk.rs_pressed, sk.rs_seated, sk.rs_visits, sk.rs_spurious, d.first(), d.last(), d.get(d.len() / 2), sk.rs_overlap_min.map_or("none".to_string(), |o| format!("{o:.4}")), sk.rs_gap_min.map_or("none".to_string(), |g| format!("{g:.4}")));
+            if sk.rs_pressed < sk.rs_seated {
+                failed.push(format!("the RS_ready string pressed on {} of {} seated visits (the rider must press it on every one)", sk.rs_pressed, sk.rs_seated));
+            }
+            if sk.rs_spurious > 0 {
+                failed.push(format!("{} RS_ready presses with no riding napper over the string (an empty cart, the napper on foot or the sleeper)", sk.rs_spurious));
+            }
+            if sk.rs_overlap_min.is_some_and(|o| o <= 0.0) {
+                failed.push("a seated rider's box over the RS_ready string missed its band".into());
+            }
+            if sk.rs_gap_min.is_some_and(|g| g <= 0.0) {
+                failed.push("a cart's box reached the RS_ready string's band (an empty cart would press it)".into());
+            }
+        }
+        // (ironspec 15:46 (2): the stale press: neither the riding napper's box nor the set-down
+        // napper's meets P_STRING's band (-2,1,4) in the 12 gt before a lie-down)
+        if !sk.pstring_gaps.is_empty() {
+            let lo = sk.pstring_gaps.iter().copied().fold(f64::INFINITY, f64::min);
+            println!("the napper's least gap to P_STRING's band (the awake guard's string at P + 1, (-2,1,4)) over the 12 gt before its lie-down (ironspec 15:46 (2), the stale press): {lo:.4} over {} lie-downs (> 0: neither the rider's box nor the set-down napper's meets it)", sk.pstring_gaps.len());
+            if lo <= 0.0 {
+                failed.push(format!("the napper's box met P_STRING's band in the 12 gt before a lie-down (least gap {lo:.4}): a stale press"));
+            }
+        }
+        // (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME: the boarded
+        // rider's ride away, as far as this bench follows it)
+        if !sk.ride_at_r.is_empty() || !sk.ride_last.is_empty() {
+            let mm = |v: &[f64]| if v.is_empty() { "none".to_string() } else { format!("{:.2}..{:.2}", v.iter().copied().fold(f64::INFINITY, f64::min), v.iter().copied().fold(f64::NEG_INFINITY, f64::max)) };
+            println!("the boarded rider's distance to the bed head's centre (-2.5,0.5,4.5) (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME): at R's rise {}; at its last bench tick {} (the bench ends at the stop's out: the composed route beyond R decides when it passes 16); over 16 within the bench on {} visits", mm(&sk.ride_at_r), mm(&sk.ride_last), sk.ride_over16);
+        }
+        // (G1 15:29 / b8949c96 15:45: the cart states near the trapdoors, for R4's planter)
+        if let Some(path) = &base.cart_states {
+            let mut text = format!("# the bed stop's cart states near its top-half trapdoors: x,y,z,vx,vy,vz,rider (the design frame, the stored motion), every tick a cart's centre is within 1.5 of a trapdoor's column at its layer or the one above; {} visits\n", sk.judge_visits);
+            for l in &sk.cart_states {
+                text.push_str(l);
+                text.push('\n');
+            }
+            std::fs::write(path, text)?;
+            println!("the cart states near the trapdoors: {} lines written to {}", sk.cart_states.len(), path.display());
+        }
         // (G1 15:25: a declaration's rate judged two-sided: main's STALE fails an under-rate; an
         // over-rate at the same P < 0.001 (a geometry change raising the rate) fails here; the band
         // for this run's visits printed)
@@ -5739,6 +5949,26 @@ struct SkipTotals {
     judge_hits: Vec<crate::contacts::Hit>,
     judge_motion: std::collections::HashMap<(u32, i64), (f64, f64)>,
     judge_visits: usize,
+    /// (ironspec 15:23 / day-1 15:29: the rider-keyed RS_ready over the run) visits laying the
+    /// string; seated ones; those whose string the riding napper pressed; presses by anything else;
+    /// the first press - R's detector rise per visit; the rider box's least band overlap; the cart's
+    /// least gap under the band
+    rs_visits: usize,
+    rs_seated: usize,
+    rs_pressed: usize,
+    rs_spurious: usize,
+    rs_to_r: Vec<i64>,
+    rs_overlap_min: Option<f64>,
+    rs_gap_min: Option<f64>,
+    /// (ironspec 15:46 (2)) each lie-down's least gap to P_STRING's band over the 12 gt before it
+    pstring_gaps: Vec<f64>,
+    /// (G1 15:29) the cart states near the trapdoors, every visit
+    cart_states: Vec<String>,
+    /// (G1 16:00) the boarded riders' distances to the bed head: at R's rise, at their last bench
+    /// tick, and the visits that rode over 16 within the bench
+    ride_at_r: Vec<f64>,
+    ride_last: Vec<f64>,
+    ride_over16: usize,
     idle_targets: std::collections::BTreeMap<[i32; 3], usize>,
     idle_stamps: usize,
     post_lost: usize,
