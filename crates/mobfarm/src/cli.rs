@@ -15919,8 +15919,56 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(bad == 0, "the enclosure check: {bad} failure(s)");
         }
         MobfarmCmd::Qc { design } => {
-            let (_c, spec) = load(version, &design)?;
             let text = std::fs::read_to_string(&design)?;
+            // (loaderlay's Nether draft, farmopt Nov 14 14:23 (3): a design with only a Nether section is read as that
+            // section alone, in its own frame, as `spec_of` turns it)
+            let spec = match load(version, &design) {
+                Ok((_c, spec)) => spec,
+                Err(e) if format!("{e:#}").contains("empty design") => {
+                    let d = mctas::design::Design::parse(&text)?;
+                    anyhow::ensure!(!d.nether_blocks.is_empty(), "{}: no block in either section", design.display());
+                    let turns = d.nether_turns().unwrap_or(0);
+                    let mut blocks = Vec::new();
+                    let mut terrain: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+                    for (q, s) in &d.nether_blocks {
+                        let p = clock::rotate_pos(*q, turns);
+                        let st = clock::canon::rotate_state(s, turns);
+                        // (a block redsim's redstone doesn't model, the stream's crimson wall signs: read as a terrain
+                        // block of the 26.3 table, which carries its conductor and source flags; listed)
+                        let b = match redsim::block::Block::parse(&st) {
+                            Ok(b) => b,
+                            Err(_) => {
+                                let base = st.split('[').next().unwrap_or("");
+                                terrain.insert(base.trim_start_matches("minecraft:").to_string());
+                                match redsim::terrain::land::block_of(&st) {
+                                    Ok(b) => b,
+                                    // (a block the natural table lacks too (a wall sign): no conductor and no source, so
+                                    // read as air for power; listed)
+                                    Err(_) => match redsim::terrain::blocks::first_of_block(base) {
+                                        Some(id) => redsim::block::Block::Terrain(id),
+                                        None => redsim::block::Block::Air,
+                                    },
+                                }
+                            }
+                        };
+                        blocks.push((redsim::pos::BlockPos::new(p[0], p[1], p[2]), b));
+                    }
+                    println!("a Nether-only design: its Nether section alone, in its own frame{}", if terrain.is_empty() { String::new() } else { format!("; blocks redsim's redstone doesn't model, read by the 26.3 table or, absent there (a sign: no conductor, no source), as air for power: {}", terrain.into_iter().collect::<Vec<_>>().join(", ")) });
+                    let o = blocks[0].0;
+                    redsim::entity::mob::farm::FarmSpec {
+                        blocks: Vec::new(),
+                        entities: Vec::new(),
+                        output: o,
+                        lo: o,
+                        hi: o,
+                        block_entities: Vec::new(),
+                        rock: false,
+                        nether: Some(redsim::entity::mob::farm::NetherSpec { anchor: redsim::pos::BlockPos::new(0, 0, 0), blocks, output: None, block_entities: Vec::new() }),
+                        land: false,
+                    }
+                }
+                Err(e) => return Err(e),
+            };
             let decls = crate::fleecheck::qc_decls(&text).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
             let (lines, bad) = crate::fleecheck::qc_static(&spec, &decls).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {

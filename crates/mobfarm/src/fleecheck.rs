@@ -6980,7 +6980,7 @@ pub fn qc_decls(text: &str) -> Result<Vec<QcDecl>, String> {
 pub fn qc_static(spec: &FarmSpec, decls: &[QcDecl]) -> Result<(Vec<String>, usize), String> {
     // (G1 14:02 [2]: the NETHER section too, each labelled: its blocks laid alone in a void world in the Nether part's
     // frame (relative to `NetherSpec::base`), its declarations `nether:x,y,z`)
-    let mut sections: Vec<(bool, FarmSpec)> = vec![(false, spec.clone())];
+    let mut sections: Vec<(bool, FarmSpec)> = if spec.blocks.is_empty() { Vec::new() } else { vec![(false, spec.clone())] };
     if let Some(n) = &spec.nether
         && !n.blocks.is_empty()
     {
@@ -7023,7 +7023,8 @@ pub fn qc_static(spec: &FarmSpec, decls: &[QcDecl]) -> Result<(Vec<String>, usiz
         bad += 1;
         lines.push(format!("  `# quasi-connected:` {}{},{},{} names no dropper, dispenser or piston whose block above can be powered (a stale declaration, FAIL)", if d.nether { "nether:" } else { "" }, d.cell.x, d.cell.y, d.cell.z));
     }
-    lines.insert(0, format!("quasi-connectivity (ironspec Nov 14 14:07p (2)): {total} dropper(s) / dispenser(s) / piston(s) ({} section(s): the overworld{}), {} with a block above that can be powered, {bad} failing (undeclared or stale)", sections.len(), if sections.len() > 1 { " and the Nether part, in its own frame" } else { "" }, listed.len()));
+    let names: Vec<&str> = sections.iter().map(|(n, _)| if *n { "the Nether part, in its own frame" } else { "the overworld" }).collect();
+    lines.insert(0, format!("quasi-connectivity (ironspec Nov 14 14:07p (2)): {total} dropper(s) / dispenser(s) / piston(s) ({} section(s): {}), {} with a block above that can be powered, {bad} failing (undeclared or stale)", sections.len(), names.join(" and "), listed.len()));
     Ok((lines, bad))
 }
 /// switched in 26.3), dust, a diode, a piston, a dropper, a dispenser, a hopper, a door, trapdoor or
