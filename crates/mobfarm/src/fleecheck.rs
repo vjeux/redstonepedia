@@ -452,6 +452,20 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
                 p.nodes.len(),
                 p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
             ));
+            // (ironspec Nov 14 04:30 (1), part 47) every node's type and malus when the search accepted the link
+            // to it (the neighbour's own snapshot, `Path.accepted`), beside the final types above
+            lines.push(format!(
+                "  accepted (each node's type and malus when its link was accepted): {}",
+                p.nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(k, n)| match p.accepted.get(k) {
+                        Some((t, m)) => format!("{},{},{} {:?} {}", n.x, n.y, n.z, t, m),
+                        None => format!("{},{},{} not recorded", n.x, n.y, n.z),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            ));
             // (ironspec Nov 14 02:58 (1), part 42; tick-exact 03:23, part 45) a REACHED through BLOCKED-typed
             // nodes: the game completes it too (a/1157402463303382): printed, not a refusal; (G1 03:33 (i),
             // part 46) each with its final type and its type and malus at acceptance
@@ -11025,6 +11039,12 @@ mod gate_tests {
         );
         // (G1 Nov 14 03:33 (i), part 46) each BLOCKED node printed with its type and malus at acceptance
         assert!(got[2].0.iter().any(|l| l.starts_with("  BLOCKED-typed nodes after the start: 2 (") && l.contains("(final Blocked, accepted Blocked malus -1)")), "the acceptance record: {:?}", got[2]);
+        // (ironspec Nov 14 04:30 (1), part 47) the record is each node's OWN snapshot, not its parent's: the
+        // first node after the BLOCKED chain (on the floor, its parent BLOCKED) reads "Walkable 0"
+        let acc = got[2].0.iter().find(|l| l.starts_with("  accepted (each node's type and malus when its link was accepted): ")).unwrap_or_else(|| panic!("no accepted line: {:?}", got[2]));
+        let steps: Vec<&str> = acc.split(": ").nth(1).unwrap_or("").split(" -> ").collect();
+        let last_blocked = steps.iter().rposition(|s| s.contains(" Blocked ")).unwrap_or_else(|| panic!("no Blocked step: {acc}"));
+        assert!(last_blocked >= 1 && steps.get(last_blocked + 1).is_some_and(|s| s.ends_with(" Walkable 0")), "a walkable node after a BLOCKED one reads its own type: {acc}");
     }
 
     /// (G1 Nov 14 03:33 N1 / N2 / N4 / N3, part 46) The NIGHT class on REAL beds through `check()`, each rail
