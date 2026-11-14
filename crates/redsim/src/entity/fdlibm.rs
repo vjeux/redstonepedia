@@ -62,7 +62,9 @@ fn scalbn(x: f64, mut n: i32) -> f64 {
     y * f64::from_bits(((0x3ff + n) as u64) << 52)
 }
 
-const PIO2_HI: f64 = 1.57079632679489655800e+00;
+// (ironspec 09:26a (1)) fdlibm's pio2_hi 1.57079632679489655800e+00 (0x3FF921FB, 0x54442D18) is f64's FRAC_PI_2 bit
+// for bit (the test `fdlibms_constants_are_the_std_ones_bit_for_bit`)
+const PIO2_HI: f64 = std::f64::consts::FRAC_PI_2;
 const PIO2_LO: f64 = 6.12323399573676603587e-17;
 const P_S0: f64 = 1.66666666666666657415e-01;
 const P_S1: f64 = -3.25565818622400915405e-01;
@@ -92,6 +94,7 @@ pub fn asin(mut x: f64) -> f64 {
             // asin(1) = +-pi/2 with inexact
             return x * PIO2_HI + f64::from_bits(0x3870_0000_0000_0000);
         }
+        #[expect(clippy::eq_op, reason = "fdlibm's NaN idiom, kept verbatim in the StrictMath port")]
         return 0.0 / (x - x);
     }
     // |x| < 0.5
@@ -135,14 +138,17 @@ const P2: f64 = -2.77777777770155933842e-03;
 const P3: f64 = 6.61375632143793436117e-05;
 const P4: f64 = -1.65339022054652515390e-06;
 const P5: f64 = 4.13813679705723846039e-08;
-const LG2: f64 = 6.93147180559945286227e-01;
+// (ironspec 09:26a (1)) fdlibm's lg2 6.93147180559945286227e-01 (0x3FE62E42, 0xFEFA39EF) is f64's LN_2 bit for bit
+const LG2: f64 = std::f64::consts::LN_2;
 const LG2_H: f64 = 6.93147182464599609375e-01;
 const LG2_L: f64 = -1.90465429995776804525e-09;
 const OVT: f64 = 8.0085662595372944372e-017;
 const CP: f64 = 9.61796693925975554329e-01;
 const CP_H: f64 = 9.61796700954437255859e-01;
 const CP_L: f64 = -7.02846165095275826516e-09;
-const IVLN2: f64 = 1.44269504088896338700e+00;
+// (ironspec 09:26a (1)) fdlibm's ivln2 1.44269504088896338700e+00 (0x3FF71547, 0x652B82FE, 1/ln2) is f64's LOG2_E bit
+// for bit
+const IVLN2: f64 = std::f64::consts::LOG2_E;
 const IVLN2_H: f64 = 1.44269502162933349609e+00;
 const IVLN2_L: f64 = 1.92596299112661746887e-08;
 
@@ -224,7 +230,9 @@ pub fn pow(x: f64, y: f64) -> f64 {
         }
         if hx < 0 {
             if ((ix - 0x3ff0_0000) | yisint) == 0 {
-                z = (z - z) / (z - z); // (-1)**non-int is NaN
+                #[expect(clippy::eq_op, reason = "fdlibm's NaN idiom, kept verbatim in the StrictMath port")]
+                let nan = (z - z) / (z - z); // (-1)**non-int is NaN
+                z = nan;
             } else if yisint == 1 {
                 z = -z; // (x<0)**odd = -(|x|**odd)
             }
@@ -234,6 +242,7 @@ pub fn pow(x: f64, y: f64) -> f64 {
     let mut s: f64 = 1.0; // the result's sign
     if hx < 0 {
         if yisint == 0 {
+            #[expect(clippy::eq_op, reason = "fdlibm's NaN idiom, kept verbatim in the StrictMath port")]
             return (x - x) / (x - x); // (x<0)**(non-int) is NaN
         }
         if yisint == 1 {
@@ -379,6 +388,15 @@ pub fn pow(x: f64, y: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (ironspec 09:26a (1)) the three fdlibm literals clippy took for std constants ARE them, bit for bit (fdlibm's own
+    /// hex comments): the port stays bit-exact with the std names
+    #[test]
+    fn fdlibms_constants_are_the_std_ones_bit_for_bit() {
+        assert_eq!(PIO2_HI.to_bits(), 0x3FF9_21FB_5444_2D18, "e_asin.c's pio2_hi");
+        assert_eq!(LG2.to_bits(), 0x3FE6_2E42_FEFA_39EF, "e_pow.c's lg2");
+        assert_eq!(IVLN2.to_bits(), 0x3FF7_1547_652B_82FE, "e_pow.c's ivln2");
+    }
 
     /// Within a last bit of the platform's own (the native glibc functions are correctly rounded
     /// or nearly), exact where both are exact.

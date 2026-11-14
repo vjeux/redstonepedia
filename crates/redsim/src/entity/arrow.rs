@@ -706,9 +706,20 @@ fn find_hit_entity_trident(w: &mut World, i: usize, from: Vec3, to: Vec3) -> Vec
     best.map(|(j, p, _)| vec![(j, p)]).unwrap_or_default()
 }
 
-/// `stepMoveAndHit(blockHitResult)`.
+/// The refusal of a pierce level above 0 (ironspec 09:26a (4)): `AbstractArrow.stepMoveAndHit` loops again after its
+/// entity hits while `getPierceLevel() > 0` and nothing deflected it; redsim keeps no pierce state, so it runs one round.
+const PIERCE_REFUSAL: &str = "an arrow with a pierce level above 0 (a piercing weapon's: stepMoveAndHit's further rounds) is not modeled";
+
+/// The pierce level the arrow's weapon gives it (`EnchantmentHelper.modifyPiercingCount`: its piercing level), 0 with
+/// no weapon.
+fn pierce_level(w: &World, i: usize) -> i32 {
+    st(w, i).weapon_ench.as_ref().map_or(0, |e| e.iter().find(|&&(id, _)| id == "piercing").map_or(0, |&(_, l)| l))
+}
+
+/// `stepMoveAndHit(blockHitResult)`: one round (its `while (isAlive())` loops again only for a pierce level above 0,
+/// refused by name).
 fn step_move_and_hit(w: &mut World, i: usize, block_hit: los::BlockHit) {
-    loop {
+    {
         if w.entities.list[i].removed {
             return;
         }
@@ -744,9 +755,11 @@ fn step_move_and_hit(w: &mut World, i: usize, block_hit: los::BlockHit) {
                     break;
                 }
             }
+            // (a pierce level above 0 would take another round here)
+            if pierce_level(w, i) > 0 {
+                refuse(w, PIERCE_REFUSAL);
+            }
         }
-        // no piercing (a bow's arrows): one round
-        return;
     }
 }
 
@@ -980,5 +993,31 @@ mod tests {
         assert_eq!(margin(2), 0.0);
         assert_eq!(margin(4), 0.1);
         assert_eq!(margin(100), 0.3);
+    }
+
+    /// (ironspec 09:26a (4)) stepMoveAndHit runs one round: an arrow whose weapon gives it a pierce level above 0 is
+    /// refused by name once it hits an entity (vanilla would loop again); the same shot from a bow without piercing isn't
+    #[test]
+    fn a_piercing_arrow_is_refused_by_name_when_it_hits() {
+        let run = |bow: &[(&'static str, i32)]| -> Vec<String> {
+            let mut w = World::new(crate::pos::BlockPos::new(-8, -2, -8), [16, 10, 16]);
+            for x in -6..6 {
+                for z in -6..6 {
+                    w.set_block(crate::pos::BlockPos::new(x, -1, z), Block::parse("minecraft:stone").unwrap(), crate::world::flags::RAW);
+                }
+            }
+            let s = crate::entity::spawn(&mut w, "minecraft:skeleton", [0.5, 0.0, -3.5], None).expect("the skeleton");
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 2.5], None).expect("the villager");
+            let (si, vi) = (crate::entity::index_of(&w, s).unwrap(), crate::entity::index_of(&w, v).unwrap());
+            shoot_from_mob(&mut w, si, vi, 1.0, None, bow);
+            for _ in 0..20 {
+                w.tick();
+            }
+            w.errors.clone()
+        };
+        let piercing = run(&[("piercing", 1)]);
+        assert!(piercing.iter().any(|e| e == PIERCE_REFUSAL), "{piercing:?}");
+        let plain = run(&[]);
+        assert!(plain.iter().all(|e| e != PIERCE_REFUSAL), "{plain:?}");
     }
 }

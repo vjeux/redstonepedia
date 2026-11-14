@@ -50,10 +50,25 @@ impl Default for TridentAttack {
     }
 }
 
-/// `DrownedTridentAttackGoal`'s speed, interval (min and max) and radius.
+/// `DrownedTridentAttackGoal`'s speed, interval (min and max) and radius: `super(mob, 1.0, 40, 10.0F)`, RangedAttackGoal's
+/// one-interval constructor setting attackIntervalMin = attackIntervalMax = 40 (ironspec 09:26a (3): the two fields
+/// named as vanilla has them, so its `max - min` reads as written)
 const TRIDENT_SPEED: f64 = 1.0;
-const TRIDENT_INTERVAL: i32 = 40;
+const TRIDENT_ATTACK_INTERVAL_MIN: i32 = 40;
+const TRIDENT_ATTACK_INTERVAL_MAX: i32 = 40;
 const TRIDENT_RADIUS: f32 = 10.0;
+
+/// RangedAttackGoal.tick's wait after a throw: `Mth.floor(dist * (attackIntervalMax - attackIntervalMin) +
+/// attackIntervalMin)`, dist = the distance / the radius (a float).
+fn trident_wait_after_throw(dist: f32) -> i32 {
+    crate::entity::mth::floor((dist * (TRIDENT_ATTACK_INTERVAL_MAX - TRIDENT_ATTACK_INTERVAL_MIN) as f32 + TRIDENT_ATTACK_INTERVAL_MIN as f32) as f64)
+}
+
+/// RangedAttackGoal.tick's first wait: `Mth.floor(Mth.lerp(sqrt(targetDistSqr) / attackRadius, attackIntervalMin,
+/// attackIntervalMax))`.
+fn trident_first_wait(d: f64) -> i32 {
+    crate::entity::mth::floor(crate::entity::mth::lerp(d, TRIDENT_ATTACK_INTERVAL_MIN as f64, TRIDENT_ATTACK_INTERVAL_MAX as f64))
+}
 
 /// `getMainHandItem().is(Items.TRIDENT)`.
 pub fn holds_trident(w: &World, i: usize) -> bool {
@@ -349,10 +364,10 @@ fn trident_tick(w: &mut World, i: usize, g: &mut TridentAttack) {
             return;
         };
         crate::entity::arrow::throw_trident_from_mob(w, i, j);
-        g.attack_time = crate::entity::mth::floor((dist * (TRIDENT_INTERVAL - TRIDENT_INTERVAL) as f32 + TRIDENT_INTERVAL as f32) as f64);
+        g.attack_time = trident_wait_after_throw(dist);
     } else if g.attack_time < 0 {
         let d = target_dist_sqr.sqrt() / TRIDENT_RADIUS as f64;
-        g.attack_time = crate::entity::mth::floor(crate::entity::mth::lerp(d, TRIDENT_INTERVAL as f64, TRIDENT_INTERVAL as f64));
+        g.attack_time = trident_first_wait(d);
     }
 }
 
@@ -431,4 +446,17 @@ pub fn move_control_before(w: &mut World, i: usize) -> bool {
 /// Whether mob `i` is a drowned (its AI's own parts).
 pub fn is_drowned(w: &World, i: usize) -> bool {
     is_drowned_id(mob(w, i).ty.def().id)
+}
+
+#[cfg(test)]
+mod tests {
+    /// (ironspec 09:26a (3)) DrownedTridentAttackGoal's waits with attackIntervalMin = attackIntervalMax = 40: 40 gt at every
+    /// distance, after a throw and the first one (the values the old (INTERVAL - INTERVAL) form computed)
+    #[test]
+    fn the_trident_waits_stay_40() {
+        for dist in [0.0f32, 0.25, 0.5, 0.99, 1.0] {
+            assert_eq!(super::trident_wait_after_throw(dist), 40, "after a throw at {dist}");
+            assert_eq!(super::trident_first_wait(dist as f64), 40, "the first wait at {dist}");
+        }
+    }
 }

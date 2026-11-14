@@ -318,7 +318,6 @@ fn spit_can_use(w: &mut World, i: usize, r: &mut super::drowned::TridentAttack) 
 /// and waits `floor(dist / 20 x 0 + 40)`; a first wait of `floor(lerp(dist / 20, 40, 40))`.
 fn spit_tick(w: &mut World, i: usize, g: &mut super::drowned::TridentAttack) {
     const RADIUS: f32 = 20.0;
-    const INTERVAL: i32 = 40;
     let Some(t) = g.target.and_then(|id| target::who(w, id)) else { return };
     let tp = target::pos_of(w, t);
     let target_dist_sqr = w.entities.list[i].pos.distance_to_sqr(tp);
@@ -348,10 +347,41 @@ fn spit_tick(w: &mut World, i: usize, g: &mut super::drowned::TridentAttack) {
         };
         crate::entity::arrow::spit_from_llama(w, i, j);
         st_mut(w, i).did_spit = true;
-        g.attack_time = crate::entity::mth::floor((dist * (INTERVAL - INTERVAL) as f32 + INTERVAL as f32) as f64);
+        g.attack_time = spit_wait_after_spit(dist);
     } else if g.attack_time < 0 {
         let d = target_dist_sqr.sqrt() / RADIUS as f64;
-        g.attack_time = crate::entity::mth::floor(crate::entity::mth::lerp(d, INTERVAL as f64, INTERVAL as f64));
+        g.attack_time = spit_first_wait(d);
+    }
+}
+
+/// The trader llama's RangedAttackGoal (`new RangedAttackGoal(this, 1.25, 40, 20.0F)`): the one-interval constructor
+/// sets attackIntervalMin = attackIntervalMax = 40 (ironspec 09:26a (3): the two fields named as vanilla has them, so
+/// its `max - min` reads as written)
+const SPIT_ATTACK_INTERVAL_MIN: i32 = 40;
+const SPIT_ATTACK_INTERVAL_MAX: i32 = 40;
+
+/// RangedAttackGoal.tick's wait after a spit: `Mth.floor(dist * (attackIntervalMax - attackIntervalMin) +
+/// attackIntervalMin)`, dist = the distance / the radius (a float).
+fn spit_wait_after_spit(dist: f32) -> i32 {
+    crate::entity::mth::floor((dist * (SPIT_ATTACK_INTERVAL_MAX - SPIT_ATTACK_INTERVAL_MIN) as f32 + SPIT_ATTACK_INTERVAL_MIN as f32) as f64)
+}
+
+/// RangedAttackGoal.tick's first wait: `Mth.floor(Mth.lerp(sqrt(targetDistSqr) / attackRadius, attackIntervalMin,
+/// attackIntervalMax))`.
+fn spit_first_wait(d: f64) -> i32 {
+    crate::entity::mth::floor(crate::entity::mth::lerp(d, SPIT_ATTACK_INTERVAL_MIN as f64, SPIT_ATTACK_INTERVAL_MAX as f64))
+}
+
+#[cfg(test)]
+mod spit_wait_tests {
+    /// (ironspec 09:26a (3)) the trader llama's RangedAttackGoal waits with attackIntervalMin = attackIntervalMax = 40: 40 gt
+    /// at every distance, after a spit and the first one (the values the old (INTERVAL - INTERVAL) form computed)
+    #[test]
+    fn the_spit_waits_stay_40() {
+        for dist in [0.0f32, 0.25, 0.5, 0.99, 1.0] {
+            assert_eq!(super::spit_wait_after_spit(dist), 40, "after a spit at {dist}");
+            assert_eq!(super::spit_first_wait(dist as f64), 40, "the first wait at {dist}");
+        }
     }
 }
 
