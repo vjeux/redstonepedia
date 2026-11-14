@@ -11,8 +11,10 @@ gate G's foot logic, RETURN ROOM unless a normal run fills the return row, HELD,
 Conventions: coordinates in V's loop frame; a diode's `facing` names its INPUT side (26.3); "edge" = a rising-edge pulse
 former (a comparator in subtract mode: the signal into its back, the same signal through a delay-2 repeater into its
 side: a 4-gt pulse), "latch" = a torch RS latch (states and scheduled ticks persist across save / load), "level" = a
-plain signal. Every layer lists each cell with its six neighbours, its power-out and update-consumers (part-60 form),
-and shows no always-on source (torch, powered block) beside any dust or repeater input of a controller line.
+plain signal. Each subsystem's FILE (its car) lists each of its cells with its six neighbours, its power-out and
+update-consumers (part-60 form), and shows no always-on source (torch, powered block) beside any dust or repeater input
+of a controller line; this netlist names the interface cells (each signal's sensor and consumers) and the cells kept as
+named below.
 
 ## Signals shared between subsystems (the interface)
 
@@ -25,7 +27,9 @@ and shows no always-on source (torch, powered block) beside any dust or repeater
 | SIDING(l) | the napper at its lane's R hold (x-2,24,7) | picks (the release's AND) | presence | while a napper waits |
 | R_REL(l) | picks (the positional release) | line B (the R holds) | a pulse | at the napper's predecessor's ENTRY |
 | REQ(l) | picks (each ring) | the static-priority gates (cc767b78) | a level | from the pop's step to the lane's next pop |
-| GRANT(l) | the gates' G (cc767b78) | line `pocket:<lane>` (the pick drive), the lane's ring | a level | captured at REL + 92, cleared at REL + 33 |
+| W7 | the gates (cc767b78) | the gates' next decide | a latch | written from G7 at REL + 84, read at REL + 92 (holds through a freeze) |
+| REL + 40 / 57 / 67 / 80 | core (dfb89499's chain; + 40 new) | each ring's filler window (40 / 57 / 67 for lanes -1 / 3 / 7) and up-fire (67 for lane -1, 80 for lanes 3 / 7) | tap pulses | exact (REL-keyed) |
+| GRANT(l) | the gates' G (cc767b78) | line `pocket:<lane>` (the pick drive), the lane's ring (T's window, the filler's window, the up-fire) | a level | captured at REL + 92, held until REL' + 85 (cc767b78 13:18) |
 | ARM3 | core (the napper being taken at (9,0,8)) | the record (its shift) | a press | REL' + 57 |
 | HOME(l) | the record's head (cc767b78) | core (the K(l) selection, latched at REL' + 57) | one-hot level | valid by REL' + 57 |
 | K(l) | core | the lift's J(l) T's (branch), the D(l) masks | a window pulse riding the napper's release: [napper - K_EARLY, napper + K_HALF] | K_EARLY, K_HALF, R6 (the interface's); the napper reaches J(l) NAPPER_T - SLOT_T[2] behind slot 3 (ctl-credit) |
@@ -56,32 +60,54 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-core.tx
 
 ## Subsystem 2: THE PICKS (the (i-b) per-lane item rings; static priority and the record -> cc767b78) -> day-1
 
-Files: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-picks.txt` (the three rings, day-1, in vcompose's
-BOX B: x -3..8, y 5..12, z -6..-3, the rings at x -3..-1 / 1..3 / 5..7); cc767b78's arbiter + record file in BOX A
-(x -3..8, y -3..4, z -6..-3), its overflow in BOX B's columns x 0 / 4 / 8 (agreed with cc767b78 and vcompose).
+Files: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-picks.txt` (rings 1 and 2, day-1; ring 3, mob-AI,
+the parent 13:47, from ring 1's file); the mechanics and their bench: `crates/mobfarm/src/ctlring8.rs` (ring-local cells,
+one FLAT ring per lane). PLACEMENT (ironspec 13:28p, vcompose / 9fc3155f): ring 1 = B-low (x -3..8, y 5..8, z -6..-1),
+ring 2 = B-high (y 9..12), ring 3 = C' (x -4..7, y 17..20, z -6..-2: the 5-deep variant, its southmost row dropped);
+ring 1 keeps (-3,5,-2), (-3,5,-1), (-2,5,-1), (-3,6,-1) AIR (the shaft zombie's rays to the lift riders), and cc767b78's
+cells (-1|2|5, 5, -4) glass or air (above its record's lock torches), with glass over its exposed code-column tops
+(-2,5,-6) / (-2,5,-2). World = ring-local + (3, 7, -3) for ring 1 (+ (0, 4, 0) for ring 2). cc767b78's priority gates and
+record: BOX A (x -3..8, y -3..4, z -6..-2), the 14 sight cells collider-free.
 
-- Per lane, AN ITEM RING (ironspec 11:56a / 12:02p; ctl-pick's sensed model): 8 droppers in a dropper -> hopper cycle (the
-  counter-ring generator's form; hopper tops sealed, tokens resting in droppers), holding the target token T (unstackable:
-  the tap reads 2) and the absent markers X (stackable: 1). The ring STEPS on the lane's SENSED POP (the station's D
-  (x,0,2) press); an X at the tap steps it once more (the away slot skipped). REQ_l = the tap reads T AND NOT the spacing
-  latch (set at the grant, cleared by T's first pass: the >= 11-pop spacing). On a GRANT: a T-filter hopper under the tap
-  lifts T into the dropper 5 steps upstream (TARGET + 5), and an X goes into the tap slot from the X stock dropper.
-- THE REJOIN (the positional release, ctl-pick's `positional_release`: 0 differences from the identity rule): at a circuit
-  ENTRY (the S-bend seat detector D(x) (x,24,8)), an X in the dropper 2 steps downstream of the tap AND the siding's
-  presence (a napper at its R hold) -> the R release for that lane (line B), and the X-filter hopper under that dropper
-  lifts the X back to the stock. (No mark FIFO, one X type, no flags.)
-- ONE PICK PER REL = STATIC PRIORITY (ironspec 12:30p): g_-1 = REQ_-1, g_3 = REQ_3 AND NOT REQ_-1, g_7 = REQ_7 AND NOT
-  REQ_-1 AND NOT REQ_3 -> G captured at REL + 92 (gated by WIN = REST AND NOT DAY), cleared at REL + 33: cc767b78's. GRANT_l
-  goes to the lane's pick drive (line `pocket:<lane>`) and back to its ring.
+- Per lane, A FLAT ITEM RING (ironspec 11:56a / 12:02p; ctl-pick's sensed model `sensed` + `positional_release`): 8 droppers
+  and 8 hoppers at one level in two rows (the north row flowing east, the south row west; P0..P7 the droppers in flow
+  order), every PRESENT slot holding a filler (stone: the tap reads 1), the TARGET slot T (a wooden shovel: reads 2), an
+  AWAY slot empty (reads 0). A dust patch over the 16 cells is the STEP (and the golem cap).
+- Its signals (each with its sensor -> consumers):
+  - POP(l) (the station's D (x,0,2) press, line D) -> STEP (6 gt later: the POP line's delay) and T's window;
+  - STEP = POP delayed 6 gt OR SKIP -> the dust patch (every ring dropper fires one item on; the hoppers carry it on);
+  - TAP(l) = the tap comparator on P2's north face (P2 the tap): 2 / 1 / 0 for T / filler / empty -> REQ, EMPTY;
+  - SKIP = POP delayed 20 gt AND the tap EMPTY at that tick -> STEP (the away slot passed);
+  - SPACING = a latch SET by G_l's rising edge, RESET by T leaving the tap (TAP falls from 2) while G_l is low -> REQ;
+  - REQ(l) = TAP reads 2 AND NOT SPACING -> cc767b78's static-priority gates (a level);
+  - G(l) (cc767b78: captured at REL + 92, held until REL' + 85) -> the pick drive `pocket:<lane>` and the ring:
+    T's window = G_l AND the POP edge, 22 gt (T's extractor under P2 lifts T before the step and pushes it, one hop, into
+    the up-dropper under P6's feeder; P6 = the tap + 4, where the slot picked + 5 sits after the pop's step); the
+    filler's window = G_l AND the lane's REL' + 40 / 57 / 67 tap, 10 gt (the extractor under P6 sends P6's filler to
+    the stock); the up-fire = G_l AND REL' + 67 (lane -1) / REL' + 80 (lanes 3, 7) (T into P6's feeder, so into P6);
+  - ENTRY(l) (the S-bend seat detector D(x) (x,24,8)), SIDING(l) (the napper at its R hold (x-2,24,7)) and P4's state
+    (P4 = the tap + 2, read by a comparator) -> RELEASE = ENTRY AND P4 EMPTY AND SIDING -> the stock's fire (one filler
+    into P4 through a relay hopper and P4's feeder) and R_REL(l) (line B).
+- Its locks: each extractor is locked by a SUBTRACT comparator whose rear is a chest holding one stone (reads 1) and
+  whose output powers the hopper (T's through its powered support block, which also carries the tap comparator); a
+  window is 15 on the comparator's side. QUASI-CONNECTIVITY (a dropper is powered through the block above it; every ring
+  cell is powered at each step): the stock sits east of the ring under a relay hopper with no powered neighbour; the
+  up-dropper sits under P6's feeder, so T reaches it only after the step's pulse (its push is held by the step's power
+  on the tap), after the up-dropper's quasi-connected fire (step + 6; measured margin 4 gt).
+- ONE PICK PER REL = STATIC PRIORITY + THE WIDENING (b'+w), cc767b78's gates: g_-1 = REQ_-1 AND NOT W7; g_3 = REQ_3 AND
+  NOT (REQ_-1 AND NOT W7); g_7 = REQ_7 AND NOT (REQ_-1 AND NOT W7) AND NOT REQ_3; W7 = a latch written from G7 at REL + 84,
+  read by the next decide at REL + 92; G captured at REL + 92 (gated by WIN = REST AND NOT DAY), held until REL' + 85.
 - THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 in a REL whose ARM3
-  fired (RLS not read); HOME_l = its head, latched by the core at REL' + 57. Depth: at most 4 nappers picked and not yet
-  ARM3'd over ctl-pick's (b') rows (conservative ARM3 stamp).
-- OUT / superseded: HELD, the room count, the pointer's spacing counter (the latch replaces it), the record's resync.
-- Normal rows (ctl-pick, the reference; 10,800 rows under (b'): the seven sweep points with the cold start, 129 true
-  whole-farm freezes, all 64 T starting offsets, each at all 27 +-2 gt leg corners, with the FIFO and the positional
-  release): 24 distinct every night, the worst interval 22,400 gt (margin 600 under 23,000, at T 0 / 5 / 0, legs -2 gt),
-  the least H2 arrival gap 42 gt at the corners (margin 1 over the 41-gt cycle), lane 7's longest wait 16 RELs (two ring
-  revolutions), golems lost per day 0; the forced id-permutation test unchanged.
+  fired (RLS not read); HOME_l = its head, latched by the core at REL' + 57; HOME's default when empty: LANE 3 (codes 7 =
+  (1,0), -1 = (0,1), 3 = (0,0); ironspec 13:58p). Depth: 3 stages (at most 3 entries alive at once, measured per tick at
+  the measured stop -> (9,0,8) trip 113..126 gt, each end +-2, over the (b'+w) rows).
+- OUT / superseded: HELD, the room count, FRONT EMPTIED, bunched picks as a normal row, the pointer's spacing counter
+  (the latch replaces it), the record's resync, the mark FIFO, the X tokens (an away slot is an empty dropper).
+- Normal rows: ctl-pick (the sensed model; the (b'+w) rows: the seven sweep points, 129 true whole-farm freezes, the 27
+  +-2 gt leg corners, the positional release): 24 distinct every night, the least H2 arrival gap 64 gt at the corners
+  (over the 41-gt cycle), the record's depth 3; ctl-ring8 (the ring's mechanics in redsim): the 16-step reference with a
+  grant and a release, the skip, a world open at every tick of the grant and the release (199 rows), the +-2 gt corners;
+  the whole-lane bench (driven by the lane's inputs only) with the logic.
 
 ## Subsystem 3: THE WAY-IN ((B)'s latch, hold and read, the token, the P1 trigger, the front's release) -> b8949c96
 
@@ -94,8 +120,9 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-wayin.t
   north), its line north along x 8 at y 23 on glass (8,22,5..3), ending at (8,23,3) (its pointing target (8,23,2): air).
 - KEPT AS NAMED (G1 11:43): (8,23,2) AIR or GLASS, never a conductor (booster 2's lit torch (8,22,2) strongly powers it,
   and a conductor would hold the read's end dust (8,23,3) on: H2 never opening); (9,22,6) GLASS (the detector's support:
-  a pressed (9,23,6) strongly powers it; its power-out: (9,22,6) inert, (8,23,6) the read, (9,23,5) / (9,24,6) air, the
-  hold (9,24,7) diagonal); (9,25,8) H2's upper connection, a PLAIN rail (no powered rail there: one would be powered
+  a pressed (9,23,6) strongly powers it; the pressed detector's six neighbours: (9,22,6) inert glass below, (8,23,6) the
+  read (west), (10,23,6) (east: air in V rev 3.1; kept non-conductive), (9,23,5) (north: air), (9,23,7) (south: the hold
+  column's rail support, inert), (9,24,6) (above: air); the hold (9,24,7) is diagonal); (9,25,8) H2's upper connection, a PLAIN rail (no powered rail there: one would be powered
   whenever H2 is); (8,25,8) the drive dust's south pointing target: AIR; (2,-1,8) line A's input: KEPT FREE until the
   core's port lands. Ownership in rev 3.1: the (B) cells (9,24,7) / (9,23,6) belong to vcompose's stand-in part (owner
   day-1, then b8949c96's way-in car); b8949c96's delta and V's leg cede them by `# stand-in:` marks (G1's pick).
@@ -158,7 +185,8 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-stop.tx
   or ARM's edge. COOL: set by ARM's edge through the 52 tap, reset at RLS or ARM's edge. PARK is the stop file's own
   (the latch form: [RLS + 2, RLS + 26)).
 - Inputs (V's frame, 58f770cc 11:55): the bed-head observer pulse V (-3,-21,3); P_STRING V (-2,-19,3) through its east
-  hook V (-1,-19,3); the park string V (1,-19,2).
+  hook V (-1,-19,3); the park string V (1,-19,2); ARM's sensor: the detector V (-2,-20,0) on glass V (-2,-21,0). (The
+  latches' cells are mobviewer's file.)
 - Outputs: the shutter's drive V (-5,-21,6); K's drive V (-2,-22,2); RLS_IN V (-1,-22,-3); ARM_IN V (6,-22,-6). (The record
   no longer reads RLS: its shift is keyed on ARM3.)
 - The interface hazards (58f770cc 12:35): RLS_IN V (-1,-22,-3) is a HUB of three latch dusts: driven as a SOLID block,

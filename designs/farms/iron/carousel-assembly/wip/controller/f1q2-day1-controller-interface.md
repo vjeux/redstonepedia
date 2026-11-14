@@ -27,31 +27,47 @@ station generator and F′'s benches read them from here, and F′'s test links 
   measured (9,23,6) -> rest-on-P1 transit (b8949c96 10:57: 9..11 gt, its bench on (B)'s cells) + 5 gt (a world open lets
   the redstone-timed D run up to 3 gt ahead of the entity transit: 2 gt physical slack left, to be shown in the swept
   redsim runs); in hardware a repeater chain from the latch into the trigger's AND. The second hold's cycle (a napper's
-  pass -> the hold open again) = the SET 2 + D + P1 -> its exit 3 + the exit detector's 20-gt recheck = 41 gt.
+  pass -> the hold open again) = the SET 2 + D + P1 -> its exit 3 + the exit detector's 20-gt recheck = 41 gt (a REDSIM
+  BENCH figure, +-2 gt: D 16 from b8949c96's redsim transit 9..11 + 5, until step c's game run measures it).
 - The napper's row hold (9,0,8) releases at REL + 67 gt (judged at the hold rail); line A's input (2,-1,8) (`napper-hold`)
   is thrown at REL + 61 (loaderlay's line-bench: 6 gt from the port to the hold rail, every phase).
 - Line C's ports (x+2,17,-1) (the station's slot releases, `r-line:<lane>`) rise at REL + 0 / 17 / 27 - 4 (4 gt port ->
   R_1, loaderlay's line-bench, every lane).
-- THE PICKS (the (i-b) per-lane item ring, ironspec 11:56a / 12:02p): each lane's ring steps on the lane's SENSED pop (the
-  station's D (x,0,2) press, A6 stripped) and reads its circuit entries at the S-bend seat detector D(x) (x,24,8) and the
-  siding's presence; REQ_l is a level from the pop's step until the lane's next pop; the one-pick-per-REL form is STATIC
-  PRIORITY (ironspec 12:30p: lane -1 over 3 over 7, stateless), G captured at REL + 92 and cleared at REL + 33
-  (cc767b78); the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
+- THE PICKS (the (i-b) per-lane item ring, ironspec 11:56a / 12:02p; laid as the FLAT ring, crates/mobfarm/src/ctlring8.rs):
+  each lane's ring steps 6 gt after the lane's SENSED pop (the station's D (x,0,2) press, A6 stripped) and reads its circuit
+  entries at the S-bend seat detector D(x) (x,24,8) and the siding's presence; REQ_l is a level from the pop's step until
+  the lane's next pop; G_l is captured at REL + 92 and held until REL' + 85 (cc767b78 13:18, so the ring gates its later
+  taps with G directly); the ring's T extractor opens for 22 gt at the lane's POP edge while G_l is high (T leaves the
+  tap before the step); its filler extractor opens for 10 gt at REL' + 40 / 57 / 67 (lanes -1 / 3 / 7: the pop + 40;
+  dfb89499's REL + 40 tap and the existing 57 / 67) while G_l is high; its up-fire (T into the dropper the slot picked + 5
+  occupies) reads REL' + 67 for lane -1 (ironspec 13:24p's widening: T in place 18 gt before the next pop) and REL' + 80
+  for lanes 3 / 7, gated by G_l; the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
 - THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 only in a REL whose
   ARM3 fired (the napper being taken; RLS is not read); HOME_l = its head (S1), read (latched) by the core at REL' + 57.
   Its depth: at most 3 entries alive at once, measured per tick over ctl-pick's (b'+w) rows (the seven points and the
   true freezes, each at the 27 leg corners) at the measured stop -> (9,0,8) trip, 113..126 gt (58f770cc's pickup -> the
   stop's out 35..48 + ironfarm's stop R -> (9,0,8) seated 78 on V's depth), each end +-2: 3 stages.
 - ONE PICK PER REL (ironspec 12:52p): STATIC PRIORITY (lane -1 over 3 over 7) PLUS THE WIDENING: lane -1 refused in the REL
-  right after a lane-7 grant.
+  right after a lane-7 grant, the next lane taking the slot (cc767b78's form (ii)): g_-1 = REQ_-1 AND NOT W7; g_3 = REQ_3 AND
+  NOT (REQ_-1 AND NOT W7); g_7 = REQ_7 AND NOT (REQ_-1 AND NOT W7) AND NOT REQ_3. W7 is a LATCH written from G7 at REL + 84
+  (just before G's clear at + 85) and read by the next decide at REL + 92; it holds through a freeze (block state).
+- HOME's default when the record is empty is LANE 3 (FINAL, ironspec 13:58p; codes 7 = (1,0), -1 = (0,1), 3 = (0,0);
+  the core's K(3) default).
+- THE OCCUPIED-BED GUARANTEE (ironspec 13:40p, the arrival case): a napper leaves the stop only at bed_free = the previous
+  napper's start + bed_cycle + rs_extra, through RS_ready (V's NOT-ready line (8,-10,-5)) gating the stop's release; the
+  bed is empty from the previous napper's wake tick (58f770cc: lie-down -> wake 56..76 gt, no exit lag), so no napper
+  arrives at an occupied bed (ctl-pick judges it per napper against that measured band).
 - THE H2 GAP (the battery's and the game run's print): napper k's ARRIVAL at the second hold H2 (the first tick its cart's
   box enters (9,24,7)) to napper k+1's ARRIVAL there, k and k+1 consecutive in pick order (= arrival order); judged > the
   second hold's cycle, 41 gt (the line above: SET 2 + D 16 + P1 -> exit 3 + the exit detector's 20-gt recheck). Priced
   push-free in ctl-pick (leg arithmetic, no rider AI): >= 64 gt at the +-2 gt corners under the widening.
 - THE MODEL's REFERENCE GOLEMS: ctl-pick does not model the summon; it assumes one summon per REL period (100 gt): 120 per
-  night (the 120-REL window), 240 per day, scaling with the unfrozen fraction (a freeze of f gt removes f / 100 summons);
-  "golems lost" = summons while a villager is past 24,000 gt since its last sleep: 0 on every normal row. Its seed-to-seed
-  spread: 0 (the model is deterministic): MODEL-ANCHORED, UNVALIDATED until step c's game night.
+  night (the 120-REL window), 240 per day, scaling with the unfrozen fraction (a freeze of f gt removes f / 100 summons),
+  AND that the farm REMOVES each golem promptly (tick-exact 13:07: in 26.3 a living golem near the pad keeps every nearby
+  villager's GOLEM_DETECTED_RECENTLY set, so summons stop; redsim's villagers don't sense it: a fidelity gap, cc767b78's;
+  which part removes the golem is open with ironspec); "golems lost" = summons while a villager is past 24,000 gt since
+  its last sleep: 0 on every normal row. Its seed-to-seed spread: 0 (the model is deterministic): MODEL-ANCHORED,
+  UNVALIDATED until redsim senses golems and step c's game night cross-checks it.
 - R6 = 14 gt (ADOPTED ironspec 11:24a, the >= 2-gt form; R6 = 15 withdrawn 10:52a; 12 / 8 superseded), with K's late half
   10: each lane's napper
   leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' + 165 + 4 - travel(x), REL' the release cycle that TAKES the
