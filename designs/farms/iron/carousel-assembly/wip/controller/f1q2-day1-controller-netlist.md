@@ -160,6 +160,12 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.t
 - LINE D, THE STATION's D (A6 stripped, dfb89499 12:30): every lane's D is (x,0,2) (`detector_rail[north_south]` on glass
   (x,-1,2)); F′ lays no tap; the old tap cells (x+1,-1,5) / (x+2,-1,5) and (1,-1,5) / (5,-1,5) are VOID. D is the ring's
   POP input (its press) and the core's: each reader reads D from its own cell's neighbours (power-out listed).
+- LINE E, LANE 7's SLOPE RELEASE (restored, ironfarm / loaderlay 14:05; it was dropped from this netlist by mistake): lane
+  7's rest is the BRAKED powered slope (-4,12,7); a repeater at (-4,12,6) (its input (-4,12,5)) powers it for 18 gt from
+  the core's REL + 95 tap (every bench throws REL + 95 / 96 for 18 gt; dfb89499's M line has lane 7's column entry at
+  T + 107). The core provides the REL + 95 tap (an 18-gt pulse); LOADERLAY's lines car lays the line from that tap to
+  (-4,12,5) and the repeater (-4,12,6) (its CTL stand-in lever (-4,12,6), `slope-release:7`, tagged owner LINES, drive =
+  the core's REL + 95); priced in the lines' tally (~3 cells + the route).
 - THE STOP's INPUT CELLS (58f770cc 11:42 / 12:06, the re-lay car's latch-form stop, V = stop-local + (0,-20,-1); NO slope
   hold (the exit hold removed 05:33 / 06:11): NO tap line into (1,-21..-23,3..4); NO PARK line (PARK is made inside the
   stop file: the latch's Q -> the OR line -> its repeater -> the park slime): K's drive under K's slime V (-2,-22,2); the
