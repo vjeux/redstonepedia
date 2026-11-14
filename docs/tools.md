@@ -368,7 +368,15 @@ cells, the build rule's, placed last), each rail in both placement facings (its 
 or east_west), each by the player's placement path (redsim's `World::set_block` in the game's order:
 onPlace, then the neighbour updates with the old block's kind), plus two pastes and named sequences
 (a wrong order, a repair, a parity positive); every build or sequence off its wanted shape fails,
-and so does a test that built no order.
+and so does a test that built no order. `mctas mobfarm build-order DESIGN --declared [--without
+NAME]...` (commit G) reads the design's own `# build-order: NAME=STEP;STEP;...` lines (each step
+`x,y,z=STATE`, `air` a removal, or `~x,y,z=STATE` a TEMPORARY placement removed at the sequence's
+end unless a step removes it) and EXECUTES each one on the design with every cell it doesn't name laid
+first, each step with its updates, every cell it names read back against the design (off it fails by
+name); then the plain orders over every rail cell (each rail with up to 4 rails of its 3x3x3 box): a
+rail no plain order brings to its designed shape fails unless a declared sequence lays it (printed as
+information); `--without NAME` leaves a sequence out, the positive control (58f770cc's re-laid stop
+without `park`: the park rail fails by name).
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit

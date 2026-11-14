@@ -253,6 +253,200 @@ pub fn run(blocks: &[(BlockPos, Block)], o: &BuildOrderOpts) -> Result<(Vec<Stri
     Ok((lines, failing))
 }
 
+/// (commit G, ironspec 02:43 (2) / 02:46 (5) / 02:54 (4), G1 02:44b) A design's declared build sequence,
+/// its header line `# build-order: NAME=STEP;STEP;...`: each step `x,y,z=STATE` (a placement; `air`, a
+/// removal) or `~x,y,z=STATE`, a TEMPORARY placement (the builder's helper block: removed at the
+/// sequence's end unless a later step removes it). 58f770cc's re-laid stop: `park=2,0,3=slime;
+/// ~2,1,3=rail;1,0,3=powered_rail[...ascending_east];2,1,3=air` (tick-exact's car 7, `mobai
+/// park-string`: laid as the file reads it the park goes flat; with the temporary rail it ascends).
+pub struct Declared {
+    pub name: String,
+    /// (the cell, the state, temporary)
+    pub steps: Vec<(BlockPos, Block, bool)>,
+}
+
+/// The design text's `# build-order:` lines, parsed (a malformed one an error naming it).
+pub fn declared(text: &str) -> Result<Vec<Declared>, String> {
+    let mut out: Vec<Declared> = Vec::new();
+    for line in text.lines() {
+        let Some(body) = line.trim().strip_prefix("# build-order:") else { continue };
+        let (name, rest) = body.trim().split_once('=').ok_or_else(|| format!("# build-order: NAME=x,y,z=STATE;...: {line:?}"))?;
+        let name = name.trim();
+        if name.is_empty() || name.contains(',') {
+            return Err(format!("# build-order: a sequence needs a NAME before its first `=`: {line:?}"));
+        }
+        if out.iter().any(|d| d.name == name) {
+            return Err(format!("# build-order: the sequence {name:?} declared twice"));
+        }
+        let mut steps = Vec::new();
+        for s in rest.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let (temp, s) = match s.strip_prefix('~') {
+                Some(t) => (true, t),
+                None => (false, s),
+            };
+            let (c, st) = s.split_once('=').ok_or_else(|| format!("# build-order {name}: a step x,y,z=STATE: {s:?}"))?;
+            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("# build-order {name}: {c:?}: {e}"))?;
+            if v.len() != 3 {
+                return Err(format!("# build-order {name}: a cell x,y,z: {c:?}"));
+            }
+            let st = st.trim();
+            let st = if st.contains(':') { st.to_string() } else { format!("minecraft:{st}") };
+            let b = Block::parse(&st).map_err(|e| format!("# build-order {name}: {st}: {e}"))?;
+            if temp && b.is_air() {
+                return Err(format!("# build-order {name}: a temporary step places a block, not air: {s:?}"));
+            }
+            steps.push((BlockPos::new(v[0], v[1], v[2]), b, temp));
+        }
+        if steps.is_empty() {
+            return Err(format!("# build-order {name}: no steps"));
+        }
+        out.push(Declared { name: name.to_string(), steps });
+    }
+    Ok(out)
+}
+
+/// Whether two states are the same build result: a rail kind by its name and shape (its power is the
+/// circuit's), anything else whole.
+fn same_build(a: &Block, b: &Block) -> bool {
+    if is_rail_state(a) && is_rail_state(b) {
+        let name = |x: &Block| x.to_string().split('[').next().unwrap_or("").to_string();
+        let sh = |x: &Block| x.to_string().split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("-").to_string();
+        return name(a) == name(b) && sh(a) == sh(b);
+    }
+    a.to_string() == b.to_string()
+}
+
+/// (commit G) How many plain builds of `cells` (every order the game allows x each rail's two
+/// placement facings, the T test's builds) end with `t` in `want`: (reaching, built).
+fn plain_reach(blocks: &[(BlockPos, Block)], t: BlockPos, cells: &[(BlockPos, Block)], want: &str) -> Result<(usize, usize), String> {
+    let rails: Vec<usize> = (0..cells.len()).filter(|&k| is_rail_state(&cells[k].1)).collect();
+    let masks = 1usize << rails.len();
+    let (mut reach, mut built) = (0usize, 0usize);
+    for order in permutations(cells.len()) {
+        if (0..cells.len()).any(|i| support_of(cells, i).is_some_and(|s| order.iter().position(|&k| k == s) > order.iter().position(|&k| k == i))) {
+            continue;
+        }
+        for mask in 0..masks {
+            built += 1;
+            let ew = |k: usize| rails.iter().position(|&r| r == k).is_some_and(|j| mask & (1 << j) != 0);
+            let mut w = base_world(blocks, t, cells);
+            for &k in &order {
+                let (p, b) = &cells[k];
+                w.set_block(*p, placed_state(b, ew(k))?, flags::ALL);
+            }
+            if shape(&w, t) == want {
+                reach += 1;
+            }
+        }
+    }
+    Ok((reach, built))
+}
+
+/// (commit G) The declared-sequence mode: each declared sequence EXECUTED step by step on the design
+/// with every cell it doesn't name already laid (raw, as a paste), each step with its updates (a rail
+/// placed in its default shape, shaped by `onPlace`), its temporaries removed at its end, and every
+/// cell it names read back against the design (a temporary against the design's own cell, air where
+/// the design has none): off any one fails by name. Then the plain orders over EVERY rail cell of the
+/// design (each rail with the rails around it, the T test's every-order build): a rail no plain order
+/// brings to its designed shape fails unless a declared sequence lays it, where its plain-order result
+/// prints as information. `without` names declared sequences left out (the positive control).
+pub fn run_declared(blocks: &[(BlockPos, Block)], seqs: &[Declared], without: &[String]) -> Result<(Vec<String>, usize), String> {
+    if let Some(w) = without.iter().find(|w| !seqs.iter().any(|d| &d.name == *w)) {
+        return Err(format!("build-order --without {w}: no declared sequence of that name"));
+    }
+    let seqs: Vec<&Declared> = seqs.iter().filter(|d| !without.contains(&d.name)).collect();
+    let at = |p: BlockPos| blocks.iter().find(|(q, _)| *q == p).map(|(_, b)| b.clone()).unwrap_or_else(|| Block::parse("minecraft:air").expect("air"));
+    let (mut lines, mut failing) = (Vec::new(), 0usize);
+    // (the box: every design block and every step's cell, 2 cells of margin)
+    let all: Vec<BlockPos> = blocks.iter().map(|(p, _)| *p).chain(seqs.iter().flat_map(|d| d.steps.iter().map(|(p, _, _)| *p))).collect();
+    if all.is_empty() {
+        return Err("build-order --declared: an empty design".into());
+    }
+    let lo = BlockPos::new(all.iter().map(|p| p.x).min().unwrap_or(0) - 2, all.iter().map(|p| p.y).min().unwrap_or(0) - 2, all.iter().map(|p| p.z).min().unwrap_or(0) - 2);
+    let hi = BlockPos::new(all.iter().map(|p| p.x).max().unwrap_or(0) + 2, all.iter().map(|p| p.y).max().unwrap_or(0) + 2, all.iter().map(|p| p.z).max().unwrap_or(0) + 2);
+    let size = [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1];
+    for d in &seqs {
+        let named: Vec<BlockPos> = d.steps.iter().map(|(p, _, _)| *p).collect();
+        let mut w = World::new(lo, size);
+        for (p, b) in blocks {
+            if !named.contains(p) {
+                w.set_block(*p, b.clone(), flags::RAW);
+            }
+        }
+        let mut pending: Vec<BlockPos> = Vec::new();
+        let mut trail = Vec::new();
+        for (p, b, temp) in &d.steps {
+            if b.is_air() {
+                w.set_block(*p, b.clone(), flags::ALL);
+                pending.retain(|q| q != p);
+                trail.push(format!("{p} removed"));
+            } else {
+                w.set_block(*p, placed_state(b, false)?, flags::ALL);
+                if *temp {
+                    pending.push(*p);
+                }
+                let s = w.get(*p).to_string();
+                trail.push(format!("{}{p} {}", if *temp { "~" } else { "" }, s.trim_start_matches("minecraft:")));
+            }
+        }
+        for p in &pending {
+            w.set_block(*p, Block::parse("minecraft:air").expect("air"), flags::ALL);
+            trail.push(format!("{p} (temporary) removed at the end"));
+        }
+        let mut off: Vec<String> = Vec::new();
+        let mut checked: Vec<BlockPos> = Vec::new();
+        for p in &named {
+            if checked.contains(p) {
+                continue;
+            }
+            checked.push(*p);
+            let (want, got) = (at(*p), w.get(*p));
+            if !same_build(&want, &got) {
+                off.push(format!("{p}: {} (the design: {})", got.to_string().trim_start_matches("minecraft:"), want.to_string().trim_start_matches("minecraft:")));
+            }
+        }
+        if !off.is_empty() {
+            failing += 1;
+        }
+        lines.push(format!(
+            "build-order declared sequence \"{}\" (each rail placed facing north / south, its default north_south, shaped by onPlace; every cell it doesn't name laid first): {}; read back: {}",
+            d.name,
+            trail.join(", "),
+            if off.is_empty() { format!("every named cell as designed ({} cells)", checked.len()) } else { format!("OFF THE DESIGN: {} (FAILS)", off.join("; ")) }
+        ));
+    }
+    // (the plain orders over every rail cell: each with the rails in its 3x3x3 box, at most 4 of them,
+    // the nearest first)
+    let rails: Vec<(BlockPos, Block)> = blocks.iter().filter(|(_, b)| is_rail_state(b)).cloned().collect();
+    let (mut plain_ok, mut plain_info, mut plain_fail) = (0usize, Vec::new(), Vec::new());
+    for (r, rb) in &rails {
+        let mut near: Vec<(BlockPos, Block)> = rails.iter().filter(|(q, _)| q != r && (q.x - r.x).abs() <= 1 && (q.y - r.y).abs() <= 1 && (q.z - r.z).abs() <= 1).cloned().collect();
+        near.sort_by_key(|(q, _)| (q.x - r.x).abs() + (q.y - r.y).abs() + (q.z - r.z).abs());
+        // (at most 4 neighbours: 5 cells, 120 orders x 32 rail facings, so a dense rail field stays
+        // bounded; the nearest first)
+        near.truncate(4);
+        let mut cells = vec![(*r, rb.clone())];
+        cells.extend(near);
+        let want = rb.to_string().split("shape=").nth(1).and_then(|s| s.split([',', ']']).next()).unwrap_or("-").to_string();
+        let (reach, built) = plain_reach(blocks, *r, &cells, &want)?;
+        if reach > 0 {
+            plain_ok += 1;
+        } else if let Some(d) = seqs.iter().find(|d| d.steps.iter().any(|(p, _, _)| p == r)) {
+            plain_info.push(format!("{r} ({want}): no plain order reaches it (0 of {built} builds); laid by the declared sequence \"{}\"", d.name));
+        } else {
+            plain_fail.push(format!("{r} ({want}): no plain order reaches it (0 of {built} builds), and no declared sequence lays it"));
+        }
+    }
+    failing += plain_fail.len();
+    lines.push(format!(
+        "build-order plain orders over every rail cell ({} rails: each with up to 4 rails of its 3x3x3 box, every order the game allows x each rail's two placement facings; a rail passes when at least one plain build reaches its designed shape, ironspec 02:46 (5)): {plain_ok} reach it{}{}",
+        rails.len(),
+        if plain_info.is_empty() { String::new() } else { format!("; information (a declared sequence lays them): {}", plain_info.join("; ")) },
+        if plain_fail.is_empty() { String::new() } else { format!("; FAILING: {}", plain_fail.join("; ")) }
+    ));
+    Ok((lines, failing))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -263,5 +457,46 @@ mod tests {
         s.sort();
         s.dedup();
         assert_eq!(s.len(), 24);
+    }
+
+    /// (commit G) 58f770cc's re-laid stop's park, in small: the park rail (1,0,3) ascends east only
+    /// with a TEMPORARY rail on the slime (2,0,3) while it is placed: the declared sequence reaches the
+    /// design; left out (the positive control), the park fails by name.
+    fn park() -> (Vec<(redsim::pos::BlockPos, redsim::block::Block)>, Vec<super::Declared>) {
+        let b = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let p = redsim::pos::BlockPos::new;
+        let blocks = vec![
+            (p(0, -1, 3), b("minecraft:glass")),
+            (p(1, -1, 3), b("minecraft:glass")),
+            (p(0, 0, 3), b("minecraft:rail[shape=east_west,waterlogged=false]")),
+            (p(1, 0, 3), b("minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]")),
+            (p(2, 0, 3), b("minecraft:slime_block")),
+        ];
+        let seqs = super::declared("# build-order: park=2,0,3=minecraft:slime_block;~2,1,3=minecraft:rail[shape=north_south,waterlogged=false];1,0,3=minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false];2,1,3=air\n# build-order-note: prose").unwrap();
+        (blocks, seqs)
+    }
+
+    #[test]
+    fn the_declared_park_reaches_the_design_and_its_control_fails_by_name() {
+        let (blocks, seqs) = park();
+        assert_eq!(seqs.len(), 1);
+        assert_eq!(seqs[0].steps.len(), 4);
+        assert!(seqs[0].steps[1].2, "the ~ step is temporary");
+        let (lines, failing) = super::run_declared(&blocks, &seqs, &[]).unwrap();
+        assert_eq!(failing, 0, "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("every named cell as designed")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("1,0,3") && l.contains("laid by the declared sequence \"park\"")), "{lines:?}");
+        let (lines, failing) = super::run_declared(&blocks, &seqs, &["park".to_string()]).unwrap();
+        assert!(failing >= 1, "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("FAILING") && l.contains("1,0,3") && l.contains("no declared sequence lays it")), "{lines:?}");
+    }
+
+    #[test]
+    fn a_malformed_build_order_line_is_refused() {
+        assert!(super::declared("# build-order: =1,0,0=stone").is_err());
+        assert!(super::declared("# build-order: p=1,0=stone").is_err());
+        assert!(super::declared("# build-order: p=~1,0,0=air").is_err());
+        assert!(super::declared("# build-order: p=1,0,0=stone\n# build-order: p=2,0,0=stone").is_err());
+        assert!(super::run_declared(&[], &super::declared("# build-order: p=1,0,0=stone").unwrap(), &["q".to_string()]).is_err());
     }
 }

@@ -4623,9 +4623,9 @@ pub enum MobfarmCmd {
     BuildOrder {
         /// The design the junction sits in (its own frame).
         design: PathBuf,
-        /// The junction's T, x,y,z.
+        /// The junction's T, x,y,z (not with --declared).
         #[arg(long, allow_hyphen_values = true)]
-        t: String,
+        t: Option<String>,
         /// A junction cell "x,y,z=STATE" (repeatable; the T among them; a cell the design holds is
         /// left out of the base and placed by the test).
         #[arg(long, allow_hyphen_values = true)]
@@ -4641,6 +4641,17 @@ pub enum MobfarmCmd {
         /// with it before another cell are outside the rule, counted apart and not built.
         #[arg(long, allow_hyphen_values = true)]
         last: Vec<String>,
+        /// (commit G, ironspec 02:43 (2) / 02:46 (5)) The declared-sequence mode: every `# build-order:
+        /// NAME=STEP;...` line of the design EXECUTED step by step (`~x,y,z=STATE` a temporary
+        /// placement, removed at the sequence's end unless a step removes it) and every cell it names
+        /// read back against the design; then the plain orders over every rail cell, a rail no plain
+        /// order reaches failing unless a declared sequence lays it (then printed as information).
+        #[arg(long)]
+        declared: bool,
+        /// (with --declared) A declared sequence left out: the positive control (the rail it lays
+        /// must then fail by name).
+        #[arg(long)]
+        without: Vec<String>,
         #[arg(long, default_value = "26.3")]
         version: String,
     },
@@ -10478,8 +10489,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::BuildOrder { design, t, cell, want, sequence, last, version } => {
+        MobfarmCmd::BuildOrder { design, t, cell, want, sequence, last, declared, without, version } => {
             let (_c, spec) = load(&version, &design)?;
+            // (commit G: the declared-sequence mode, the design's own `# build-order:` lines)
+            if declared {
+                anyhow::ensure!(t.is_none() && cell.is_empty() && sequence.is_empty() && last.is_empty(), "build-order --declared reads the design's own `# build-order:` lines: no --t / --cell / --sequence / --last");
+                let text = std::fs::read_to_string(&design)?;
+                let seqs = crate::buildorder::declared(&text).map_err(|e| anyhow::anyhow!(e))?;
+                println!(
+                    "build-order --declared on {} (the player's placement path, redsim's World::set_block flags 3; the temporary step's game reference: tick-exact's car 7, `mobai park-string`: laid as the file reads it the park goes flat, with the temporary rail it ascends): {} declared sequence(s){}",
+                    design.display(),
+                    seqs.len(),
+                    if without.is_empty() { String::new() } else { format!(", left out (the positive control): {}", without.join(", ")) }
+                );
+                let (lines, failing) = crate::buildorder::run_declared(&spec.blocks, &seqs, &without).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
+                    println!("{l}");
+                }
+                anyhow::ensure!(failing == 0, "build-order --declared: {failing} failing (a declared sequence off the design, or a rail no plain order nor declared sequence reaches)");
+                return Ok(());
+            }
+            anyhow::ensure!(without.is_empty(), "build-order --without: with --declared");
+            let t = t.ok_or_else(|| anyhow::anyhow!("build-order: --t x,y,z (or --declared)"))?;
             let parse_pos = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
                 let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("a cell x,y,z: {s}: {e}"))?;
                 anyhow::ensure!(v.len() == 3, "a cell x,y,z: {s}");
