@@ -37,3 +37,4 @@ part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-pa
 # `# supersede: X,Y,Z by CTL over WAYLEG (PATH): OLD -> NEW (WHY)` entries and CTL's re-lay at each cell; against rev 2.1,
 # which composes no CTL part, the line would be STALE and fail by name): vcompose uncomments it with rev 3.1's record
 #supersede: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt 9,24,7+9,23,6 by CTL (ironspec 11:51a (2): the controller part re-lays H2 and the arrival detector via the composer's --supersede line)
+#supersede: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt 9,22,-4+9,22,2+9,22,3+9,22,5 by WAYIN (ironspec 13:13p (5), vcompose 13:12: b8949c96's delta re-lays these four WAYLEG rail cells, the composer's `--supersede …=WAYIN` entries)
