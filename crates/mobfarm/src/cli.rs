@@ -5372,19 +5372,27 @@ pub enum MobfarmCmd {
         /// `1..8`; default: --seed). One command runs every seed (the parent's rule: no shell loops).
         #[arg(long = "seeds-matrix")]
         siding_seeds: Option<String>,
-        /// With --siding: the interaction row (ironspec Nov 13 14:47 (a)): "FROM,TO", one row per forced
-        /// napper release tick and per seed (--seeds-matrix), each injected napper pair's contacts and
-        /// its carts' departures from their solo rides, judged at every C-gap >= --pair-least.
+        /// With --siding: the interaction row (ironspec Nov 13 14:47 (a); its bar THE HARM since Nov 14,
+        /// G1 / ironspec): "FROM,TO", one row per forced napper release tick and per seed (--seeds-matrix),
+        /// each injected napper pair's contacts and THE HARM (at its rest the napper touches its leader, one
+        /// contact spacing ± ε, both in the slots) judged at every C-gap >= --pair-least; the departures
+        /// from the solo rides printed, not a bar.
         #[arg(long)]
         interaction_row: Option<String>,
         /// With --interaction-row: the napper's solo ride kills its leader at the leader's lip arrival + D
         /// (default -60: on its way to the lip; G1's D2 control plants a kill past the run's end).
         #[arg(long, default_value_t = -60, allow_hyphen_values = true)]
         interaction_kill_at: i64,
-        /// With --interaction-row: G1's D2 departure-only control: each judged row re-run with its napper
-        /// moved DX blocks in x 2 gt after its lip arrival (in the row alone, not its solo rides).
+        /// With --interaction-row: THE HARM's in-slot plant control (G1 CHANGES 7 (2)): each judged row
+        /// re-run with its napper, at its first still tick after the lip (at rest in the slots, touching its
+        /// leader), moved D (--interaction-plant-axis: up-slope along the rail, or x) and pinned there; each
+        /// planted row is asserted: D > ε must read HARM CAUGHT, D < ε must pass (printed, the run failing
+        /// by name otherwise).
         #[arg(long)]
         interaction_plant: Option<f64>,
+        /// With --interaction-plant: "rail" (default: + D in y and in z, up-slope) or "x".
+        #[arg(long, default_value = "rail")]
+        interaction_plant_axis: String,
         /// With --interaction-row (ironspec Nov 13 23:04): for the first N judged rows, the napper's paired
         /// arrival beside its solo rides with the leader KILLED and DISPLACED (held far, read back) and a
         /// FAR-DUMMY control (a far minecart killed at the kill window's start, no lane cart removed).
@@ -12192,7 +12200,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, interaction_kill_at, interaction_plant, interaction_side_by_side, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, r2_powered, gb, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, interaction_kill_at, interaction_plant, interaction_plant_axis, interaction_side_by_side, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, r2_powered, gb, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
@@ -12306,7 +12314,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(0 <= a && a <= b, "--r-second {s}: 0 <= A <= B");
                         Some((a, b))
                     }
-                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, remove_role: None, plant_shift: None, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, remove_role: None, plant_shift: None, plant_axis: 0, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
                 // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
                 // an explicit --seed other than the default)
@@ -12831,8 +12839,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // pair (its first napper pair at or after T) against the SOLO rides: the napper's path
                     // against the reference row's napper (the row of the same seed whose injected pair
                     // has the largest C-gap), the leader's against the same arrival tick in that row;
-                    // PASS: 0 box and 0 push contacts and no departure (<= 1e-6 block) at every C-gap >=
-                    // --pair-least; L-d: the passes with a napper resting on R, their contacts and its
+                    // PASS: 0 box and 0 push contacts and THE HARM met (the napper touching its leader at its
+                    // rest, both in the slots) at every C-gap >= --pair-least, the departures printed, not a
+                    // bar; L-d: the passes with a napper resting on R, their contacts and its
                     // largest displacement, over every row)
                     let (a, b2) = sw.split_once(',').ok_or_else(|| anyhow::anyhow!("--interaction-row FROM,TO"))?;
                     let (from, to): (i64, i64) = (a.trim().parse()?, b2.trim().parse()?);
@@ -13096,6 +13105,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             sso.pos_offset = key.1;
                             sso.inject_release = Some(*t);
                             sso.plant_shift = Some((p.1, p.0 + 2, dx));
+                            sso.plant_axis = u8::from(interaction_plant_axis == "x");
                             crate::sidingbench::siding_row(&o, &sso)
                         });
                         for (j, pr) in planted.into_iter().enumerate() {
@@ -13142,38 +13152,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let (sd, pos) = (key.0, key.1);
                         let mut judged_at_least = 0usize;
                         // (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13
-                        // 14:47 (a)'s "no departure from the solo rides" in code (ironspec 02:45 (3)): the napper
-                        // after the lip rests IN THE SLOTS (below the top slot, y < 22.2: never on C / D / J),
-                        // either at its solo ride's rest or exactly one slot pitch (0.790 b in y and in z, ±
-                        // HARM_TOL) above it, queued directly behind the leader it followed; the departure is
-                        // printed as a diagnostic only)
-                        const PITCH: f64 = 0.790;
-                        const HARM_TOL: f64 = 0.05;
-                        let harm_of = |i: usize, c: usize, ta: i64, r: &crate::sidingbench::SidingRow| -> Result<(f64, String), String> {
-                            let s = match solo.get(&(i, true)) {
-                                Some(Ok(s)) => s,
-                                Some(Err(e)) => return Err(format!("NOT JUDGED: the solo ride errored: {e}")),
-                                None => return Err("NOT JUDGED: no solo ride".to_string()),
+                        // 14:47 (a)'s "no departure from the solo rides" in code (ironspec 02:45 (3)), read IN THE
+                        // SAME RIDE (G1 04:32's condition (a): the napper TOUCHES its leader): at the napper's rest
+                        // after the lip, the lane cart directly ahead of it is its leader at one contact spacing
+                        // (the rider's half-width 0.30 + the cart's 0.49, ± ε 0.005: `sidingbench::harm_judge`, with
+                        // its fixtures), both carts in the slots by the lanes' geometry (`harm_in_slots`); the
+                        // leader's displacement against the napper-removed ride and the napper's against the
+                        // solo ride are printed as information, each with the killed cart's next use (the 22:23
+                        // guard: after it the solo lane runs one cart short); the departure is a diagnostic)
+                        // (the lane's column: the bench lays one lane at x 3, the lanes file's bench line)
+                        const HARM_LANE_X: i32 = 3;
+                        let harm_of = |i: usize, c: usize, ta: i64, lc: usize, lta: i64, r: &crate::sidingbench::SidingRow| -> Result<(f64, String), String> {
+                            let pr = r.lip_rests.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2);
+                            let ahead = r.lip_rest_ahead.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2);
+                            let v = crate::sidingbench::harm_judge(HARM_LANE_X, pr, ahead, lc);
+                            // (information: each solo ride's rest against the paired one, with the killed cart's
+                            // next use u (G1's 22:23 guard: a solo rest after u reads a lane one cart short))
+                            let info = |nap: bool, cc: usize, tt: i64| -> String {
+                                let mine = r.lip_rests.iter().find(|e| e.0 == tt && e.1 == cc).and_then(|e| e.2);
+                                match solo.get(&(i, nap)) {
+                                    Some(Ok(s)) => {
+                                        let u = s.solo_kill.and_then(|k| k.1);
+                                        match (mine, s.lip_rests.iter().filter(|e| e.1 == cc).min_by_key(|e| (e.0 - tt).abs()).and_then(|e| e.2)) {
+                                            (Some(a), Some(b)) => format!(
+                                                "Δy {:+.3} Δz {:+.3} (the {} ride's rest t {}{}; information: the removed cart leaves room)",
+                                                a.1.1 - b.1.1,
+                                                a.1.2 - b.1.2,
+                                                if nap { "leader-removed" } else { "napper-removed" },
+                                                b.0,
+                                                match u {
+                                                    Some(u) if b.0 > u => format!(", AFTER the killed cart's next use t {u}: the lane one cart short"),
+                                                    Some(u) => format!(", before the killed cart's next use t {u}"),
+                                                    None => ", the killed cart's next use none".to_string(),
+                                                }
+                                            ),
+                                            _ => "no rest to compare (information)".to_string(),
+                                        }
+                                    }
+                                    Some(Err(e)) => format!("errored ({e}; information)"),
+                                    None => "no ride (information)".to_string(),
+                                }
                             };
-                            if s.solo_kill.is_none() {
-                                return Err("NOT JUDGED: no kill read back in the solo ride (its kill never fired)".to_string());
+                            let extra = format!("; the napper vs the leader-removed ride: {}; the leader vs the napper-removed ride: {}", info(true, c, ta), info(false, lc, lta));
+                            match v {
+                                Ok((off, d)) => Ok((off, format!("{d}{extra}"))),
+                                Err(e) => Err(format!("{e}{extra}")),
                             }
-                            // (the rest: the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip
-                            // arrival (sidingbench's lip rest); none = NOT JUDGED, which fails)
-                            let pr = r.lip_rests.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2).ok_or("NOT JUDGED: no rest within 400 gt in the paired ride")?;
-                            let sr = s.lip_rests.iter().filter(|e| e.1 == c).min_by_key(|e| (e.0 - ta).abs()).and_then(|e| e.2).ok_or("NOT JUDGED: no rest within 400 gt in the solo ride")?;
-                            let (dy, dz) = (pr.1.1 - sr.1.1, pr.1.2 - sr.1.2);
-                            let same = dy.abs() <= HARM_TOL && dz.abs() <= HARM_TOL;
-                            let pitch = (dy - PITCH).abs() <= HARM_TOL && (dz - PITCH).abs() <= HARM_TOL;
-                            let in_slots = pr.1.1 < 22.2;
-                            let off = if pitch { (dy - PITCH).abs().max((dz - PITCH).abs()) } else { dy.abs().max(dz.abs()) };
-                            let desc = format!(
-                                "the paired rest t {} at {:.3},{:.3},{:.3} vs the solo rest t {} at {:.3},{:.3},{:.3}: Δy {dy:+.3} Δz {dz:+.3} ({}{})",
-                                pr.0, pr.1.0, pr.1.1, pr.1.2, sr.0, sr.1.0, sr.1.1, sr.1.2,
-                                if same { "the same rest" } else if pitch { "one slot pitch above: queued behind the leader" } else { "OFF-PITCH" },
-                                if in_slots { ", in the slots" } else { ", NOT IN THE SLOTS" }
-                            );
-                            if (same || pitch) && in_slots { Ok((off, desc)) } else { Err(format!("HARM: {desc}")) }
                         };
                         for (i, (k2, t, r)) in rows.iter().enumerate() {
                             if k2 != key {
@@ -13202,21 +13226,61 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // (G1 21:54 / 22:23: each pair's kill ticks and the comparison windows' ends, printed)
                             let kill_of = |nap: bool| solo.get(&(i, nap)).and_then(|r| r.as_ref().ok()).and_then(|s| s.solo_kill).map_or("-".to_string(), |(k, u)| format!("t {k} (next use {})", u.map_or("-".to_string(), |u| u.to_string())));
                             println!(
-                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from the solo rides: napper {}, leader {}, the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened); the kills: the leader in the napper's solo ride {}, the napper in the leader's solo ride {}; the windows end t {} (napper) / t {} (leader)",
+                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from the solo rides (printed, not a bar): napper {}, leader {}, the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened); the kills: the leader in the napper's solo ride {}, the napper in the leader's solo ride {}; the windows end t {} (napper) / t {} (leader)",
                                 p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(&dn), fmt(&dl), p.7, kill_of(true), kill_of(false), p.0 + 30, p.2 + 30
                             );
                             let departed = dn.as_ref().map_or(true, |d| *d > 1e-6) || dl.as_ref().map_or(true, |d| *d > 1e-6);
                             let _ = departed;
                             // (the adopted HARM bar decides; the departure above is a diagnostic)
-                            let hn = harm_of(i, p.1, p.0, r);
+                            let hn = harm_of(i, p.1, p.0, p.3, p.2, r);
+                            // (G1 CHANGES 7 (1): the spread is taken over every JUDGED pair (C-gap >= --pair-least)
+                            // whose readings exist, failures included: |Δx|, |Δy - spacing|, |Δz - spacing|)
+                            if p.4 >= pair_least
+                                && let (Some(pr), Some((_, q))) = (
+                                    r.lip_rests.iter().find(|e| e.0 == p.0 && e.1 == p.1).and_then(|e| e.2),
+                                    r.lip_rest_ahead.iter().find(|e| e.0 == p.0 && e.1 == p.1).and_then(|e| e.2),
+                                )
+                            {
+                                let s = crate::sidingbench::HARM_CONTACT;
+                                harm_offs.push((pr.1.0 - q.0).abs().max((pr.1.1 - q.1 - s).abs()).max((pr.1.2 - q.2 - s).abs()));
+                            }
                             match &hn {
-                                Ok((off, d)) => {
-                                    harm_offs.push(*off);
-                                    println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): none: {d}");
-                                }
+                                Ok((_, d)) => println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): none: {d}"),
                                 Err(e) => println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): {e}"),
                             }
                             let harmed = hn.is_err();
+                            // (G1 CHANGES 7 (5), the plant rule: every plant's entity / cell / ROLE line, from the row
+                            // and its solo rides, printed here)
+                            for (src, txt) in [("the row", Some(r.text.as_str())), ("the napper's solo ride", solo.get(&(i, true)).and_then(|s| s.as_ref().ok()).map(|s| s.text.as_str())), ("the leader's solo ride", solo.get(&(i, false)).and_then(|s| s.as_ref().ok()).map(|s| s.text.as_str()))] {
+                                for l in txt.unwrap_or("").lines().filter(|l| l.contains("(ROLE: ")) {
+                                    println!("interaction seed {sd} position {pos:?} t {t}: {src}: {l}");
+                                }
+                            }
+                            // (G1 CHANGES 7 (2): under --interaction-plant every judged row is a PLANTED row, its
+                            // HARM outcome asserted: D > ε must read HARM CAUGHT (then HARM is the expected failure,
+                            // not a verdict failure), D < ε must pass)
+                            let planted_ok = interaction_plant.map(|d| {
+                                let expect = d.abs() > crate::sidingbench::HARM_EPS;
+                                match (expect, harmed) {
+                                    (true, true) => {
+                                        println!("interaction seed {sd} position {pos:?} t {t}: the plant control ({d} b > ε): HARM CAUGHT, as expected");
+                                        true
+                                    }
+                                    (false, false) => {
+                                        println!("interaction seed {sd} position {pos:?} t {t}: the plant control ({d} b < ε): passes, as expected");
+                                        true
+                                    }
+                                    (true, false) => {
+                                        verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the plant control ({d} b > ε): HARM NOT CAUGHT"));
+                                        false
+                                    }
+                                    (false, true) => {
+                                        verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the plant control ({d} b < ε): HARM WRONGLY CAUGHT"));
+                                        false
+                                    }
+                                }
+                            });
+                            let harmed = harmed && planted_ok.is_none();
                             // (G1's D10: a solo ride that errored fails whatever the C-gap; below
                             // --pair-least the harm is printed, not judged)
                             let errored = matches!(&dn, Err(e) if e.starts_with("the solo ride errored")) || matches!(&dl, Err(e) if e.starts_with("the solo ride errored"));
@@ -13228,8 +13292,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // diagnostic))
                             let own: Vec<String> = r.failures(lip_bar, curve_bar).iter().filter(|f| f.1 > 0 && f.0 != "net up-slope displacement over 0.1 block").map(|f| format!("{} {}", f.0, f.1)).collect();
                             if !own.is_empty() {
-                                println!("interaction seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", "));
-                                verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", ")));
+                                // (a PLANTED row's own bars are the pinned napper's consequences downstream (it holds
+                                // the lane to the run's end), not the farm's: printed, not judged; the plant's own
+                                // assertion above is its verdict, G1 CHANGES 7 (2): "HARM the only failing bar")
+                                if interaction_plant.is_some() {
+                                    println!("interaction seed {sd} position {pos:?} t {t}: the planted row's own bars (the pin's consequences; printed, not judged): {}", own.join(", "));
+                                } else {
+                                    println!("interaction seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", "));
+                                    verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", ")));
+                                }
                             }
                         }
                         // (G1 17:00 B3: at least one judged pair at C-gap >= --pair-least per seed x position)
@@ -13238,7 +13309,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     println!(
-                        "the interaction row's verdict (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13 14:47 (a)'s no-departure bar in code (ironspec Nov 14 02:45 (3)): 0 box and push contacts, and the napper after the lip resting in the slots at its solo rest or exactly one slot pitch (0.790 b in y and z, ± 0.05 b) above it, at every C-gap >= {pair_least}; the measured spread of |Δ - (0 or one pitch)| over the judged pairs {} (the tolerance's source); the departure from the solo rides printed as a diagnostic; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), the solo rides with the pair's other cart killed in the window [its lip arrival + D, its lip arrival] (D = --interaction-kill-at, default -60; the first tick it has an entity: G1's D2), its role printed and asserted at the planting tick (G1 CHANGES 4 (3)); the side-by-side's expectations named bars (paired again = the row, KILLED = DISPLACED, the far dummy killed = held = paired, every kill fired: G1 CHANGES 4 (2)); the rest window the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip arrival (none: NOT JUDGED, failing), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        "the interaction row's verdict (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13 14:47 (a)'s no-departure bar in code (ironspec Nov 14 02:45 (3)): 0 box and push contacts, and THE HARM met at every C-gap >= {pair_least}: at its rest after the lip the napper TOUCHES its leader, the lane cart directly ahead of it at that tick (|Δx| and |Δy|, |Δz| minus one contact spacing, the rider's half-width 0.30 + the cart's 0.49 = 0.79 b, the game's own spacing (tick-exact Nov 14 04:36, a/1819963955990789), each within ε 0.010 (ε 0.010 covers one creep cycle (0.00586); no push at any napper rest tick in 480 rows with rider AI (redsim))), both carts in the slots by the lanes' geometry; the measured spread of that offset over every judged pair, failures included, {} (ε's source); the departures and the solo rides' Δ printed as information; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), the solo rides with the pair's other cart killed in the window [its lip arrival + D, its lip arrival] (D = --interaction-kill-at, default -60; the first tick it has an entity: G1's D2), its role printed and asserted at the planting tick (G1 CHANGES 4 (3)); the side-by-side's expectations named bars (paired again = the row, KILLED = DISPLACED, the far dummy killed = held = paired, every kill fired: G1 CHANGES 4 (2)); the rest window the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip arrival (none: NOT JUDGED, failing), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
                         if harm_offs.is_empty() { "- (none judged)".to_string() } else { format!("max {:.4} b over {} pairs", harm_offs.iter().cloned().fold(0.0, f64::max), harm_offs.len()) },
                         seeds,
                         positions,
