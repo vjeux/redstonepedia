@@ -5372,6 +5372,20 @@ pub enum MobfarmCmd {
         /// `1..8`; default: --seed). One command runs every seed (the parent's rule: no shell loops).
         #[arg(long = "seeds-matrix")]
         siding_seeds: Option<String>,
+        /// With --siding: the interaction row (ironspec Nov 13 14:47 (a)): "FROM,TO", one row per forced
+        /// napper release tick and per seed (--seeds-matrix), each injected napper pair's contacts and
+        /// its carts' departures from their solo rides, judged at every C-gap >= --pair-least.
+        #[arg(long)]
+        interaction_row: Option<String>,
+        /// With --interaction-row: the design's least C-gap (ironspec 12:39: Δ*_worst 13 + 10).
+        #[arg(long, default_value_t = 23)]
+        pair_least: i64,
+        /// With --interaction-row: the build positions, a dimension (G1 / ironspec 15:05: position acts
+        /// like a seed; >= 3 positions including the build's own coordinates): "dx,dy,dz;dx,dy,dz;...",
+        /// dx,dy,dz loop-frame offsets (ironspec 15:14 / 15:17's set: "6,80,6;6,24,6;6,240,6;16390,80,16390",
+        /// the module anchor on a world chunk corner); default --pos-offset alone.
+        #[arg(long)]
+        pos_offsets: Option<String>,
         /// With --siding --k-row: the designed approach (ironspec Nov 13 10:18 (2)): each returning cart
         /// keeps its own cart and rider, parked off-track from its release until due, then set on the
         /// split row west of J moving east at --v-in (J north_west onto D, then C); the napper set on
@@ -5417,6 +5431,11 @@ pub enum MobfarmCmd {
         /// lanes' all-shut + 3, i.e. 27 / 15 / 3 for offsets 0 / 12 / 24), for --r-pulse.
         #[arg(long, default_value_t = 0)]
         r_delay: i64,
+        /// With --siding: the up-slope bar's boost window (G1 15:55): a short stop's up-slope move is
+        /// BOOSTED only if an R_1 contact chain (the minecart push test) reached its cart within this
+        /// many gt of the move's start.
+        #[arg(long, default_value_t = 10)]
+        boost_window: i64,
         /// With --siding: write the bench's world as laid and settled (every non-air cell of its box,
         /// the design format, the lanes file's loop frame) to this path, for `mobfarm record-match`
         /// (ironspec 21:43).
@@ -12118,7 +12137,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
@@ -12143,7 +12162,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(present_settle_worst > 0, "--present-settle-worst {present_settle_worst}: a settle in gt (more than 0)");
             let lip_bar: Option<i64> = Some(lip_bar);
             if let Some(path) = emit_lanes_design {
-                let text = crate::sidingbench::lanes_design(slopes, siding_north, emit_with_row, r_support.as_deref(), emit_rest_range.as_deref(), sbend_straight).map_err(|e| anyhow::anyhow!(e))?;
+                let text = crate::sidingbench::lanes_design(slopes, siding_north, emit_with_row, r_support.as_deref(), emit_rest_range.as_deref(), sbend_straight, lip_dy).map_err(|e| anyhow::anyhow!(e))?;
                 if let Some(dir) = std::path::Path::new(&path).parent() {
                     std::fs::create_dir_all(dir)?;
                 }
@@ -12165,8 +12184,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if nap_present_k.is_some_and(|k| k >= 0) && nap_feed_v.is_none() {
                     anyhow::bail!("--nap-present-k counts from the napper's K tick: it needs --nap-feed-v (the napper spawned on K's cell)");
                 }
-                if inject_sweep.is_some() && nap_ring == 0 && !nap_any_pass {
-                    anyhow::bail!("--inject-sweep forces the release of option (ii) or the ring: it needs --nap-ring or --nap-any-pass");
+                if (inject_sweep.is_some() || interaction_row.is_some()) && nap_ring == 0 && !nap_any_pass {
+                    anyhow::bail!("--inject-sweep / --interaction-row force the release of option (ii) or the ring: they need --nap-ring or --nap-any-pass");
                 }
                 // (the defaults are the accepted design (ironspec 20:25 (1)(a)): PRESENT at K + 2 with
                 // --nap-feed-v, day-1's release rule without --d-gate, the curve bar 8 (0: printed only))
@@ -12208,14 +12227,34 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 pos_offset: {
                     let v: Vec<i32> = pos_offset.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--pos-offset {pos_offset}: {e}"))?;
                     anyhow::ensure!(v.len() == 3, "--pos-offset {pos_offset}: dx,dy,dz");
+                    // (ironspec 15:14 / 15:17: the build positions are loop-frame offsets whose module
+                    // anchor (-6,0,-6) lands on a world chunk corner (P1 (6,80,6), P2 (6,24,6), P3
+                    // (6,240,6), P4 (16390,80,16390)); an off-convention offset runs, labelled: the run
+                    // line prints the anchor's world cell and "a world chunk corner" or "NOT")
                     (v[0], v[1], v[2])
                 }, r_until_string, upslope_ctl: match upslope_ctl.as_deref() {
                     None => None,
                     Some(s) => {
                         let (d, t) = s.split_once('@').ok_or_else(|| anyhow::anyhow!("--upslope-ctl {s}: D@T"))?;
-                        Some((d.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--upslope-ctl {s}: {e}"))?, t.trim().parse::<i64>().map_err(|e| anyhow::anyhow!("--upslope-ctl {s}: {e}"))?))
+                        let d = d.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--upslope-ctl {s}: {e}"))?;
+                        let t = t.trim().parse::<i64>().map_err(|e| anyhow::anyhow!("--upslope-ctl {s}: {e}"))?;
+                        // (G1 14:18 L13: D finite and positive, T not negative)
+                        anyhow::ensure!(d.is_finite() && d > 0.0, "--upslope-ctl {s}: D must be a finite displacement over 0");
+                        anyhow::ensure!(t >= 0, "--upslope-ctl {s}: T must not be negative");
+                        Some((d, t))
                     }
-                }, c2_booster, r_delay, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, c2_booster, r_delay, boost_window, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
+                // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
+                // an explicit --seed other than the default)
+                anyhow::ensure!(!so.c2_booster || so.sbend_straight, "--c2-booster needs --sbend-straight (the booster is c2's straight)");
+                // (G1 14:18 L11: --j-rail's prerequisites: J is laid on the K row's geometry of the
+                // S-bend, and the napper is reused on K's cell at --nap-feed-v)
+                anyhow::ensure!(!so.j_rail || (so.k_row.is_some() && so.siding_north && so.nap_feed_v.is_some()), "--j-rail needs --k-row, --siding-north and --nap-feed-v (J is laid on the K row's S-bend geometry; the napper is set on K's cell)");
+                anyhow::ensure!(!so.forced_v_panic || so.forced_v.is_some(), "--forced-v-panic needs --forced-v");
+                anyhow::ensure!(so.r_delay >= 0, "--r-delay {}: not negative", so.r_delay);
+                anyhow::ensure!(siding_seeds.is_none() || siding_matrix || interaction_row.is_some(), "--seeds-matrix needs --siding-matrix or --interaction-row (a single row takes --seed)");
+                anyhow::ensure!(siding_seeds.is_none() || so.seed == 1, "--seeds-matrix with --seed {}: the matrix's seeds replace --seed; give one of them", so.seed);
                 if let Some(pg) = push_grid_run.as_deref() {
                     // (the push grid (ironspec 03:00, the citable grid behind `# push-pair:`): every rest
                     // position the napper's arrival on K produces (lo..hi by step, `rest_phases` entry
@@ -12606,6 +12645,106 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (ironspec 04:14 (1): failing rows and bars NOT JUDGED fail the run: a non-zero exit)
                     if matrix_fail > 0 {
                         anyhow::bail!("the siding restart matrix FAILS: {matrix_fail} (failing rows + bars NOT JUDGED, over the variants)");
+                    }
+                    return Ok(());
+                }
+                if let Some(sw) = interaction_row.as_deref() {
+                    // (THE INTERACTION ROW (ironspec Nov 13 14:47 (a), day-1 14:45): one row per forced
+                    // napper release tick T in FROM..=TO and per seed (--seeds-matrix, default --seed),
+                    // so the napper pairs' C-gaps cover the band (14..26 asked); each row's injected
+                    // pair (its first napper pair at or after T) against the SOLO rides: the napper's path
+                    // against the reference row's napper (the row of the same seed whose injected pair
+                    // has the largest C-gap), the leader's against the same arrival tick in that row;
+                    // PASS: 0 box and 0 push contacts and no departure (<= 1e-6 block) at every C-gap >=
+                    // --pair-least; L-d: the passes with a napper resting on R, their contacts and its
+                    // largest displacement, over every row)
+                    let (a, b2) = sw.split_once(',').ok_or_else(|| anyhow::anyhow!("--interaction-row FROM,TO"))?;
+                    let (from, to): (i64, i64) = (a.trim().parse()?, b2.trim().parse()?);
+                    anyhow::ensure!(from <= to, "--interaction-row {sw}: FROM <= TO");
+                    let seeds: Vec<i64> = match siding_seeds.as_deref() {
+                        None => vec![so.seed],
+                        Some(s) => crate::sidingbench::parse_seed_list(s).map_err(|e| anyhow::anyhow!(e))?,
+                    };
+                    let positions: Vec<(i32, i32, i32)> = match pos_offsets.as_deref() {
+                        None => vec![so.pos_offset],
+                        Some(s) => s
+                            .split(';')
+                            .map(|p| {
+                                let v: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--pos-offsets {s}: {p:?}: {e}"))?;
+                                anyhow::ensure!(v.len() == 3, "--pos-offsets {s}: {p:?}: dx,dy,dz");
+                                Ok((v[0], v[1], v[2]))
+                            })
+                            .collect::<anyhow::Result<_>>()?,
+                    };
+                    // (a run's key: the seed and the position, each judged against its own reference)
+                    let keys: Vec<(i64, (i32, i32, i32))> = seeds.iter().flat_map(|sd| positions.iter().map(move |p| (*sd, *p))).collect();
+                    let grid: Vec<((i64, (i32, i32, i32)), i64)> = keys.iter().flat_map(|k| (from..=to).map(move |t| (*k, t))).collect();
+                    let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                        let mut sso = so.clone();
+                        sso.seed = grid[i].0 .0;
+                        sso.pos_offset = grid[i].0 .1;
+                        sso.inject_release = Some(grid[i].1);
+                        crate::sidingbench::siding_row(&o, &sso)
+                    });
+                    let mut rows: Vec<((i64, (i32, i32, i32)), i64, crate::sidingbench::SidingRow)> = Vec::new();
+                    for (i, row) in res.into_iter().enumerate() {
+                        rows.push((grid[i].0, grid[i].1, row.map_err(|e| anyhow::anyhow!("--interaction-row seed {} position {:?} t {}: {e}", grid[i].0 .0, grid[i].0 .1, grid[i].1))?));
+                    }
+                    let injected = |t: i64, r: &crate::sidingbench::SidingRow| r.pairs.iter().filter(|p| p.0 >= t).min_by_key(|p| p.0).copied();
+                    let path_of = |r: &crate::sidingbench::SidingRow, ta: i64, c: usize| r.lip_paths.iter().find(|p| p.0 == ta && p.1 == c).map(|p| p.2.clone());
+                    let dep = |a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]| -> Option<f64> {
+                        let mut d = 0.0f64;
+                        let mut n = 0;
+                        for p in a {
+                            if let Some(q) = b.iter().find(|q| q.0 == p.0) {
+                                d = d.max(((p.1 - q.1).powi(2) + (p.2 - q.2).powi(2) + (p.3 - q.3).powi(2)).sqrt());
+                                n += 1;
+                            }
+                        }
+                        (n > 0).then_some(d)
+                    };
+                    let mut verdict_fail: Vec<String> = Vec::new();
+                    let (mut ld_passes, mut ld_b, mut ld_p, mut ld_d) = (0usize, 0usize, 0usize, 0.0f64);
+                    for key in &keys {
+                        let (sd, pos) = (key.0, key.1);
+                        let mine: Vec<&((i64, (i32, i32, i32)), i64, crate::sidingbench::SidingRow)> = rows.iter().filter(|r| r.0 == *key).collect();
+                        let reference = mine.iter().filter_map(|r| injected(r.1, &r.2).map(|p| (p.4, *r))).max_by_key(|x| x.0);
+                        let Some((ref_gap, ref_row)) = reference else {
+                            verdict_fail.push(format!("seed {sd} position {pos:?}: no napper pair in any row (NOT JUDGED)"));
+                            continue;
+                        };
+                        let ref_pair = injected(ref_row.1, &ref_row.2).expect("the reference row has its pair");
+                        let ref_nap = path_of(&ref_row.2, ref_pair.0, ref_pair.1).unwrap_or_default();
+                        for (_, t, r) in &mine {
+                            ld_passes += r.ld.0;
+                            ld_b += r.ld.1;
+                            ld_p += r.ld.2;
+                            ld_d = ld_d.max(r.ld.3);
+                            let Some(p) = injected(*t, r) else {
+                                println!("interaction seed {sd} position {pos:?} t {t}: no napper pair at or after the forced release");
+                                continue;
+                            };
+                            let dn = path_of(r, p.0, p.1).and_then(|a| dep(&a, &ref_nap));
+                            let dl = path_of(r, p.2, p.3).and_then(|a| path_of(&ref_row.2, p.2, p.3).and_then(|b| dep(&a, &b)));
+                            let fmt = |d: Option<f64>| d.map_or("no solo reference".to_string(), |d| format!("{d:.6}"));
+                            println!(
+                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from solo: napper {}, leader {} (reference: the row at t {} with C-gap {ref_gap}), the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened)",
+                                p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(dn), fmt(dl), ref_row.1, p.7
+                            );
+                            let departed = dn.is_none_or(|d| d > 1e-6) || dl.is_none_or(|d| d > 1e-6);
+                            if p.4 >= pair_least && (p.5 > 0 || p.6 > 0 || departed) {
+                                verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: C-gap {} contacts {}/{} departures {}/{}", p.4, p.5, p.6, fmt(dn), fmt(dl)));
+                            }
+                        }
+                    }
+                    println!(
+                        "the interaction row's verdict (ironspec Nov 13 14:47 (a): 0 box and push contacts and no departure from solo, <= 1e-6, at every C-gap >= {pair_least}; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        seeds,
+                        positions,
+                        if verdict_fail.is_empty() { "PASS".to_string() } else { format!("FAIL [{}]", verdict_fail.join("; ")) }
+                    );
+                    if !verdict_fail.is_empty() {
+                        anyhow::bail!("the interaction row FAILS");
                     }
                     return Ok(());
                 }
@@ -13137,9 +13276,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (gl, gnj) = gate.line(lip_bar, so.k_row.is_some());
                     println!("{label}{gl}{}", if gnj > 0 { format!(" -- {gnj} bar(s) NOT JUDGED: the matrix FAILS") } else { String::new() });
                     println!("{label}rows where the PRESENT proxy passes but the outcome fails (G1 / ironspec 07:23; 0 keeps the brief's \"the floor is conservative\"): {proxy_vs_outcome}");
-                    for f in fail_notes.iter().take(8) {
+                    // (EVERY failing row (ironfarm 15:28: a cap of 8 hid 240 failing rows and misled a
+                    // report), then the per-bar tally over them)
+                    for f in fail_notes.iter() {
                         println!("  {label}failing: {f}");
                     }
+                    let mut tally: std::collections::BTreeMap<String, (usize, i64)> = std::collections::BTreeMap::new();
+                    for f in &fail_notes {
+                        if let Some((_, items)) = f.split_once(": ") {
+                            for it in items.split(", ") {
+                                if let Some((name, k)) = it.rsplit_once(' ')
+                                    && let Ok(k) = k.trim().parse::<i64>()
+                                {
+                                    let e = tally.entry(name.to_string()).or_insert((0, 0));
+                                    e.0 += 1;
+                                    e.1 += k;
+                                }
+                            }
+                        }
+                    }
+                    println!(
+                        "{label}the failing bars over the rows ({} failing rows; per bar: the rows failing it, its total count): {}",
+                        fail_notes.len(),
+                        if tally.is_empty() { "none".to_string() } else { tally.iter().map(|(k, (r, s))| format!("{k}: {r} rows ({s})")).collect::<Vec<_>>().join("; ") }
+                    );
                     matrix_fail += fails + gnj;
                     }
                     // (ironspec 04:14 (1): failing rows and bars NOT JUDGED fail the run: a non-zero exit)
