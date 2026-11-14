@@ -1071,7 +1071,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     let mut lines: Vec<String> = vec![
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
         if waker_south {
-            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its gate list rev 17:30 with ironspec 17:32-17:41's changes) opens it once the napper sleeps (OPEN on PARKED and SO and not P_STRING, PARKED the sensed park AND COOL), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); RLS (P_STRING and SINCE and WIN and PARKED) releases the park (RLS + p, p = 4 provisional) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string()
+            "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. Z1's shutter (-5,1,9) keeps the window shut at night; DAY-1's controller (its gate list rev 17:30 with ironspec 17:32-17:41's changes) opens it once the napper sleeps (OPEN on PARKED and SO and not P_STRING, PARKED the sensed park AND COOL), the zombie wakes it, it stands up on P (its only stand-up cell) and presses P_STRING (the window shuts again); RLS (P_STRING and SINCE and WIN and PARKED) releases the park (RLS + p, p = 2, ironspec 17:53) and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string()
         } else {
             "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string()
         },
@@ -1080,7 +1080,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the longest wake -> boarding on DAY-1's adopted controller is 51 gt over 408 visits: 60 leaves 9; LAST_WOKEN's 100 keeps the cooldown bar's >= 10 beside it)".to_string(),
     ];
     if wake_sensor {
-        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears the close + 27 by >= 1 on the convention, >= 3 off it, the 14:15 requirement) start; the bench prints its pulses against the napper's own edges.".to_string());
+        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears C + 19 (NEAREST_HOSTILE's worst clear after the shutter's flip C, tick-exact 17:52) by >= 1 after k + j, ironspec 17:53) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if rs_ready {
         lines.push("The rider-keyed RS_ready (ironspec 15:23, day-1 15:29): a tripwire string at (4,0,5), one cell over R's detector (4,-1,5), its hooks at (4,0,4) facing south and (4,0,6) facing north on glass (4,0,3) / (4,0,7), off the rail line: a seated rider's box presses it, an empty cart's top (y -0.24) never reaches its band (y 0.0625..0.156); hooks and string have no collision and block no sight line; DAY-1 reads the north hook by a repeater at (5,0,4) on (5,-1,4) (its cells, not laid here)".to_string());
@@ -2058,9 +2058,9 @@ pub struct Adopted {
 
 impl Default for Adopted {
     fn default() -> Self {
-        // (ironspec 17:32 (4): OPEN's set uses PARKED in place of A70 (a70 0); 17:35: p = 4,
-        // provisional; 17:39: PARKED sensed, ANDed with COOL (~ARM + 52, the `parked` term))
-        Adopted { parked: 52, a70: 0, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 6, park: 4, lag: 10, onset: Some(1) }
+        // (ironspec 17:32 (4): OPEN's set uses PARKED in place of A70 (a70 0); 17:53: p = 2 stands,
+        // COOL's tap ARM + 52; 17:39: PARKED sensed, ANDed with COOL (the `parked` term))
+        Adopted { parked: 52, a70: 0, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 6, park: 2, lag: 10, onset: Some(1) }
     }
 }
 
@@ -6291,14 +6291,16 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         if delta_ruled > i64::MIN {
             let terms = if base.adopted.is_some() { "the adopted controller's close and park".to_string() } else if base.latch.is_some() { "(superseded latch, before 15:37) its close and release".to_string() } else { format!("the stand-ins' release (--release-after {release_after}) and close (--close-after {})", base.close_after.max(1)) };
-            // (ironspec 17:28 (5) / 17:32 (2)(a): the 14:15 requirement, margin >= 1 on the convention
-            // placement, >= 3 off it; the close = the shutter's first end-of-tick shut, the entry =
-            // the cart's first end-of-tick inside (-2,0,5))
+            // (ironspec 17:53: the stop's bar is the cart's first end-of-tick inside (-2,0,5) - (C +
+            // 19) >= 1 after k + j, C the shutter's first end-of-tick shut (tick-exact 17:52:
+            // NEAREST_HOSTILE's clear at worst C + 19); "close + 27" retires (printed beside it))
             let on_conv = base.offset[0].rem_euclid(16) == 6 && base.offset[2].rem_euclid(16) == 5;
-            let bar = if on_conv { 1 } else { 3 };
-            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first end-of-tick inside (-2,0,5) >= the shutter's first end-of-tick shut + 27 on every wake; the 14:15 requirement (ironspec 17:28 (5)): a margin >= 1 on the convention placement, >= 3 off it; this run {}: >= {bar}): {terms} leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged); against C + 20 (tick-exact 17:52: NEAREST_HOSTILE's clear at worst C + 19 after the shutter's flip C): {} gt", if on_conv { "on the convention" } else { "off the convention" }, -delta_ruled, -delta_ruled + 7);
-            if -delta_ruled < bar {
-                failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (the 14:15 requirement here: >= {bar})", -delta_ruled));
+            let k = if on_conv { 1 } else { 3 };
+            let bar = 1 + k;
+            let m19 = -delta_ruled + 8;
+            println!("the hold delta (ironspec 17:53: the cart's first end-of-tick inside (-2,0,5) - (C + 19) >= 1 after k + j, C the shutter's first end-of-tick shut; this run {}: k {k}, j 0, so >= {bar}): {terms} leave a least margin of {m19} gt over this sweep's wakes (negative: missed; G1's Q4: judged); the retired close + 27 figure {} gt", if on_conv { "on the convention" } else { "off the convention" }, -delta_ruled);
+            if m19 < bar {
+                failed.push(format!("the cart's first entry into (-2,0,5) cleared C + 19 by only {m19} gt on a wake (ironspec 17:53: >= 1 after k + j = {bar})"));
             }
         } else if waker_wakes > 0 {
             // (G1's N2: wakes with no (-2,0,5) entry after a close: the hold delta NOT JUDGED fails)

@@ -7052,11 +7052,11 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "adopted")]
         controller: String,
         /// (G1's B1) The adopted controller's terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,
-        /// LAG,ONSET (default 52,0,12,50,6,6,2,6,4,10,1: DAY-1's gate list rev 17:30 at
+        /// LAG,ONSET (default 52,0,12,50,6,6,2,6,2,10,1: DAY-1's gate list rev 17:30 at
         /// ctl-shutter's designed timing, 17:24, with ironspec 17:32 (4) (OPEN's set on PARKED: A70
-        /// 0), 17:35 (p = 4, provisional) and 17:39 (PARKED = the sensed park AND COOL, the PARKED
-        /// term); PARKED 0 = the stand-in "the cart at rest in the park cell"; ONSET -1 = no onset
-        /// term).
+        /// 0), 17:53 (p = 2; COOL's tap ARM + 52) and 17:39 (PARKED = the sensed park AND COOL, the
+        /// PARKED term); PARKED 0 = the stand-in "the cart at rest in the park cell"; ONSET -1 = no
+        /// onset term).
         #[arg(long)]
         adopted_terms: Option<String>,
         /// (G1's B1 control twin) Block P's headroom (-2,1,4) one tick after the lie-down: the woken
