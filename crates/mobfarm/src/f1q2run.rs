@@ -745,6 +745,10 @@ struct Ctl {
     a_obs_due: Vec<(i64, bool)>,
     a_stale: bool,
     a_stale_log: Vec<String>,
+    a_rls_log: Vec<String>,
+    /// (G1 16:00, night check 4) each tick the bed is occupied: every awake HOME-holder within 16 of
+    /// the bed head's centre (tick, villager, distance), bar 0
+    exposure_16: Vec<(i64, u32, f64)>,
     a_pstring_hist: std::collections::VecDeque<bool>,
     a_press_start: Option<i64>,
     a_bed_change_at: Option<i64>,
@@ -2588,17 +2592,6 @@ impl Ctl {
                 self.a_so_gaps.push(gap.unwrap_or(i64::MAX));
             }
         }
-        // G18 / G19: OPEN set 6 gt after the edge of (ARMED70 AND SLEPT) (the AND 2 + the edge 2 + the
-        // latch 2); G20 the shutter = NOT OPEN through a torch, 2 gt more
-        let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
-        let cond = armed70 && self.a_slept;
-        if cond && !self.a_open_cond_prev && !self.a_open {
-            self.a_open = true;
-            self.a_open_at = Some(now + 6);
-            self.a_shutter_writes.push((now + 8, false));
-            self.nap_events.push(format!("t {now}: ARMED70 AND SLEPT: OPEN set at t {}, the window opens at t {} (F)", now + 6, now + 8));
-        }
-        self.a_open_cond_prev = cond;
         // G22 P_STRING: pressed in the tick a villager on foot's box meets it (its cell (-2,-26,3)),
         // released ~10 gt after it leaves (the string's re-check)
         let p_raw = w.entities.list.iter().any(|e| {
@@ -2608,42 +2601,52 @@ impl Ctl {
             }
         });
         if p_raw {
-            // (ironspec 15:54) the press's start: a raw press after none in the string's ~10-gt lag
-            if !self.a_pstring_last_raw.is_some_and(|t| now - t <= 10) {
-                self.a_press_start = Some(now);
-            }
             self.a_pstring_last_raw = Some(now);
         }
         let pstring = p_raw || self.a_pstring_last_raw.is_some_and(|t| now - t <= 10);
-        // G21 the release: the EDGE of (P_STRING AND SLEPT_ONCE), one-shot, its pulse 6 gt later (the AND
-        // 2 + the edge 2 + the one-shot 2); OPEN reset at it (G19); G20: close = the pulse + 2, the park's
-        // release = the pulse + 6 (from the release pulse itself: G1 15:40); SLEPT reset
-        // (ironspec 15:56 platform (3), day-1's STALE sampler extended to every observer pulse, plus
-        // RECENT): RLS = the edge of (P_STRING AND RECENT AND NOT STALE AND A70); STALE = P_STRING read
-        // over [L - 2, L) at each observer pulse L (the bed change + 2), held to the next pulse; RECENT
-        // = a pulse within W 60 gt; SLEPT_ONCE stays for OPEN only
-        if self.a_bed_change_at == Some(now - 2) {
-            self.a_stale = self.a_pstring_hist.iter().any(|x| *x);
-            self.a_stale_log.push(format!("t {now}: an observer pulse: STALE {}", self.a_stale));
+        // P_STRING's continuous press: since when it has held without a fall
+        if pstring {
+            if self.a_press_start.is_none() || !self.a_pstring_prev {
+                self.a_press_start = Some(now);
+            }
+        } else {
+            self.a_press_start = None;
         }
-        self.a_pstring_hist.push_back(pstring);
-        while self.a_pstring_hist.len() > 2 {
-            self.a_pstring_hist.pop_front();
+        // G18 / G19 (ironspec 15:58 / 16:00): OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING (the AND 2 +
+        // the edge 2 + the latch 2 = 6), reset = RLS OR P_STRING; G20 the shutter = NOT OPEN through a
+        // torch, 2 gt
+        let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
+        let cond = armed70 && self.a_slept_once && !pstring;
+        if cond && !self.a_open_cond_prev && !self.a_open {
+            self.a_open = true;
+            self.a_open_at = Some(now + 6);
+            self.a_shutter_writes.push((now + 8, false));
+            self.nap_events.push(format!("t {now}: A70 AND SLEPT_ONCE AND NOT P_STRING: OPEN set at t {}, the window opens at t {} (F)", now + 6, now + 8));
         }
-        let recent = self.a_bed_change_at.is_some_and(|b| now >= b + 2 && now - (b + 2) <= 60);
-        let rls = pstring && recent && !self.a_stale && armed70;
-        let _ = (self.a_press_start, self.a_slept_once);
+        self.a_open_cond_prev = cond;
+        if self.a_open && pstring && !self.a_pstring_prev {
+            self.a_open = false;
+            self.a_shutter_writes.push((now + 2, true));
+            self.nap_events.push(format!("t {now}: P_STRING: OPEN reset, close at t {}", now + 2));
+        }
+        // G21 (ironspec 16:00 + G1 16:02): the release keys on SUSTAINED PRESENCE: P_STRING continuous
+        // from the latest observer pulse L (a bed change + 2) through L + 12, with PARKED (ARM + 52: the
+        // worst measured park 46 + the world-open term + 4), by L + 50; one-shot per visit; PARK = RLS + 8;
+        // OPEN reset at RLS (close + 2); SLEPT reset
+        let parked = self.a_arm_at.is_some_and(|a| now >= a + 52);
+        let pulse_l = self.a_bed_change_at.map(|b| b + 2);
+        let rls = pstring && parked && pulse_l.is_some_and(|l| self.a_press_start.is_some_and(|p| p <= l) && now >= l + 12 && now <= l + 50);
         if rls && !self.a_rls_prev && !self.a_released {
             self.a_released = true;
-            let pulse = now + 6;
             let was_open = self.a_open;
             self.a_open = false;
             self.a_slept = false;
             if was_open {
-                self.a_shutter_writes.push((pulse + 2, true));
+                self.a_shutter_writes.push((now + 2, true));
             }
-            self.release_at = Some(pulse + 6);
-            self.nap_events.push(format!("t {now}: P_STRING AND RECENT AND NOT STALE AND A70: the release pulse at t {pulse}{}, the park's release at t {}", if was_open { format!(", OPEN reset, close at t {}", pulse + 2) } else { ", OPEN never set".to_string() }, pulse + 6));
+            self.release_at = Some(now + 8);
+            self.a_rls_log.push(format!("t {now}: RLS (P_STRING held since t {} through the pulse t {} + 12, PARKED)", self.a_press_start.unwrap_or(now), pulse_l.unwrap_or(now)));
+            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 8));
         }
         self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
@@ -2660,6 +2663,25 @@ impl Ctl {
         }
         // R's rise (the rider-keyed string's edge, G1 / G3): the park's drive off, ARM's latches
         // reset, IN-STOP of the lane whose napper passed reset
+        // (G1 16:00, night check 4; tick-exact 16:03: ValidateNearbyPoi erases HOME of any awake HOME-
+        // holder within 16 of the head's centre while the bed is occupied) each occupied tick, every
+        // awake HOME-holder within 16 of the bed head's centre (-2.5, -27 + 0.5625 / 2, 3.5)
+        if bed {
+            let head = (-2.5f64, -27.0 + 0.28125, 3.5f64);
+            for e in w.entities.list.iter().filter(|e| !e.removed) {
+                if let EntityKind::Mob(m) = &e.kind
+                    && matches!(m.ty, redsim::entity::mob::types::MobType::Villager)
+                    && m.brain.as_deref().is_some_and(|b| b.home.is_some())
+                    && m.sleeping_pos.is_none()
+                {
+                    let p = dpos(e.pos);
+                    let d = ((p.x - head.0).powi(2) + (p.y - head.1).powi(2) + (p.z - head.2).powi(2)).sqrt();
+                    if d < 16.0 {
+                        self.exposure_16.push((now, e.id, d));
+                    }
+                }
+            }
+        }
         let rdet = powered(w, RDET);
         if rdet && !self.rdet_prev {
             let rider = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == RDET || cell(e.pos) == [4, -27, 4])).and_then(|e| e.passengers.first().copied());
@@ -10142,7 +10164,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
             g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
             g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
-            g(ds, "G21 the release (ironspec 15:56): the edge of (P_STRING AND RECENT (a pulse within 60) AND NOT STALE (P read over [L - 2, L) at each pulse) AND A70), one-shot per visit; SLEPT_ONCE for OPEN"),
+            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 8; OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
             g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
         ];
         let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
@@ -10172,6 +10194,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if ctl.f4_faults.is_empty() { String::new() } else { format!(": {}", ctl.f4_faults.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")) }
             ));
             s.push_str(&format!("the rider-keyed RS_ready (G1): R's detector pressed by an EMPTY cart {} times (none set RS_ready)\n", ctl.rdet_empty_presses));
+            // (G1 16:00, night check 4, bar 0) every awake HOME-holder within 16 of the bed head while occupied
+            let mut ex_by: BTreeMap<u32, (i64, i64, f64)> = BTreeMap::new();
+            for (t, v, d) in &ctl.exposure_16 {
+                let e = ex_by.entry(*v).or_insert((*t, *t, *d));
+                e.1 = *t;
+                e.2 = e.2.min(*d);
+            }
+            s.push_str(&format!(
+                "the 16-ball exposure (G1 16:00 / night check 4, tick-exact 16:03: ValidateNearbyPoi erases HOME of every awake HOME-holder within 16 of the bed head's centre while the bed is occupied; bar 0): {} villager-ticks, {} villagers{} ({})\n",
+                ctl.exposure_16.len(),
+                ex_by.len(),
+                if ex_by.is_empty() { String::new() } else { format!(": {}", ex_by.iter().take(8).map(|(v, (a, b, d))| format!("#{v} t {a}..{b} (the least distance {d:.2})")).collect::<Vec<_>>().join(", ")) },
+                if ctl.exposure_16.is_empty() { "PASS" } else { "FAIL" }
+            ));
+            s.push_str(&format!("the (A) stop's releases (ironspec 16:00 / G1 16:02, sustained presence; G1 16:04: the close at the wake press and the release per visit): {} ({})\n", ctl.a_rls_log.len(), ctl.a_rls_log.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")));
             let gaps: Vec<i64> = ctl.a_so_gaps.iter().copied().filter(|g| *g != i64::MAX).collect();
             s.push_str(&format!(
                 "the stale P_STRING check (G1 15:40: per visit, P_STRING's last release (its last press + ~10, the string's re-check) to SLEPT_ONCE's set, bar >= 2): {} visits, {} with an earlier press; the least gap {}{}\n",
