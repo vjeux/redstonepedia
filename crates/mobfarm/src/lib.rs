@@ -8,6 +8,7 @@ pub mod approach;
 pub mod borders;
 pub mod carousel;
 pub mod cli;
+pub mod provenance;
 pub mod column;
 pub mod columnrun;
 pub mod contacts;
