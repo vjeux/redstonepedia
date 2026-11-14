@@ -69,6 +69,9 @@ pub struct Opts {
     /// (ironspec 22:19 (1)) record7's built R1 with day-1's line-bench levers instead of the torch
     /// stand-in; the release is NOT-ready's lever flipped off.
     pub r1_built: bool,
+    /// (R6, V: ironspec 20:35 (2) (c), day-1 20:40) the built R1's layout, laid relative to the queue:
+    /// record7's (today's) or V's (N's comparator re-routed down to the queue's level).
+    pub r1_layout: R1Layout,
     /// (ironspec 02:33 / 03:01) visit rows with the night skipped this many gt after the release.
     pub visit_skip: Vec<i64>,
     /// (ironspec 03:22 / 03:30 (2)) a NoAI villager standing here through every visit row (the control).
@@ -110,10 +113,48 @@ pub struct Opts {
     /// (ironspec 18:39 (4)) the rail end's all-clear speed (the start-phase sweep's figure): the ride
     /// rows' entry speed into (9,-15,-2) must be at least it + 10 % (None: printed only).
     pub rail_end_least: Option<f64>,
+    /// (R6; ironspec 21:54) the bed head's block: the ride rows print the queue cart's distance at rest
+    /// to its centre and judge it > 17 (None: not printed).
+    pub ball_head: Option<P>,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
 /// the module holds there).
+/// (farmopt 09:06, ironspec's runner rule: a run must READ the file it cites) a V owner file read whole: an "x,y,z state"
+/// line lays that block, a bare "x,y,z" line clears the cell to air, `#` lines are skipped; returns the cells, the file's
+/// md5, and the counts laid and cleared
+pub fn parse_delta_file(path: &str) -> Result<(Vec<(P, String)>, String, usize, usize), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("--delta {path}: {e}"))?;
+    let md5: String = redsim::stems::md5(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    let text = String::from_utf8_lossy(&bytes);
+    let (mut v, mut laid, mut cleared) = (Vec::new(), 0usize, 0usize);
+    for line in text.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let (p, b) = match l.split_once(char::is_whitespace) {
+            Some((p, b)) => (p, Some(b.trim())),
+            None => (l, None),
+        };
+        let c: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("--delta {path}: {l:?}: {e}"))?;
+        if c.len() != 3 {
+            return Err(format!("--delta {path}: {l:?}: x,y,z [state]"));
+        }
+        match b {
+            Some(b) => {
+                v.push(([c[0], c[1], c[2]], if b.contains(':') { b.to_string() } else { format!("minecraft:{b}") }));
+                laid += 1;
+            }
+            None => {
+                v.push(([c[0], c[1], c[2]], "minecraft:air".to_string()));
+                cleared += 1;
+            }
+        }
+    }
+    Ok((v, md5, laid, cleared))
+}
+
 pub fn parse_extra(s: Option<&str>) -> Result<Vec<(P, String)>, String> {
     let Some(s) = s else { return Ok(Vec::new()) };
     s.split(';')
@@ -237,6 +278,12 @@ fn place_overrides(w: &mut redsim::world::World, explicit: usize, cells: &[(Bloc
         return Err(format!("{} --extra override(s) change nothing (ironspec 04:07: a no-op override fails the run): {}", noop.len(), noop.join("; ")));
     }
     place_checked(w, &laid)?;
+    // (R6; ironspec 21:55's standing rule) every laid cell READ BACK: a cell the world doesn't hold as
+    // laid (a rail that popped, a dust that reshaped on its neighbours' updates) fails the run by name
+    let mismatched: Vec<String> = laid.iter().filter(|(p, b)| w.get(*p) != *b).map(|(p, b)| format!("{p}: laid {b:?}, read back {:?}", w.get(*p))).collect();
+    if !mismatched.is_empty() {
+        return Err(format!("{} override(s) not held as laid (read back): {}", mismatched.len(), mismatched.join("; ")));
+    }
     lines.insert(0, format!("(overrides) {} cell(s) laid over the design, each before -> after; {in_file} emulated cell(s) the design already holds as laid (not overrides, not laid)", laid.len()));
     Ok(lines)
 }
@@ -620,6 +667,56 @@ pub const R1_BUILT: [([i32; 3], &str); 28] = [
     ([6, -13, -6], "minecraft:air"),
 ];
 
+/// (R6) Which built R1 the bench lays (relative to the queue): record7's, today's, or V's re-route.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum R1Layout {
+    #[default]
+    Record7,
+    V,
+}
+
+impl std::str::FromStr for R1Layout {
+    type Err = String;
+    fn from_str(s: &str) -> Result<R1Layout, String> {
+        match s {
+            "record7" => Ok(R1Layout::Record7),
+            "v" | "V" => Ok(R1Layout::V),
+            _ => Err(format!("--r1-layout {s}: record7 or v")),
+        }
+    }
+}
+
+/// (R6; ironspec 20:35 (2) (c), day-1 20:40: CONFIRMED AS LAID OUT) V's built R1, written for V's queue
+/// (9,-10,-4): record7's line raised 4 (the rail's repeater, R1's comparator, the latch's dust, the N
+/// line's repeater and dust), N's comparator re-routed down to (4,-10,-4) facing west (rear REST_l,
+/// side DAY through one repeater (4,-10,-3) facing south), its output into the N line's dust; the old
+/// step-down dust and the (C') hatch branch dropped; the line-bench inputs moved with it.
+pub const R1_BUILT_V: [([i32; 3], &str); 19] = [
+    // N's comparator: rear REST_l (west), side DAY's repeater (south), output east into the N line's dust
+    ([4, -11, -4], "minecraft:glass"),
+    ([4, -10, -4], "minecraft:comparator[facing=west,mode=subtract,powered=false]"),
+    ([4, -11, -3], "minecraft:glass"),
+    ([4, -10, -3], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]"),
+    // the N line's dust and repeater into R1's comparator's rear
+    ([5, -11, -4], "minecraft:glass"),
+    ([5, -10, -4], "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"),
+    ([6, -11, -4], "minecraft:glass"),
+    ([6, -10, -4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+    // R1's comparator (rear the N line, side the latch's dust) and the rail's repeater
+    ([7, -11, -4], "minecraft:glass"),
+    ([7, -10, -4], "minecraft:comparator[facing=west,mode=subtract,powered=false]"),
+    ([7, -11, -5], "minecraft:glass"),
+    ([7, -10, -5], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]"),
+    ([8, -11, -4], "minecraft:glass"),
+    ([8, -10, -4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+    // the line-bench inputs (declared stand-ins): REST_l ON, DAY OFF, NOT-ready ON
+    ([3, -11, -4], "minecraft:glass"),
+    ([3, -10, -4], "minecraft:lever[face=floor,facing=north,powered=true]"),
+    ([4, -11, -2], "minecraft:glass"),
+    ([4, -10, -2], "minecraft:lever[face=floor,facing=north,powered=false]"),
+    ([8, -10, -5], "minecraft:lever[face=wall,facing=west,powered=true]"),
+];
+
 /// Every fluid cell (water or lava, waterlogged blocks included) of the chunk box `[x0, z0, x1, z1]`
 /// (y -64..=80) given its fluid tick in 5 gt, as a placement with updates schedules it; the count.
 pub fn schedule_fluids(w: &mut redsim::world::World, chunk: [i32; 4]) -> usize {
@@ -682,6 +779,13 @@ pub fn rekey_row(row: u32, hits: Vec<crate::contacts::Hit>) -> impl Iterator<Ite
 /// R1 levers (4..6,-12..-13,-1..-2), with a cell's margin; the stop (A) (x <= -1) lies outside it.
 pub const RIDE_SCOPE: ([i32; 3], [i32; 3]) = ([2, -27, -8], [9, -11, 3]);
 
+/// (R6, V) The ride rows' scope relative to the queue cell q: today's box (q = (9,-14,-4): y -27..-11)
+/// moved with the queue's height (V's q = (9,-10,-4): y -23..-7), its south edge at z 2 (the way-in holds
+/// nothing at z 3; V's napper-lift foot, moved up 7 with the stop, straddles z 3..5 there and would be cut).
+pub fn ride_scope(q: P) -> ([i32; 3], [i32; 3]) {
+    ([RIDE_SCOPE.0[0], q[1] - 13, RIDE_SCOPE.0[2]], [RIDE_SCOPE.1[0], q[1] + 3, 2])
+}
+
 /// (G1's W8 on R2) The shapes of a way-cell run's mode flags: each field the flag given (or its value
 /// count), for [`way_cell_mode`].
 #[derive(Default, Clone, Debug)]
@@ -706,6 +810,10 @@ pub struct ModeFlags {
     pub release_pulse: usize,
     /// --launch-speeds given (the rail end's least launch speed)
     pub launch_speeds: usize,
+    /// (R6) --leg-train given (several nappers down the leg)
+    pub leg_train: usize,
+    /// (R6) --hold-sweep given (the hold's braking / relaunch sweep)
+    pub hold_sweep: usize,
     pub south: bool,
     pub r1_built: bool,
 }
@@ -739,13 +847,20 @@ pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
     if f.launch_speeds > 0 {
         modes.push("launch speed");
     }
-    if (f.ride_to > 0 || f.rows) && !f.visit && !f.release_sweep && !f.water_search && f.release_pulse == 0 {
+    // (the leg train takes --ride-to as the stop's entry: its health judged up to it)
+    if (f.ride_to > 0 || f.rows) && !f.visit && !f.release_sweep && !f.water_search && f.release_pulse == 0 && (f.leg_train == 0 || f.rows) {
         modes.push(if f.rows { "ride rows" } else { "ride" });
     }
     if f.wait > 0 && !f.release_sweep {
         modes.push("wait");
     }
-    if f.leg > 0 && !f.visit {
+    if f.leg_train > 0 {
+        modes.push("leg train");
+    }
+    if f.hold_sweep > 0 {
+        modes.push("hold sweep");
+    }
+    if f.leg > 0 && !f.visit && f.leg_train == 0 && f.hold_sweep == 0 {
         modes.push("leg");
     }
     if modes.len() > 1 {
@@ -790,6 +905,17 @@ pub fn way_cell_mode(f: &ModeFlags) -> Result<&'static str, String> {
             need(f.leg == 6, "--leg x,y,z,vx,vy,vz")?;
             need(f.hold == 3, "--hold x,y,z")?;
             need(f.bed == 3, "--bed x,y,z")?;
+        }
+        "leg train" => {
+            need(f.leg_train == 2, "--leg-train COUNT,SPACING")?;
+            need(f.leg == 6, "--leg x,y,z,vx,vy,vz")?;
+            need(f.bed == 3, "--bed x,y,z")?;
+            need(f.leg_day, "--leg-day")?;
+            need(f.south && f.r1_built, "--south --r1-built (the built R1 gate, re-armed after each release)")?;
+        }
+        "hold sweep" => {
+            need(f.hold_sweep == 3, "--hold-sweep A,B,STEP")?;
+            need(f.leg == 6, "--leg x,y,z,vx,vy,vz (the start and heading)")?;
         }
         _ => {}
     }
@@ -902,7 +1028,13 @@ pub fn r1_cells(o: &Opts) -> Result<Vec<(BlockPos, Block)>, String> {
         return Ok(Vec::new());
     }
     if o.r1_built {
-        return R1_BUILT.iter().map(|(p, s)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(s).map_err(|e| format!("R1_BUILT {s}: {e}"))?))).collect();
+        // (R6) the layout's cells, written for its own queue cell, moved with the bench's queue
+        let (cells, home): (&[([i32; 3], &str)], P) = match o.r1_layout {
+            R1Layout::Record7 => (&R1_BUILT, [9, -14, -4]),
+            R1Layout::V => (&R1_BUILT_V, [9, -10, -4]),
+        };
+        let d = [o.queue[0] - home[0], o.queue[1] - home[1], o.queue[2] - home[2]];
+        return cells.iter().map(|(p, s)| Ok((BlockPos::new(p[0] + d[0], p[1] + d[1], p[2] + d[2]), Block::parse(s).map_err(|e| format!("R1 {s}: {e}"))?))).collect();
     }
     let q = o.queue;
     let g = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
@@ -915,6 +1047,21 @@ pub fn r1_cells(o: &Opts) -> Result<Vec<(BlockPos, Block)>, String> {
     ])
 }
 
+/// (R6, V: ironspec 21:57 (2)) The south staircase's cells relative to the queue cell q (today's q =
+/// (9,-14,-4); V's (9,-10,-4)): the rail end q + (0,-1,+2) (the flat the launched cart leaves), NOT-ready's
+/// wall lever q + (-1,0,-1) (on the arrival's support), the drop's shaft column x = q.x, z = q.z + 3.
+pub fn rail_end_of(q: P) -> P {
+    [q[0], q[1] - 1, q[2] + 2]
+}
+
+pub fn not_ready_lever_of(q: P) -> BlockPos {
+    BlockPos::new(q[0] - 1, q[1], q[2] - 1)
+}
+
+pub fn shaft_xz_of(q: P) -> (i32, i32) {
+    (q[0], q[2] + 3)
+}
+
 /// The queue's release as the bench emulates day-1's RELEASE level: for the south staircase, R1's
 /// input driven by a redstone torch standing on glass at queue - (3,0,0) (the repeaters of
 /// [`r1_cells`] carry it into the rail; nothing solid-render); for the west one a redstone block
@@ -922,8 +1069,9 @@ pub fn r1_cells(o: &Opts) -> Result<Vec<(BlockPos, Block)>, String> {
 fn release(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
     let q = o.queue;
     if o.south && o.r1_built {
-        // NOT-ready's fall: onechunk's wall lever (8,-14,-5) flipped OFF between ticks
-        let p = BlockPos::new(8, -14, -5);
+        // NOT-ready's fall: onechunk's wall lever (today (8,-14,-5): queue + (-1,0,-1)) flipped OFF
+        // between ticks
+        let p = not_ready_lever_of(q);
         w.set_block(p, Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
         return Ok(());
     }
@@ -1259,7 +1407,8 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
     for _ in 0..40 {
         run.tick();
     }
-    let lever = BlockPos::new(8, -14, -5);
+    let lever = not_ready_lever_of(q);
+    let (re, (sx, sz)) = (rail_end_of(q), shaft_xz_of(q));
     let ready_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
     // (ironspec 18:39 (4)) the departure detector (9,-15,-3) and the arrival detector (9,-13,-5) with the
     // cart at rest on the queue: neither may be pressed (a departure detector pressed at rest resets
@@ -1306,13 +1455,13 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
             let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
             let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
             last = Some((c, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
-            if rail_end_v.is_none() && c == [9, -15, -2] {
+            if rail_end_v.is_none() && c == re {
                 rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
             }
             if left.is_none() && c != q {
                 left = Some(t);
             }
-            if shaft.is_none() && c[0] == 9 && c[2] == -1 && c[1] <= -16 {
+            if shaft.is_none() && c[0] == sx && c[2] == sz && c[1] < re[1] {
                 shaft = Some(t);
             }
             if c == entry {
@@ -1323,7 +1472,7 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
         reached.push((k, at_entry.is_some()));
         holds.push((k, dep_press, rail_on, rail_end_v));
         out.push(format!(
-            "(release pulse) k {k} gt: left the queue cell at t {left:?}, the departure detector {dep_cell} first pressed at t {dep_press:?}, the queue rail powered {rail_on} tick(s), entering the rail end (9,-15,-2) at {}, in the shaft at t {shaft:?}, at the stop's entry {entry:?} at t {at_entry:?}{}",
+            "(release pulse) k {k} gt: left the queue cell at t {left:?}, the departure detector {dep_cell} first pressed at t {dep_press:?}, the queue rail powered {rail_on} tick(s), entering the rail end {re:?} at {}, in the shaft at t {shaft:?}, at the stop's entry {entry:?} at t {at_entry:?}{}",
             rail_end_v.map_or("- (never entered)".to_string(), |v| format!("{v:.4} b/t")),
             if at_entry.is_some() { String::new() } else { last.map_or("; the cart gone".to_string(), |(c, v)| format!("; it ENDS at {c:?} at {v:.4} b/t after {ticks} gt")) }
         ));
@@ -1372,13 +1521,16 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
     let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
-    let end = BlockPos::new(9, -15, -2);
+    let rend = rail_end_of(o.queue);
+    let (sx, sz) = shaft_xz_of(o.queue);
+    let end = BlockPos::new(rend[0], rend[1], rend[2]);
     if !run.world.get(end).to_string().contains("rail") {
         return Err(format!("--launch-speeds: no rail at the rail end {end}"));
     }
     let mut out = vec![format!(
-        "(launch speed) a cart with a rider set on the rail end {end} at {} start phase(s) along it (z = -2 + (k + 0.5) / {phases}), moving south (+z) at each of {} speed(s) {:.4}..{:.4}, followed 60 gt (G1 18:40: the whole range at every phase)",
+        "(launch speed) a cart with a rider set on the rail end {end} at {} start phase(s) along it (z = {} + (k + 0.5) / {phases}), moving south (+z) at each of {} speed(s) {:.4}..{:.4}, followed 60 gt (G1 18:40: the whole range at every phase)",
         phases,
+        rend[2],
         speeds.len(),
         speeds.first().copied().unwrap_or(0.0),
         speeds.last().copied().unwrap_or(0.0)
@@ -1388,22 +1540,59 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
     // speed swept clears
     let mut worst_all_clear: Option<f64> = Some(0.0);
     let mut held_union: Vec<(f64, f64, f64)> = Vec::new();
+    // (R6; G1 23:06) the landings over every cleared (phase, speed): cell and what it lands in / on,
+    // counted; the ones off a rail and off slime (or with the rider hurt) listed
+    let mut footprint: std::collections::BTreeMap<([i32; 3], String), u32> = std::collections::BTreeMap::new();
+    let (mut off, mut landed, mut health_least): (Vec<String>, u32, f32) = (Vec::new(), 0, f32::INFINITY);
     for k in 0..phases.max(1) {
-        let z0 = -2.0 + (k as f64 + 0.5) / phases.max(1) as f64;
+        let z0 = rend[2] as f64 + (k as f64 + 0.5) / phases.max(1) as f64;
         let mut results: Vec<(f64, bool)> = Vec::new();
         for &v in speeds {
             let mut r = run.clone();
-            let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [9.5, -15.0, z0], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
+            let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [rend[0] as f64 + 0.5, rend[1] as f64, z0], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
             let mut fell = None;
             let mut last = None;
+            // (R6; G1 23:06: off the rails a cart keeps its horizontal speed, so a slow launch may drift
+            // past the landing) the landing: the first tick after the fall began that the cart stops
+            // falling (vy >= -0.0001) or stands in a rail cell; its cell, that cell's block and the one
+            // under it; the rider's least health over the run
+            let mut landing: Option<(u32, [i32; 3], String, String, bool)> = None;
+            let mut hmin = f32::INFINITY;
+            let mut h0: Option<f32> = None;
             for t in 0..60u32 {
                 r.tick();
+                if let Some(rd) = r.world.entities.list.iter().find(|x| !x.removed && x.vehicle == Some(cart)) {
+                    if let EntityKind::Mob(m) = &rd.kind {
+                        h0.get_or_insert(m.health);
+                        hmin = hmin.min(m.health);
+                    }
+                }
                 let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
                 last = Some((e.pos, e.delta_movement));
-                if fell.is_none() && e.pos.y < -16.0 && e.pos.z.floor() as i32 == -1 {
+                if fell.is_none() && e.pos.y < (rend[1] - 1) as f64 && e.pos.x.floor() as i32 == sx && e.pos.z.floor() as i32 == sz {
                     fell = Some(t);
                 }
+                // the landing is tracked for any fall below the rail end (in the shaft or beside it)
+                if e.pos.y < (rend[1] - 1) as f64 && landing.is_none() {
+                    let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+                    let here = r.world.get(BlockPos::new(c[0], c[1], c[2]));
+                    let on_rail = redsim::rails::is_rail(&here);
+                    if on_rail || e.delta_movement.y >= -0.0001 {
+                        let under = r.world.get(BlockPos::new(c[0], c[1] - 1, c[2]));
+                        landing = Some((t, c, here.to_string(), under.to_string(), on_rail));
+                    }
+                }
             }
+            if let Some((t, c, here, under, on_rail)) = &landing {
+                let ok = *on_rail || under.contains("slime_block") || here.contains("slime_block");
+                let hurt = h0.is_some_and(|h| hmin < h);
+                *footprint.entry((*c, if *on_rail { here.split('[').next().unwrap_or("").to_string() } else { format!("on {}", under.split('[').next().unwrap_or("")) })).or_insert(0) += 1;
+                if !ok || hurt {
+                    off.push(format!("v {v:.4} z0 {z0:.4}: lands at t {t} in {c:?} ({here} over {under}){}", if hurt { format!(", the rider hurt to {hmin:.1}") } else { String::new() }));
+                }
+                landed += 1;
+            }
+            health_least = health_least.min(hmin);
             results.push((v, fell.is_some()));
             if phases <= 1 {
                 out.push(format!(
@@ -1443,7 +1632,10 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
             fmt_bands(&bands)
         ));
     }
-    let pass = worst_all_clear.is_some();
+    let pass_clear = worst_all_clear.is_some();
+    // (R6; G1 23:06) every landing in a rail cell or on slime, and the rider unhurt, or the sweep fails
+    let landing_ok = off.is_empty() && landed > 0;
+    let pass = pass_clear && landing_ok;
     let union_lo = held_union.iter().map(|b| b.1).fold(f64::INFINITY, f64::min);
     out.push(format!(
         "(launch speed) over the {} phase(s): every speed from {} up clears at EVERY phase (the designed launch 0.4000{}); held speeds anywhere in {:.4}..{:.4} over the phases ({} held band(s) in all)",
@@ -1453,6 +1645,13 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32
         if union_lo.is_finite() { union_lo } else { 0.0 },
         held_union.iter().map(|b| b.2).fold(0.0, f64::max),
         held_union.len()
+    ));
+    out.push(format!(
+        "(launch speed) the landing footprint over the {landed} falling (phase, speed) run(s) (G1 23:06: every fall below the rail end, in the shaft or beside it; the landing the first tick after it that the cart stops falling or stands in a rail cell): {}; the rider's least health {}; BAR every landing in a rail cell or on slime, the rider unhurt: {}{}",
+        if footprint.is_empty() { "none".to_string() } else { footprint.iter().map(|((c, what), n)| format!("{c:?} {what} x{n}")).collect::<Vec<_>>().join(", ") },
+        if health_least.is_finite() { format!("{health_least:.1}") } else { "-".to_string() },
+        if landing_ok { "PASSES" } else if landed == 0 { "NOT JUDGED (no landing): FAILS" } else { "FAILS" },
+        if off.is_empty() { String::new() } else { format!(" ({} run(s): {})", off.len(), off.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
     ));
     Ok((override_lines.into_iter().chain(out).collect(), pass))
 }
@@ -1503,6 +1702,19 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     for _ in 0..40 {
         base.tick();
     }
+    // (R6; ironspec 21:54 / 21:57: the seat's 16-ball distance) the queue cart at rest after the hold,
+    // its distance to the bed head's centre (9fc3155f's convention: the game's closerToCenterThan, the
+    // seated villager's position = its cart's), against the design bar > 17
+    let ball_line = o.ball_head.map(|h| {
+        let at = base.world.entities.list.iter().find(|e| e.id == cart0 && !e.removed).map(|e| e.pos);
+        match at {
+            Some(p) => {
+                let d = ((p.x - (h[0] as f64 + 0.5)).powi(2) + (p.y - (h[1] as f64 + 0.5)).powi(2) + (p.z - (h[2] as f64 + 0.5)).powi(2)).sqrt();
+                (format!("(ride) the queue cart at rest after the hold at ({:.4}, {:.4}, {:.4}): {d:.3} from the bed head {h:?}'s centre (9fc3155f's convention); the bar > 17: {}", p.x, p.y, p.z, if d > 17.0 { "PASSES" } else { "FAILS" }), d > 17.0)
+            }
+            None => ("(ride) the queue cart gone after the hold: the 16-ball distance NOT JUDGED: FAILS".to_string(), false),
+        }
+    });
     let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     let mut rows: Vec<(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = Vec::new();
     // (G1 09:31 E2) each row's band-bench t0 (the entry cell's centre passed, post-tick), in the rows' order
@@ -1907,7 +2119,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             }
             // (ironspec 18:39 (4): the rail end's normal-operation bar) the cart's horizontal speed the
             // tick its cell first becomes the rail end (9,-15,-2)
-            if rail_end_v.is_none() && c == [9, -15, -2] {
+            if rail_end_v.is_none() && c == rail_end_of(o.queue) {
                 rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
             }
             // (ironspec 05:09: the R2 search's gate) the HOME path from the rider's ACTUAL state at every
@@ -2251,7 +2463,8 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         None => true,
     };
     out.push(format!(
-        "(ride) the speed entering the rail end (9,-15,-2) over the {} bar row(s): {}{}; {}",
+        "(ride) the speed entering the rail end {:?} over the {} bar row(s): {}{}; {}",
+        rail_end_of(o.queue),
         rail_end_speeds.len(),
         if re.is_empty() { "never entered".to_string() } else { format!("{re_min:.4}..{:.4} b/t", re.iter().copied().fold(0.0, f64::max)) },
         if re_missing > 0 { format!(" ({re_missing} row(s) never entered it)") } else { String::new() },
@@ -2262,7 +2475,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     ));
     // (G1 14:51 (4); ONE contact rule) the contact verdicts are main's bounded judge's (both axes): the
     // old horizontal-only stale count is printed as information and no longer gates the run
-    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && re_ok && !(fence_min.is_finite() && fence_min <= 0.0);
+    let ball_ok = ball_line.as_ref().is_none_or(|(_, ok)| *ok);
+    if let Some((l, _)) = &ball_line {
+        out.push(l.clone());
+    }
+    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && re_ok && ball_ok && !(fence_min.is_finite() && fence_min <= 0.0);
     out.push(format!(
         "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick; natural spawning OFF by construction: the bench's world has no natural spawner, mob.natural None, ironspec 14:57): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}{judge_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
         bar.len(),
@@ -2993,6 +3210,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     let mut stamp_arms: std::collections::BTreeMap<&'static str, u32> = std::collections::BTreeMap::new();
     let mut stamp_clears: std::collections::BTreeMap<&'static str, u32> = std::collections::BTreeMap::new();
     let (mut rows_path_complete, mut oldest_stamp) = (0u32, 0i64);
+    // (R6; G1 22:11) the rows whose napper lost health (a landing passing the cart's fall on), the rows
+    // whose health was read, and the least health seen
+    let (mut rows_damaged, mut rows_health_read, mut health_least) = (0u32, 0u32, f32::INFINITY);
     // rows with a seat panic, and the latest sleep after the entry (a stall shows as a late sleep)
     let (mut seat_panic_rows, mut sleep_latest, mut never_slept) = (0u32, 0u32, 0u32);
     // path computations after the release: in the descent (before A6's entry) and partial there
@@ -3151,6 +3371,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 // (G1 16:06 / ironspec 16:24, night check 1) the rider's stamp arms and clears this row,
                 // each with its cause read at the tick, and whether a walk-target path completed
                 let mut row_path_complete = false;
+                // (R6; G1 22:11 / 9fc3155f 22:14) the napper's health over the row: its first read and
+                // its least
+                let (mut row_h0, mut row_hmin) = (None::<f32>, f32::INFINITY);
                 // the stamp at the row's previous judged tick (None until the first: a stamp carried in
                 // from the arrival is no arm of this row)
                 let mut prev_stamp_seen: Option<Option<i64>> = None;
@@ -3335,6 +3558,10 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         let x = redsim::entity::mob::ai::brain::ex(&r.world, i);
                         let path_reached = x.mem.path.as_ref().map(|p| p.reached);
                         row_path_complete |= path_reached == Some(true);
+                        if let EntityKind::Mob(m) = &r.world.entities.list[i].kind {
+                            row_h0.get_or_insert(m.health);
+                            row_hmin = row_hmin.min(m.health);
+                        }
                         match (prev_stamp_seen.unwrap_or(since), since) {
                             (None, Some(_)) => {
                                 let cause = match path_reached {
@@ -3654,6 +3881,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 reached_a6_n += at_entry.is_some() as u32;
                 missed_entry_rows += at_entry.is_none() as u32;
                 rows_path_complete += row_path_complete as u32;
+                rows_damaged += row_h0.is_some_and(|h| row_hmin < h) as u32;
+                rows_health_read += row_h0.is_some() as u32;
+                health_least = health_least.min(row_hmin);
                 oldest_stamp = oldest_stamp.max(stamp_max);
                 stop_never_n += (at_entry.is_some() && a6_sleep.is_none()) as u32;
                 stop_homeless_n += (at_entry.is_some() && a6_sleep.is_some() && !home_end) as u32;
@@ -3777,6 +4007,14 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     ));
     // (G1's W7 on R2) the water given its tick
     bars.push((format!("the chunk's water scheduled (W7): {fluid_line}"), 1, (!fluid_ok) as u32, String::new()));
+    // (R6; G1 22:11, ironspec 22:15: the leg's fall is a run's call) the napper's health over every row:
+    // a row whose napper lost health (a landing passing the cart's fall on) fails
+    bars.push((
+        "the napper's health: no damage in any row (a landing that passes the cart's fall on to its rider fails; G1 22:11)".to_string(),
+        rows_health_read,
+        rows_damaged,
+        format!("the least health read {}", if health_least.is_finite() { format!("{health_least:.1}") } else { "-".to_string() }),
+    ));
     let mut pass = true;
     for (name, samples, fails, note) in &bars {
         let verdict = if *samples == 0 {
@@ -4302,9 +4540,13 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
         })
         .collect();
     let mut exposure: Vec<(u32, i64, f64, Vec<String>)> = Vec::new();
+    let mut health: Vec<(u32, f32)> = Vec::new();
     for t in 0..ticks {
         run.tick();
         if let Some(r) = run.world.entities.list.iter().find(|e| !e.removed && Some(e.id) == rider) {
+            if let EntityKind::Mob(m) = &r.kind {
+                health.push((t, m.health));
+            }
             let b = &r.bb;
             let inside: Vec<String> = summoners.iter().filter(|(_, s)| b.min_x < s.max_x && b.max_x > s.min_x && b.min_y < s.max_y && b.max_y > s.min_y && b.min_z < s.max_z && b.max_z > s.min_z).map(|(n, _)| n.clone()).collect();
             exposure.push((t, run.world.time.rem_euclid(100), b.min_y, inside));
@@ -4411,6 +4653,15 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
             stamp_rest.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt")))
         ),
         format!("(leg) the cells: {:?}", path.iter().take(60).collect::<Vec<_>>()),
+        // (R6; G1 22:11 / 9fc3155f 22:14: the fall's damage is phase-dependent: a run decides) the
+        // rider's health every tick: at the start, its least (and the tick), at the end
+        match (health.first(), health.iter().min_by(|a, b| a.1.total_cmp(&b.1)), health.last()) {
+            (Some(&(_, h0)), Some(&(tm, hm)), Some(&(_, he))) => format!(
+                "(leg) the rider's health: {h0:.1} at the start, {hm:.1} at its least (t {tm}), {he:.1} at the end: {}",
+                if hm < h0 { format!("DAMAGED by {:.1} (a landing passed the cart's fall to its rider)", h0 - hm) } else { "no damage (every fall erased)".to_string() }
+            ),
+            _ => "(leg) the rider's health: NOT READ (no rider)".to_string(),
+        },
         {
             // the bystander exposure: per summoner, the ticks the napper's box lies inside its 10-box
             // (run-length), and the last tick inside any (the S ticks to avoid end there)
@@ -4444,6 +4695,1283 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
     .into_iter()
     .chain(override_lines)
     .collect())
+}
+
+/// (R6; ironspec 03:34 / 03:36, G1 03:34) The leg train's planted rows: a ridden cart at rest on the
+/// front (the drop must never land on it: the falling rider dies), the token's evidence removed (the hold
+/// always powered: two nappers back to back), empty carts at rest where the riderless fault parks them.
+#[derive(Clone, Debug, Default)]
+pub struct LegPlants {
+    pub front: bool,
+    pub no_token: bool,
+    pub empty: Vec<[f64; 3]>,
+    /// the token held (not free at the start) until this tick, so a napper first rests in the hold
+    pub token_at: Option<u32>,
+    /// (day-1 05:07, the stall row) the first N departure presses SET nothing
+    pub suppress_presses: u32,
+    /// (G1 05:07 (2)(b)) a SET and a CLEAR forced into this tick
+    pub coincident_at: Option<u32>,
+    /// (ironspec 05:52 (6), G1 05:52: the token's recovery) the token also SET when the front has held NO cart (any cart,
+    /// ridden or empty: a cart-keyed sensor) for this many ticks AND a napper waits at rest in the hold
+    pub front_recovery: Option<u32>,
+    /// (ironspec 05:57) the recovery's sensor VILLAGER-keyed (a rider's box only) instead of cart-keyed
+    pub recovery_villager_keyed: bool,
+    /// (day-1 / G1 05:23, ironspec 05:59 (2)) P1's exit detector laid at this cell (by --extra): its rising edge, read
+    /// from the world, CLEARS the token (otherwise the bench clears by the cart's position, an instant emulation)
+    pub exit_sensor: Option<P>,
+    /// (day-1 06:08) the recovery's front sensor = the ARRIVAL DETECTOR read from the world (any cart, its 20-gt hold)
+    pub recovery_by_arrival: bool,
+    /// (day-1 06:08) the recovery's "a napper waits at P1" = a latch SET by this approach detector's press (laid by
+    /// --extra) and RESET by the token's CLEAR
+    pub recovery_approach: Option<P>,
+    /// (G1 06:18 (2)) the release gated on the front read clear too (P1 powered = the token AND the front clear, by the
+    /// recovery's sensor)
+    pub release_needs_front_clear: bool,
+    /// (ironspec 06:28 (2)) the token SETs only on a departure press that follows an arrival press since the last CLEAR
+    /// (this napper's own landing): a perching napper that presses no new arrival leaves the token unset
+    pub token_sequence: bool,
+    /// (tick-exact 06:28, ironspec 06:31) the front-clear sensor as a named block read from the world (e.g. the high
+    /// string's tripwire at (9,-9,-4), laid with its hooks by --extra): "occupied" while its state reads powered=true
+    pub front_sensor: Option<P>,
+    /// (ironspec 06:31 (1)) day-1's dispatch, EMULATED: no new napper enters the way-in while this many are in flight
+    pub dispatch_cap: Option<u32>,
+    /// the recovery WITHOUT its arrival condition (the unsafe form ruled at 05:52, kept to reproduce its death)
+    pub recovery_unsafe: bool,
+    /// (b8949c96 08:37) the recovery without "a napper waits at P1" (ARRIVED and the front empty for N only)
+    pub recovery_without_waiter: bool,
+    /// (day-1 08:59) P1 released by a pulse of this many gt (the pulse clears the token and resets A_SEEN)
+    pub p1_pulse: Option<u32>,
+    /// (ironspec 07:38r (3)) departure rising edges forced at these ticks (the late press after the recovery's release)
+    pub late_presses: Vec<u32>,
+    /// (ironspec 07:38r (3)) the first N arrival rising edges are not seen (a missed arrival press)
+    pub suppress_arrivals: u32,
+    /// (ironspec 07:38r (3)) napper K's cart removed at tick T (a napper lost before the front)
+    pub lose_napper: Option<(usize, u32)>,
+    /// (ironspec 03:36; cc767b78 04:50) ridden carts planted at rest at these positions (e.g. the front at the game's
+    /// rest z -3.887; a jam on the departure path)
+    pub ridden: Vec<[f64; 3]>,
+    /// the stop's entry: a napper's hurts after it reaches this cell are the stop's, printed apart and not
+    /// judged by the way-in's health BAR
+    pub entry: Option<P>,
+    /// (ironspec 04:32 / 04:37) cells whose `powered` is read every tick (the boosters): each unpowered tick printed
+    pub watch_powered: Vec<P>,
+    /// (G1 04:41 (2)) the bed head: the waiting seat's least distance to it printed over each napper's wait
+    pub bed_head: Option<[f64; 3]>,
+}
+
+/// An entity's box as [min_x, min_y, min_z, max_x, max_y, max_z].
+fn box_of(e: &redsim::entity::Entity) -> [f64; 6] {
+    [e.bb.min_x, e.bb.min_y, e.bb.min_z, e.bb.max_x, e.bb.max_y, e.bb.max_z]
+}
+
+/// The xz overlap of two boxes (dx, dz), both > 0 when they overlap in plan.
+fn xz_overlap(a: &[f64; 6], b: &[f64; 6]) -> (f64, f64) {
+    (a[3].min(b[3]) - a[0].max(b[0]), a[5].min(b[5]) - a[2].max(b[2]))
+}
+
+/// (R6; ironspec 23:57: up to three nappers in flight, the stop a single server; (a) a FIFO queue at the
+/// way-in, layout + bench level until day-1's one-in-flight answer, farmopt 00:01) Several nappers down
+/// the leg: `count` carts, each with its rider (HOME the bed, the day time `day`), started at `start`
+/// with `motion`, one every `spacing` gt; the built R1 released at each tick of `releases` (NOT-ready's
+/// lever off for `hold_gt` gt, then on again). Per cart: its arrival at the arrival detector, the cell it
+/// waits in, its departure over the departure detector, its least health, its stamp's largest age, any
+/// tick off a rail after its arrival before its fall into the shaft; per tick the carts waiting at once
+/// and the least distance between two carts. BARs: every cart arrives; none off a rail between its
+/// arrival and its departure; every rider unhurt; the departures in the arrivals' order (FIFO); every
+/// stamp under 1,200 gt; with releases, every cart departs. Returns the lines and the verdict.
+#[allow(clippy::too_many_arguments)]
+pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, count: u32, spacing: u32, gate: Option<u32>, releases: &[u32], release_after: Option<u32>, hold_gt: u32, ticks: u32, hold: Option<P>, watch_cell: Option<P>, plant_landing: bool, freeze: Option<(u32, u32)>, plants: &LegPlants) -> Result<(Vec<String>, bool), String> {
+    if !(o.south && o.r1_built) {
+        return Err("--leg-train needs the south staircase with the built R1 (--south --r1-built): its release is NOT-ready's lever, re-armed after each release".to_string());
+    }
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o)?);
+    let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
+    settle_r1(&mut run.world, o)?;
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "leg train");
+    if !fluid_ok {
+        return Err(fluid_line);
+    }
+    run.world.mob.day_offset = day - run.world.time;
+    let rider_nbt = format!(
+        "{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}",
+        bed[0], bed[1], bed[2]
+    );
+    let arrival = [q[0], q[1] + 1, q[2] - 1];
+    let departure = [q[0], q[1] - 1, q[2] + 1];
+    let rend = rail_end_of(q);
+    let lever = not_ready_lever_of(q);
+    let lever_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
+    // per cart: (cart id, rider id, spawned at, arrival t, departure t, fell t, waits-in cell, least health,
+    // first health, largest stamp age, off-rail ticks, first off-rail (t, cell))
+    struct C {
+        cart: u32,
+        rider: Option<u32>,
+        at: u32,
+        arrival: Option<u32>,
+        departure: Option<u32>,
+        fell: Option<u32>,
+        rest: Option<(u32, P)>,
+        hmin: f32,
+        hurt_at: Option<(u32, P)>,
+        hmin_stop: f32,
+        entry_t: Option<u32>,
+        v_col: Option<f64>,
+        v_shaft: Option<f64>,
+        seat_min: f64,
+        seat_rest_min: f64,
+        seat_rest_max: f64,
+        front_z: Option<(f64, f64)>,
+        ball_in: Option<(u32, P, f64)>,
+        stamp_now: i64,
+        stamp_arrival: Option<i64>,
+        seat_first: Option<f64>,
+        seat_last: f64,
+        wait_ticks: u32,
+        contacts: Vec<String>,
+        returned: Option<u32>,
+        clear_t: Option<(u32, u32)>,
+        h0: Option<f32>,
+        stamp: i64,
+        off: u32,
+        first_off: Option<(u32, P)>,
+        gone: Option<u32>,
+        released: bool,
+        held_at_hold: u32,
+        passed_hold: bool,
+        watch: Option<u32>,
+        col_check: bool,
+        shaft_check: bool,
+    }
+    let mut cs: Vec<C> = Vec::new();
+    let (mut waiting_max, mut dmin) = (0usize, f64::INFINITY);
+    let mut events: Vec<String> = Vec::new();
+    let mut rearm_at: Option<u32> = None;
+    // (G1 00:06) the next napper's start: on the fixed spacing, or (with `t_opts.gate`) the gate's delay
+    // after the previous napper passes the departure detector (the evidence it left the landing and the
+    // column); a release scheduled `release_after` gt after a napper comes to rest on the queue cell
+    let mut next_spawn: Option<u32> = Some(0);
+    let mut release_at: Option<u32> = None;
+    // (ironspec 00:54: ONE napper-only hold upstream of the drop + the front) the hold `hold` (P1 on the
+    // y-22 line): a powered rail (north-south) laid there, its power the TOKEN "the front is free": set at
+    // the start and by every departure press (the gate's event), cleared when a napper passes the next
+    // cell north (it left the hold, toward the drop); the bench emulates the token latch's output as a
+    // redstone block in place of the hold's support (powered = go), glass otherwise (braked)
+    let glass_b = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
+    let redstone_b = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+    let mut token = plants.token_at.is_none();
+    let (mut token_sets, mut hold_passes) = (0u32, 0u32);
+    // (day-1 05:07, G1 05:07 (2)) the token's real form: SET by the departure detector's rising edge only when ARMED
+    // (armed by a CLEAR from P1's exit-cell sensor, disarmed by its own SET: once per napper); a SET and a CLEAR in
+    // the same tick resolve toward CLEAR; the first `suppress_presses` presses SET nothing (the stall row)
+    let mut armed = false;
+    // (ironspec 06:28 (2)) the sequence evidence: an arrival press since the last CLEAR, before the departure press SETs
+    let mut arrival_since_clear = false;
+    let mut arrivals_seen: u32 = 0;
+    let mut sets_no_arrival: u32 = 0;
+    let mut front_empty_for: u32 = 0;
+    let mut gate_held: u32 = 0;
+    let mut dispatch_held: u32 = 0;
+    let mut pulse_until: u32 = 0;
+    let mut pulses: Vec<u32> = Vec::new();
+    let mut max_in_flight: u32 = 0;
+    let (mut approach_was, mut approach_latch) = (false, false);
+    let mut recovery_sets: Vec<u32> = Vec::new();
+    let (mut presses_seen, mut sets_suppressed, mut sets_unarmed) = (0u32, 0u32, 0u32);
+    let mut token_spans: Vec<(u32, Option<u32>)> = Vec::new();
+    if plants.token_at.is_none() && hold.is_some() {
+        token_spans.push((0, None));
+    }
+    if let Some(h) = hold {
+        // the hold keeps the rail shape of its cell (a slope hold, like the siding rest R, relaunches a
+        // stopped cart when powered; a flat one needs a solid block behind the cart)
+        let here = run.world.get(BlockPos::new(h[0], h[1], h[2])).to_string();
+        let shape = here.split("shape=").nth(1).and_then(|s| s.split([',', ']']).next()).ok_or_else(|| format!("the hold {h:?} holds {here}, no rail shape"))?.to_string();
+        let rail = Block::parse(&format!("minecraft:powered_rail[powered=false,shape={shape},waterlogged=false]")).map_err(|e| e.to_string())?;
+        let support = BlockPos::new(h[0], h[1] - 1, h[2]);
+        run.world.set_block(support, redstone_b.clone(), redsim::world::flags::ALL);
+        run.world.set_block(BlockPos::new(h[0], h[1], h[2]), rail, redsim::world::flags::ALL);
+        let read = run.world.get(BlockPos::new(h[0], h[1], h[2]));
+        if !read.to_string().contains("powered_rail") {
+            return Err(format!("the hold {h:?} read back as {read}, not a powered rail"));
+        }
+        events.push(format!("the hold {h:?}: a powered rail on the token's output (redstone block {support} = free / go, glass = held), the token free at the start"));
+    }
+    let mut at_hold: Vec<u32> = Vec::new();
+    // (G1 01:35: no landing may hold a ridden cart while another cart can fall onto it) every napper's
+    // drop into the column and every queue drop into the shaft checked: the landing and the cells below
+    // the drop free of any other cart at that tick; the planted twin (`plant_landing`) leaves a ridden cart
+    // on the landing (a second planted cart waiting at the front holds it on the arrival slope)
+    let mut drop_checks: Vec<(u32, usize, &'static str, Vec<String>)> = Vec::new();
+    let mut landing_rests: Vec<(u32, u32, String)> = Vec::new();
+    let mut planted_departed: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut planted_met: std::collections::BTreeMap<u32, (usize, u32)> = std::collections::BTreeMap::new();
+    let (sx, sz) = shaft_xz_of(q);
+    let mut planted: Vec<u32> = Vec::new();
+    if plant_landing {
+        let rider_plain = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for p in [[q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], [arrival[0] as f64 + 0.5, arrival[1] as f64 + 0.5625, arrival[2] as f64 + 0.5]] {
+            planted.push(redsim::entity::spawn(&mut run.world, "minecraft:minecart", p, Some(rider_plain))?);
+        }
+        events.push(format!("planted (the twin): a ridden cart at the front {q:?} and one on the landing {arrival:?} (held on the arrival slope by the front's cart)"));
+    }
+    // (ironspec 03:36 (3)) a ridden cart at rest on the front: it comes to rest on the front's braked slope
+    // (the game: (9.500, -9.051, -3.887)), its box reaching into the column's footprint
+    if plants.front {
+        let rider_plain = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        planted.push(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some(rider_plain))?);
+        events.push(format!("planted: a ridden cart on the front {q:?} (it settles on the front's braked slope)"));
+    }
+    // (ironspec 03:36; cc767b78 04:50) ridden carts at rest at chosen positions (the front at the game's rest, a jam)
+    let mut ridden_planted: Vec<u32> = Vec::new();
+    for p in &plants.ridden {
+        let rider_plain = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", *p, Some(rider_plain))?;
+        planted.push(id);
+        ridden_planted.push(id);
+        events.push(format!("planted: a RIDDEN cart at rest at ({:.4}, {:.4}, {:.4}) (cart {id})", p[0], p[1], p[2]));
+    }
+    // (ironspec 03:34 (2), the riderless player fault) empty carts at rest on the leg line
+    let mut empties: Vec<u32> = Vec::new();
+    for p in &plants.empty {
+        let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", *p, None)?;
+        planted.push(id);
+        empties.push(id);
+        events.push(format!("planted: an EMPTY cart at rest at ({:.4}, {:.4}, {:.4}) (cart {id})", p[0], p[1], p[2]));
+    }
+    if plants.no_token {
+        events.push("the token's evidence removed: the hold stays powered (every napper passes it unheld)".to_string());
+    }
+    // (G1 03:34 (1)) the detectors' presses read from the world: each rising edge of the arrival
+    // detector's and the departure detector's `powered`
+    let (mut arr_was, mut dep_was) = (false, false);
+    let mut exit_was = false;
+    let mut exit_presses: Vec<u32> = Vec::new();
+    let mut unpowered: Vec<Vec<u32>> = vec![Vec::new(); plants.watch_powered.len()];
+    let (mut arr_presses, mut dep_presses): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
+    // (ironspec 03:36 (3)) at each release from the hold: every other cart's (and rider's) box against
+    // the column's footprint (the falling cart's plan box, centred in the column's cell)
+    let footprint = [arrival[0] as f64 + 0.01, f64::NEG_INFINITY, arrival[2] as f64 + 0.01, arrival[0] as f64 + 0.99, f64::INFINITY, arrival[2] as f64 + 0.99];
+    let mut release_checks: Vec<(u32, Vec<String>)> = Vec::new();
+    let mut dep_boxes: Vec<(u32, u32, [f64; 6], Option<[f64; 6]>, bool)> = Vec::new();
+    let mut frozen: Option<[i32; 4]> = None;
+    for t in 0..ticks {
+        // (ironspec 02:33 (2), the timing row) a k + j = 3 world open: the part's chunks at level 32 for
+        // `len` gt from `fs` (entities frozen, redstone and block ticks running)
+        if let Some((fs, len)) = freeze {
+            if t == fs {
+                frozen = Some(crate::liveness::freeze32(&mut run.world));
+            }
+            if t == fs + len {
+                if let Some(pb) = frozen.take() {
+                    crate::liveness::thaw32(&mut run.world, pb);
+                }
+            }
+        }
+        // (ironspec 03:47) the token held until a chosen tick, so a napper first rests in the hold
+        if plants.token_at == Some(t) && !token {
+            token = true;
+            armed = false;
+            token_spans.push((t, None));
+            events.push(format!("t {t}: the token set (planted: --leg-token-at)"));
+        }
+        if let Some(h) = hold {
+            let support = BlockPos::new(h[0], h[1] - 1, h[2]);
+            // (G1 06:18 (2)) the release = the token AND the front read clear (the same sensor as the recovery's)
+            let gate_ok = !plants.release_needs_front_clear || front_empty_for >= 1;
+            if token && !gate_ok {
+                gate_held += 1;
+            }
+            // (day-1 08:59, its controller list) P1 released by a PULSE of `p1_pulse` gt when the token is set AND the
+            // front reads clear; the pulse CLEARS the token and resets A_SEEN (reset-dominant: a same-tick arrival edge
+            // is NOT SEEN); without `p1_pulse`, P1 stays powered while the token is set (cleared by the exit sensor)
+            let powered_now = if let Some(n) = plants.p1_pulse {
+                if token && gate_ok && t >= pulse_until {
+                    pulse_until = t + n;
+                    pulses.push(t);
+                    if let Some(s) = token_spans.last_mut() {
+                        if s.1.is_none() {
+                            s.1 = Some(t);
+                        }
+                    }
+                    token = false;
+                    armed = true;
+                    arrival_since_clear = false;
+                }
+                t < pulse_until
+            } else {
+                token && gate_ok
+            };
+            let want = if powered_now || plants.no_token { redstone_b.clone() } else { glass_b.clone() };
+            if run.world.get(support) != want {
+                run.world.set_block(support, want, redsim::world::flags::ALL);
+            }
+        }
+        // (ironspec 06:31 (1)) day-1's dispatch, EMULATED: no napper enters the way-in while `dispatch_cap` are in flight
+        // (spawned and not yet departed from the front); a held dispatch waits a tick
+        if let (Some(cap), Some(ns)) = (plants.dispatch_cap, next_spawn) {
+            // (day-1 06:34, 3a719e946's amend) the way-in room term: counted UP on each pick (here: each napper sent
+            // down the leg) and DOWN on each departure press of (9,-11,-3) read from the world
+            let in_flight = (cs.len() as u32).saturating_sub(dep_presses.len() as u32);
+            if ns == t && in_flight >= cap {
+                next_spawn = Some(t + 1);
+                dispatch_held += 1;
+            }
+        }
+        max_in_flight = max_in_flight.max((cs.len() as u32).saturating_sub(dep_presses.len() as u32));
+        if next_spawn == Some(t) && (cs.len() as u32) < count {
+            let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
+            let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id);
+            cs.push(C { cart, rider, at: t, arrival: None, departure: None, fell: None, rest: None, hmin: f32::INFINITY, hurt_at: None, hmin_stop: f32::INFINITY, entry_t: None, v_col: None, v_shaft: None, seat_min: f64::INFINITY, seat_rest_min: f64::INFINITY, seat_rest_max: f64::NEG_INFINITY, front_z: None, ball_in: None, stamp_now: 0, stamp_arrival: None, seat_first: None, seat_last: f64::NAN, wait_ticks: 0, contacts: Vec::new(), returned: None, clear_t: None, h0: None, stamp: 0, off: 0, first_off: None, gone: None, released: false, held_at_hold: 0, passed_hold: false, watch: None, col_check: false, shaft_check: false });
+            next_spawn = if (cs.len() as u32) < count && gate.is_none() { Some(t + spacing.max(1)) } else { None };
+        }
+        if releases.contains(&t) || release_at == Some(t) {
+            release(&mut run.world, o)?;
+            rearm_at = Some(t + hold_gt);
+            release_at = None;
+            events.push(format!("t {t}: release (NOT-ready's lever {lever} off)"));
+        }
+        if rearm_at == Some(t) {
+            run.world.set_block(lever, lever_on.clone(), redsim::world::flags::ALL);
+            rearm_at = None;
+            events.push(format!("t {t}: NOT-ready's lever on again (re-armed)"));
+        }
+        run.tick();
+        let mut waiting = 0usize;
+        let n_spawned = cs.len() as u32;
+        let mut centres: Vec<Vec3> = Vec::new();
+        // the token's SET (the departure detector's rising edge, read from the world) and CLEAR (a napper passing
+        // P1's exit cell) this tick, resolved after the carts
+        let (mut set_now, mut clear_now) = (false, false);
+        // (G1 05:07 (2)(b), the planted coincident row) a SET and a CLEAR forced into one tick
+        if plants.coincident_at == Some(t) {
+            set_now = true;
+            clear_now = true;
+            armed = true;
+            events.push(format!("t {t}: a SET and a CLEAR forced into the same tick (planted: --leg-coincident)"));
+        }
+        // every cart's cell this tick (the train's and the planted ones), for the drop checks
+        let occ: Vec<(u32, [i32; 3])> = cs
+            .iter()
+            .map(|c| c.cart)
+            .chain(planted.iter().copied())
+            .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32])))
+            .collect();
+        // (ironspec 03:36 (3)) every cart's box and its rider's box this tick (the drop's footprint judged on
+        // boxes, never on cells: a cart resting on the front reaches 0.377 into the column's cell)
+        let occ_boxes: Vec<(u32, [f64; 6], Option<[f64; 6]>)> = cs
+            .iter()
+            .map(|c| c.cart)
+            .chain(planted.iter().copied())
+            .filter_map(|id| {
+                let e = run.world.entities.list.iter().find(|e| e.id == id && !e.removed)?;
+                let rb = run.world.entities.list.iter().find(|r| !r.removed && r.vehicle == Some(id)).map(box_of);
+                Some((id, box_of(e), rb))
+            })
+            .collect();
+        // (G1 08:09, tick-exact: 26.3 OldMinecartBehavior's push reach = the box inflated 0.2 in x / z, not y) a planted
+        // cart is MET when a train cart's inflated box first overlaps its box: the jam rows judge only met jams
+        for (pid, pb, _) in occ_boxes.iter().filter(|(id, _, _)| planted.contains(id)) {
+            if planted_met.contains_key(pid) {
+                continue;
+            }
+            for (k, c) in cs.iter().enumerate() {
+                if let Some((_, cb, _)) = occ_boxes.iter().find(|(id, _, _)| *id == c.cart) {
+                    let reach = [cb[0] - 0.2, cb[1], cb[2] - 0.2, cb[3] + 0.2, cb[4], cb[5] + 0.2];
+                    if reach[0] < pb[3] && reach[3] > pb[0] && reach[1] < pb[4] && reach[4] > pb[1] && reach[2] < pb[5] && reach[5] > pb[2] {
+                        planted_met.insert(*pid, (k, t));
+                        break;
+                    }
+                }
+            }
+        }
+        // a box counts when it overlaps the footprint in plan, lies below the faller and reaches up to `floor_y` (the
+        // drop's landing cell): a cart under the landing's own blocks is not on the drop's way
+        let overlapping = |me: u32, fp: &[f64; 6], below_y: f64, floor_y: f64| -> Vec<String> {
+            let mut v = Vec::new();
+            for (id, cb, rb) in &occ_boxes {
+                if *id == me {
+                    continue;
+                }
+                for (what, b) in std::iter::once(("cart", Some(*cb))).chain(std::iter::once(("its rider", *rb))) {
+                    let Some(b) = b else { continue };
+                    let (dx, dz) = xz_overlap(fp, &b);
+                    if dx > 0.0 && dz > 0.0 && b[1] < below_y && b[4] >= floor_y {
+                        v.push(format!("cart {id}'s {} box x {:.3}..{:.3} y {:.3}..{:.3} z {:.3}..{:.3} (in the footprint by {dx:.3} x {dz:.3})", if what == "cart" { "own" } else { "rider's" }, b[0], b[3], b[1], b[4], b[2], b[5]));
+                    }
+                }
+            }
+            v
+        };
+        // (ironspec 07:38r (3)) a napper lost before the front: its cart removed
+        if let Some((k, lt)) = plants.lose_napper {
+            if lt == t {
+                if let Some(c) = cs.get(k) {
+                    let id = c.cart;
+                    if let Some(e) = run.world.entities.list.iter_mut().find(|e| e.id == id && !e.removed) {
+                        e.removed = true;
+                        events.push(format!("t {t}: napper {k}'s cart REMOVED (planted: a napper lost before the front)"));
+                    }
+                }
+            }
+        }
+        // (G1 03:34 (1)) the detectors' presses, read from the world
+        let pressed = |p: P| run.world.get(BlockPos::new(p[0], p[1], p[2])).to_string().contains("powered=true");
+        let (arr_now, dep_now) = (pressed(arrival), pressed(departure));
+        if arr_now && !arr_was {
+            arr_presses.push(t);
+            // (ironspec 07:38r) the ARRIVED latch: the arrival detector's rising edge after the release (when armed);
+            // a planted missed arrival press is not seen
+            if arrivals_seen < plants.suppress_arrivals {
+                arrivals_seen += 1;
+                events.push(format!("t {t}: an arrival press SUPPRESSED (planted: ARRIVED not set)"));
+            } else if armed {
+                arrival_since_clear = true;
+            }
+        }
+        // (ironspec 07:38r (3)) a late departure press, forced
+        if plants.late_presses.contains(&t) {
+            set_now = true;
+            events.push(format!("t {t}: a departure press FORCED (planted: a late press)"));
+        }
+        if dep_now && !dep_was {
+            dep_presses.push(t);
+            set_now = true;
+        }
+        // (ironspec 05:59 (2)) a real exit detector laid: its rising edge (the game's press, one tick late, with its
+        // 20-gt recheck hold) CLEARS the token
+        if let Some(xs) = plants.exit_sensor {
+            let now = pressed(xs);
+            if now && !exit_was {
+                clear_now = true;
+                exit_presses.push(t);
+            }
+            exit_was = now;
+        }
+        (arr_was, dep_was) = (arr_now, dep_now);
+        // (ironspec 04:32 / 04:37) the boosters' `powered`, read every tick
+        for (k, p) in plants.watch_powered.iter().enumerate() {
+            if !pressed(*p) {
+                unpowered[k].push(t);
+            }
+        }
+        for c in cs.iter_mut() {
+            if c.gone.is_some() {
+                continue;
+            }
+            let Some(e) = run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed) else {
+                c.gone = Some(t);
+                continue;
+            };
+            let (pos, v) = (e.pos, e.delta_movement);
+            centres.push(pos);
+            let cell = [pos.x.floor() as i32, pos.y.floor() as i32, pos.z.floor() as i32];
+            // the hold: a napper at rest in the hold's cell counts its held ticks; one passing the next cell
+            // north clears the token (it left the hold toward the drop)
+            if let Some(h) = hold {
+                if cell == h && (v.x * v.x + v.z * v.z).sqrt() < 0.003 {
+                    c.held_at_hold += 1;
+                }
+                if !c.passed_hold && cell == [h[0], h[1], h[2] - 1] {
+                    c.passed_hold = true;
+                    hold_passes += 1;
+                    // (day-1 05:07, G1 05:07 (2)) P1's exit-cell sensor CLEARS the token and ARMS the next SET: by the
+                    // cart's position here only when no real exit detector is laid (`exit_sensor`: then its rising
+                    // edge, read from the world, CLEARS: ironspec 05:59 (2))
+                    if plants.exit_sensor.is_none() {
+                        clear_now = true;
+                    }
+                    at_hold.push(t);
+                    // (ironspec 03:36 (3)) the release: no other cart's (or rider's) box in the column's footprint
+                    release_checks.push((t, overlapping(c.cart, &footprint, f64::INFINITY, arrival[1] as f64)));
+                }
+            }
+            // (G1 01:35) the drop checks: entering the column (x, z of the landing, above it) and entering the
+            // shaft below the rail end: every other cart's cell in the cells below that drop printed
+            if !c.col_check && cell[0] == arrival[0] && cell[2] == arrival[2] && cell[1] > arrival[1] {
+                c.col_check = true;
+                // (ironspec 03:36 (3)) judged on boxes: the falling cart's own plan box as its footprint, every
+                // other cart's and rider's box below it
+                let me = run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed).map(box_of);
+                let below: Vec<String> = me.map_or(Vec::new(), |fb| overlapping(c.cart, &fb, fb[1], arrival[1] as f64));
+                drop_checks.push((t, 0, "the column onto the landing", below));
+                // (ironspec 03:10 / 03:23) the y-22 end's exit: the speed at the first tick past the rail end
+                c.v_col = Some((v.x * v.x + v.z * v.z).sqrt());
+            }
+            if !c.shaft_check && cell[0] == sx && cell[2] == sz && cell[1] <= rend[1] {
+                c.shaft_check = true;
+                let me = run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed).map(box_of);
+                let below: Vec<String> = me.map_or(Vec::new(), |fb| overlapping(c.cart, &fb, fb[1], (rend[1] - 10) as f64));
+                drop_checks.push((t, 1, "the queue drop's shaft onto the booster", below));
+                // (G1 03:34) the queue drop's exit: the speed at the first tick past the rail end
+                c.v_shaft = Some((v.x * v.x + v.z * v.z).sqrt());
+            }
+            // (G1 01:29) the resync detector's cell: each napper's first tick in it (its press tick)
+            if let Some(wc) = watch_cell {
+                if c.watch.is_none() && cell == wc {
+                    c.watch = Some(t);
+                }
+            }
+            if let Some(e) = plants.entry {
+                if c.entry_t.is_none() && cell == e {
+                    c.entry_t = Some(t);
+                }
+            }
+            if c.arrival.is_none() && cell == arrival {
+                c.arrival = Some(t);
+                c.stamp_arrival = Some(c.stamp_now);
+            }
+            if c.departure.is_none() && cell == departure && c.arrival.is_some() {
+                c.departure = Some(t);
+                // (G1 03:39b) the departing cart's box (and its rider's) at the departure press, against the
+                // column's footprint: past it by construction
+                let me_box = occ_boxes.iter().find(|(id, _, _)| *id == c.cart).map(|(_, b, r)| (*b, *r));
+                if let Some((b, r)) = me_box {
+                    let clear = |x: &[f64; 6]| {
+                        let (dx, dz) = xz_overlap(&footprint, x);
+                        !(dx > 0.0 && dz > 0.0)
+                    };
+                    dep_boxes.push((t, c.cart, b, r, clear(&b) && r.as_ref().is_none_or(clear)));
+                }
+                // (day-1 05:07) the token is SET by the departure detector's rising edge read from the world
+                // (below, after the carts), not by this cart's cell
+                // (G1 00:06) the gate: the next napper starts `gate` gt after this one's departure
+                if let Some(d) = gate {
+                    if n_spawned < count && next_spawn.is_none() {
+                        next_spawn = Some(t + 1 + d);
+                    }
+                }
+            }
+            // (G1 05:00 (1)(b), the point of no return) a departed cart back on the front (before it fell into the shaft)
+            // (ironspec 09:00a (2), N's derivation) the departing cart's clear time: the first tick, after it last rested
+            // on the front, that its box is out of the column's landing footprint (z > -4.01)
+            if c.clear_t.is_none() && c.arrival.is_some() && c.front_z.is_some() && c.departure.is_none_or(|d| t <= d + 5) {
+                if let Some(e) = run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed) {
+                    let bz = e.pos.z - 0.49;
+                    if bz > footprint[5] && c.rest.is_some_and(|(rt, _)| t > rt) && (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt() > 0.003 {
+                        c.clear_t = Some((t, t - c.rest.map_or(t, |(rt, _)| rt)));
+                    }
+                }
+            }
+            if c.returned.is_none() && c.departure.is_some_and(|d| t > d) && c.fell.is_none() && cell == q {
+                c.returned = Some(t);
+            }
+            if c.fell.is_none() && c.departure.is_some() && pos.y < (rend[1] - 1) as f64 {
+                c.fell = Some(t);
+            }
+            let rail_here = redsim::rails::is_rail(&run.world.get(BlockPos::new(cell[0], cell[1], cell[2]))) || redsim::rails::is_rail(&run.world.get(BlockPos::new(cell[0], cell[1] - 1, cell[2])));
+            // off a rail between its arrival and its departure (the queue drop after the departure is a
+            // designed fall, judged by the drop BAR)
+            if c.arrival.is_some() && c.departure.is_none() && !rail_here {
+                c.off += 1;
+                c.first_off.get_or_insert((t, cell));
+            }
+            let speed = (v.x * v.x + v.z * v.z).sqrt();
+            // (G1 04:41 (2)) the waiting seat: while the napper is on the front (arrived, not departed), its
+            // RIDER's distance to the bed head each tick (both push phases and any creep over the wait)
+            // (ironspec 07:25r, the ball bar's one definition: distToCenterSqr(feet) < 256, strict, from the bed HEAD
+            // block's centre) the tick and cell where the rider's feet first enter the ball, on the way in
+            if c.ball_in.is_none() {
+                if let (Some(bh), Some(r)) = (plants.bed_head, c.rider) {
+                    if let Some(e) = run.world.entities.list.iter().find(|x| !x.removed && x.id == r) {
+                        let d2 = (e.pos.x - bh[0]).powi(2) + (e.pos.y - bh[1]).powi(2) + (e.pos.z - bh[2]).powi(2);
+                        if d2 < 256.0 {
+                            c.ball_in = Some((t, cell, d2.sqrt()));
+                        }
+                    }
+                }
+            }
+            if c.arrival.is_some() && c.departure.is_none() && cell == q {
+                c.wait_ticks += 1;
+                // (ironspec 06:11 (1)) the front's rest range: the cart's z at rest on the front, least and greatest
+                if speed < 0.003 {
+                    c.front_z = Some(c.front_z.map_or((pos.z, pos.z), |(a, b)| (a.min(pos.z), b.max(pos.z))));
+                }
+                if let (Some(bh), Some(r)) = (plants.bed_head, c.rider) {
+                    if let Some(e) = run.world.entities.list.iter().find(|x| !x.removed && x.id == r) {
+                        let d = ((e.pos.x - bh[0]).powi(2) + (e.pos.y - bh[1]).powi(2) + (e.pos.z - bh[2]).powi(2)).sqrt();
+                        c.seat_min = c.seat_min.min(d);
+                        // (G1 / cc767b78 08:05) the seat AT REST apart from the departing ticks
+                        if speed < 0.003 {
+                            c.seat_rest_min = c.seat_rest_min.min(d);
+                            c.seat_rest_max = c.seat_rest_max.max(d);
+                        }
+                        c.seat_first.get_or_insert(d);
+                        c.seat_last = d;
+                    }
+                }
+            }
+            // (ironspec 04:32: the stop wall's question) every contact the cart makes from its release from the
+            // hold until it lands, through the shared contact rule
+            if c.passed_hold && c.arrival.is_none() {
+                if let Some(i) = run.world.entities.list.iter().position(|x| !x.removed && x.id == c.cart) {
+                    for h in crate::contacts::cart_hits(&run.world, i) {
+                        c.contacts.push(format!("t {t} ({},{},{}) face {} depth {:.4} speed {:.4}->{:.4}", h.cell.x, h.cell.y, h.cell.z, h.face.name(), h.depth, h.speed_in, h.speed_out));
+                    }
+                    for h in crate::contacts::cart_vertical_hits(&run.world, i) {
+                        c.contacts.push(format!("t {t} ({},{},{}) {:?} depth {:.4} speed {:.4}->{:.4}", h.cell.x, h.cell.y, h.cell.z, h.class, h.depth, h.speed_in, h.speed_out));
+                    }
+                }
+            }
+            if c.arrival.is_some() && c.departure.is_none() && speed < 0.003 {
+                waiting += 1;
+                c.rest = Some((t, cell));
+                // a release `release_after` gt after a napper comes to rest on the queue cell (the stop
+                // emulated free), once a napper, never while a release is under way
+                if let Some(a) = release_after {
+                    if cell == q && !c.released && release_at.is_none() && rearm_at.is_none() {
+                        c.released = true;
+                        release_at = Some(t + 1 + a);
+                    }
+                }
+            }
+            if let Some(r) = c.rider {
+                if let Some(i) = run.world.entities.list.iter().position(|x| !x.removed && x.id == r) {
+                    if let EntityKind::Mob(m) = &run.world.entities.list[i].kind {
+                        c.h0.get_or_insert(m.health);
+                        if c.hurt_at.is_none() && c.h0.is_some_and(|h| m.health < h) {
+                            c.hurt_at = Some((t, cell));
+                        }
+                        // (the stop's entry given) the way-in's health is judged until the napper reaches the
+                        // stop's entry; a hurt after it is the stop's, printed apart
+                        if c.entry_t.is_none() {
+                            c.hmin = c.hmin.min(m.health);
+                        } else {
+                            c.hmin_stop = c.hmin_stop.min(m.health);
+                        }
+                    }
+                    if redsim::entity::mob::ai::brain::has_exact(&run.world, i) {
+                        let since = redsim::entity::mob::ai::brain::ex(&run.world, i).mem.cant_reach_since;
+                        // (ironspec 07:50r (3)) the stamp's age now (0 with no stamp), for its age on arrival
+                        c.stamp_now = since.map_or(0, |s| run.world.time - s);
+                        if let Some(s) = since {
+                            // (ironspec 23:57) the stamp's age while the napper WAITS (until its departure);
+                            // after it the stop's rows judge it
+                            if c.departure.is_none() {
+                                c.stamp = c.stamp.max(run.world.time - s);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // (ironspec 05:52 (6)) the token's recovery: the front empty of ANY cart (a box in the front's cell) for
+        // `front_recovery` ticks while a napper waits at rest in the hold: a SET (armed or not: the evidence is the
+        // empty front itself), counted apart
+        if let (Some(n), Some(h)) = (plants.front_recovery, hold) {
+            let front_box = [q[0] as f64, q[1] as f64, q[2] as f64, q[0] as f64 + 1.0, q[1] as f64 + 1.0, q[2] as f64 + 1.0];
+            let inside = |b: &[f64; 6]| b[0] < front_box[3] && b[3] > front_box[0] && b[1] < front_box[4] && b[4] > front_box[1] && b[2] < front_box[5] && b[5] > front_box[2];
+            // (ironspec 05:57 / 06:08) the front sensor: day-1's cheapest cart-keyed form, the ARRIVAL DETECTOR itself read
+            // from the world (any cart, its 20-gt hold included: `recovery_by_arrival`), else presence emulated by boxes,
+            // CART-keyed (any cart's box) or VILLAGER-keyed (a rider's box only: ruled out, an empty front kills one
+            // arrival later)
+            let occupied = if let Some(fs) = plants.front_sensor {
+                // (tick-exact 06:28, ironspec 06:31) a named sensor block read from the world (the high string's
+                // tripwire, or any block whose state reads powered=true when pressed)
+                pressed(fs)
+            } else if plants.recovery_by_arrival {
+                arr_now
+            } else if plants.recovery_villager_keyed {
+                occ_boxes.iter().any(|(_, _, r)| r.as_ref().is_some_and(inside))
+            } else {
+                occ_boxes.iter().any(|(_, b, _)| inside(b))
+            };
+            front_empty_for = if occupied { 0 } else { front_empty_for + 1 };
+            // "a napper waits at P1": day-1's latch, SET by the approach detector's press (read from the world) and RESET by
+            // the token's CLEAR (`recovery_approach`), else emulated as a napper at rest in P1's cell
+            let napper_at_p1 = match plants.recovery_approach {
+                Some(ap) => {
+                    let now = pressed(ap);
+                    if now && !approach_was {
+                        approach_latch = true;
+                    }
+                    approach_was = now;
+                    approach_latch
+                }
+                None => cs.iter().any(|c| {
+                    run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed).is_some_and(|e| {
+                        [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32] == h && (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt() < 0.003
+                    })
+                }),
+            };
+            if clear_now {
+                approach_latch = false;
+            }
+            // (b8949c96 07:33, the recovery's safety) only after an ARRIVAL press since the last CLEAR: the released
+            // napper reached the front and left it without a departure press (a missed press); a napper still between
+            // P1 and the front (no arrival yet) leaves the front empty too, and a recovery then drops the next napper
+            // onto it (killed in the G1 / G4 / G7 rows of fe138dd9d). `recovery_unsafe` drops the condition (that row)
+            // (b8949c96 08:37) `recovery_without_waiter` drops "a napper waits at P1": with ARRIVED the SET is safe whether
+            // or not a napper waits (it only pre-arms the next napper's release, like a departure press), and an approach
+            // detector's edges merge under its 20-gt hold for nappers < 20 gt apart (the latch then misses one)
+            if !token && front_empty_for >= n && (napper_at_p1 || plants.recovery_without_waiter) && !clear_now && (arrival_since_clear || plants.recovery_unsafe) {
+                token = true;
+                armed = false;
+                token_sets += 1;
+                recovery_sets.push(t);
+                token_spans.push((t, None));
+                events.push(format!("t {t}: the token SET by the recovery (the front read empty {front_empty_for} gt, a napper waiting at P1)"));
+            }
+        }
+        // (day-1 05:07, G1 05:07 (2)) the token resolved: a SET counts only when ARMED and not suppressed; a
+        // CLEAR arms the next SET; both in one tick resolve toward CLEAR
+        if hold.is_some() {
+            let mut set_ok = false;
+            if set_now {
+                presses_seen += 1;
+                if presses_seen <= plants.suppress_presses {
+                    sets_suppressed += 1;
+                    events.push(format!("t {t}: the departure press SUPPRESSED (planted: the token not set)"));
+                } else if !armed {
+                    sets_unarmed += 1;
+                    events.push(format!("t {t}: a departure press with the token DISARMED (no CLEAR since the last SET): ignored"));
+                } else if plants.token_sequence && !arrival_since_clear {
+                    sets_no_arrival += 1;
+                    events.push(format!("t {t}: a departure press with NO arrival press since the last CLEAR (the sequence evidence): ignored"));
+                } else {
+                    set_ok = true;
+                }
+            }
+            if clear_now {
+                if token {
+                    if let Some(s) = token_spans.last_mut() {
+                        if s.1.is_none() {
+                            s.1 = Some(t);
+                        }
+                    }
+                }
+                token = false;
+                armed = true;
+                arrival_since_clear = false;
+                if set_ok {
+                    events.push(format!("t {t}: a SET and a CLEAR in the same tick: resolved toward CLEAR (the token stays clear, armed)"));
+                }
+            } else if set_ok {
+                token = true;
+                armed = false;
+                arrival_since_clear = false;
+                token_sets += 1;
+                token_spans.push((t, None));
+            }
+        }
+        // (G1 02:54) the landing (the napper drop's and the riderless off-the-end fall's): no ridden cart
+        // ever at rest on it (any tick), each first rest printed by cart
+        // a planted cart crossing the departure cell is a departure too (its press is no re-press)
+        for id in planted.iter() {
+            if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) {
+                if [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32] == departure {
+                    planted_departed.insert(*id);
+                }
+            }
+        }
+        for id in cs.iter().map(|c| c.cart).chain(planted.iter().copied()) {
+            if landing_rests.iter().any(|(_, x, _)| *x == id) {
+                continue;
+            }
+            if let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) {
+                let cell = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+                let s = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+                let ridden = run.world.entities.list.iter().any(|r| !r.removed && r.vehicle == Some(id));
+                if cell == arrival && s < 0.003 && ridden {
+                    landing_rests.push((t, id, format!("({:.4}, {:.4}, {:.4})", e.pos.x, e.pos.y, e.pos.z)));
+                }
+            }
+        }
+        waiting_max = waiting_max.max(waiting);
+        for a in 0..centres.len() {
+            for b in a + 1..centres.len() {
+                let d = ((centres[a].x - centres[b].x).powi(2) + (centres[a].y - centres[b].y).powi(2) + (centres[a].z - centres[b].z).powi(2)).sqrt();
+                dmin = dmin.min(d);
+            }
+        }
+    }
+    let mut out = vec![format!(
+        "(leg train) {count} napper(s) down the leg from ({:.4}, {:.4}, {:.4}) at ({:.4}, {:.4}, {:.4}) b/t, {} (HOME the bed {bed:?}, the day time {day}); the built R1 released at t {releases:?}{} (NOT-ready's lever off {hold_gt} gt, then on); followed {ticks} gt; the arrival detector {arrival:?}, the queue {q:?}, the departure detector {departure:?}",
+        start[0], start[1], start[2], motion[0], motion[1], motion[2],
+        match gate {
+            Some(d) => format!("each next one started {d} gt after the previous one passes the departure detector (G1 00:06: the gate 'the previous cart has left')"),
+            None => format!("one every {spacing} gt"),
+        },
+        release_after.map_or(String::new(), |a| format!(" and {a} gt after each napper comes to rest on the queue (the stop emulated free)"))
+    )];
+    for (k, c) in cs.iter().enumerate() {
+        out.push(format!(
+            "(leg train) napper {k} (spawned t {}): arrival t {}, waits {}, departure t {}, in the shaft t {}; least health {} (of {}); its stamp's largest age while waiting {} gt{}; off a rail before its departure {} tick(s){}{}",
+            c.at,
+            c.arrival.map_or("-".to_string(), |x| x.to_string()),
+            c.rest.map_or("never at rest".to_string(), |(t, p)| format!("in {p:?} (last at rest t {t})")),
+            c.departure.map_or("-".to_string(), |x| x.to_string()),
+            c.fell.map_or("-".to_string(), |x| x.to_string()),
+            if c.hmin.is_finite() { format!("{:.1}", c.hmin) } else { "-".to_string() },
+            c.h0.map_or("-".to_string(), |h| format!("{h:.1}"))
+                + &c.hurt_at.map_or(String::new(), |(t, p)| format!(", first hurt at t {t} in {p:?}{}", if c.entry_t.is_some_and(|e| t >= e) { " (IN THE STOP, after its entry)" } else { "" }))
+                + &c.entry_t.map_or(String::new(), |e| format!("; at the stop's entry t {e}{}", if c.hmin_stop.is_finite() { format!(", least health in the stop {:.1} (the stop's, not judged here)", c.hmin_stop) } else { String::new() }))
+                + &c.v_col.map_or(String::new(), |v| format!("; the y-22 end's exit {v:.4} b/t"))
+                + &c.v_shaft.map_or(String::new(), |v| format!("; the queue drop's exit {v:.4} b/t")),
+            c.stamp,
+            c.stamp_arrival.map_or(String::new(), |a| format!(" (its age on arrival at the front {a} gt: the seat's limit 1,200 - {a} = {} gt)", 1200 - a)),
+            c.off,
+            c.first_off.map_or(String::new(), |(t, p)| format!(" (first at t {t} in {p:?})")),
+            match hold {
+                Some(_) => format!("; held at the hold {} tick(s){}", c.held_at_hold, if c.passed_hold { "" } else { ", NEVER passed it" }),
+                None => String::new(),
+            } + &watch_cell.map_or(String::new(), |w| format!("; first in {w:?} at t {}", c.watch.map_or("-".to_string(), |t| t.to_string())))
+                + &c.gone.map_or(String::new(), |t| format!("; the cart GONE at t {t}"))
+                + &(if c.wait_ticks > 0 && c.seat_min.is_finite() {
+                    format!(
+                        "; on the front {} gt, its rider's FEET distance to the bed head block's centre AT REST least {} / greatest {} (every tick on the front, the departing ones included: first {:.3}, least {:.3}, last {:.3}; the creep {})",
+                        c.wait_ticks,
+                        if c.seat_rest_min.is_finite() { format!("{:.3}", c.seat_rest_min) } else { "-".to_string() },
+                        if c.seat_rest_max.is_finite() { format!("{:.3}", c.seat_rest_max) } else { "-".to_string() },
+                        c.seat_first.unwrap_or(f64::NAN),
+                        c.seat_min,
+                        c.seat_last,
+                        match c.seat_first {
+                            Some(f) if c.seat_last < f - 1e-4 => format!("TOWARD the bed by {:.4}", f - c.seat_last),
+                            Some(f) if c.seat_last > f + 1e-4 => format!("away from the bed by {:.4}", c.seat_last - f),
+                            _ => "none to 1e-4".to_string(),
+                        }
+                    )
+                } else {
+                    String::new()
+                })
+                + &c.front_z.map_or(String::new(), |(a, b)| format!("; at rest on the front z {a:.4}..{b:.4}"))
+                + &c.clear_t.map_or(String::new(), |(t, d)| format!("; its box out of the column's landing footprint (z > {:.2}) at t {t}, {d} gt after it last rested", footprint[5]))
+                + &(if plants.bed_head.is_some() {
+                    c.ball_in.map_or("; its rider's feet never inside the ball (distToCenterSqr < 256 from the bed head block's centre)".to_string(), |(t, cell, d)| format!("; its rider's feet first inside the ball (distToCenterSqr < 256 from the bed head block's centre) at t {t} in {cell:?}, distance {d:.3}"))
+                } else {
+                    String::new()
+                })
+                + &run.world.entities.list.iter().find(|e| e.id == c.cart && !e.removed).map_or(String::new(), |e| {
+                    format!("; ENDS at ({:.4}, {:.4}, {:.4}) in {:?} moving {:.4} b/t", e.pos.x, e.pos.y, e.pos.z, [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32], (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt())
+                })
+                + &(if c.contacts.is_empty() { if c.passed_hold { "; no contact from the hold to the landing".to_string() } else { String::new() } } else { format!("; contacts from the hold to the landing: {}", c.contacts.join(", ")) })
+        ));
+    }
+    let arrived = cs.iter().filter(|c| c.arrival.is_some()).count();
+    let departed: Vec<(u32, usize)> = {
+        let mut d: Vec<(u32, usize)> = cs.iter().enumerate().filter_map(|(k, c)| c.departure.map(|t| (t, k))).collect();
+        d.sort();
+        d
+    };
+    let arrivals: Vec<usize> = {
+        let mut a: Vec<(u32, usize)> = cs.iter().enumerate().filter_map(|(k, c)| c.arrival.map(|t| (t, k))).collect();
+        a.sort();
+        a.into_iter().map(|(_, k)| k).collect()
+    };
+    let fifo = departed.iter().map(|(_, k)| *k).eq(arrivals.iter().copied().take(departed.len()));
+    let off_total: u32 = cs.iter().map(|c| c.off).sum();
+    let hurt = cs.iter().filter(|c| c.h0.is_some_and(|h| c.hmin < h)).count();
+    let stamp_max = cs.iter().map(|c| c.stamp).max().unwrap_or(0);
+    let gone = cs.iter().filter(|c| c.gone.is_some() && c.fell.is_none()).count();
+    let all_depart = (releases.is_empty() && release_after.is_none()) || departed.len() == cs.len();
+    let bars = [
+        (format!("every napper arrives ({arrived} of {})", cs.len()), arrived == cs.len() && cs.len() as u32 == count),
+        (format!("none off a rail between its arrival and its departure ({off_total} tick(s))"), off_total == 0),
+        (format!("no cart lost before its fall ({gone})"), gone == 0),
+        (
+            format!(
+                "every rider unhurt on the way-in{} ({hurt} hurt)",
+                if plants.entry.is_some() { ", up to the stop's entry (a hurt in the stop is the stop's, printed per napper)" } else { "" }
+            ),
+            hurt == 0,
+        ),
+        (format!("the departures in the arrivals' order (FIFO): departures {:?}, arrivals {arrivals:?}", departed.iter().map(|(_, k)| *k).collect::<Vec<_>>()), fifo),
+        (format!("every stamp under 1,200 gt while its napper waits, until its departure (the largest {stamp_max} gt)"), stamp_max < 1200),
+        (format!("with releases, every napper departs ({} of {})", departed.len(), cs.len()), all_depart),
+        // (ironspec 00:54, G1 00:12) one release per departure edge: the hold passed at most once per token
+        // set (the first napper on the token's start)
+        (
+            match hold {
+                Some(_) => format!("the hold releases one napper per token (passes {hold_passes} <= the token's start + {token_sets} departure press(es)): passes at t {at_hold:?}"),
+                None => "no hold laid (one release per edge not judged)".to_string(),
+            },
+            hold.is_none() || hold_passes <= 1 + token_sets,
+        ),
+        // (G1 01:35) no landing holds a ridden cart while another cart can fall onto it
+        (
+            format!(
+                "every drop's landing and the cells below it free of any other cart at the drop ({} drop(s) checked: {} into the column, {} into the queue's shaft){}",
+                drop_checks.len(),
+                drop_checks.iter().filter(|d| d.1 == 0).count(),
+                drop_checks.iter().filter(|d| d.1 == 1).count(),
+                {
+                    let bad: Vec<String> = drop_checks.iter().filter(|d| !d.3.is_empty()).map(|d| format!("t {} {}: OCCUPIED by {}", d.0, d.2, d.3.join(", "))).collect();
+                    if bad.is_empty() { String::new() } else { format!("; {}", bad.join("; ")) }
+                }
+            ),
+            !drop_checks.is_empty() && drop_checks.iter().all(|d| d.3.is_empty()),
+        ),
+        (
+            format!(
+                "no ridden cart ever at rest on the landing {arrival:?} (the napper drop's and the riderless off-the-end fall's landing, G1 02:54){}",
+                if landing_rests.is_empty() { String::new() } else { format!(": RESTED on the landing: {}", landing_rests.iter().map(|(t, id, p)| format!("cart {id} at t {t} at {p}")).collect::<Vec<_>>().join("; ")) }
+            ),
+            landing_rests.is_empty(),
+        ),
+        // (ironspec 03:36 (3)) each release from the hold waits until no other cart's or rider's box is in the
+        // column's footprint (not merely the detector's cell)
+        (
+            format!(
+                "at every release from the hold, no other cart's or rider's box in the column's footprint x {:.2}..{:.2} z {:.2}..{:.2} ({} release(s) checked){}",
+                footprint[0],
+                footprint[3],
+                footprint[2],
+                footprint[5],
+                release_checks.len(),
+                {
+                    let bad: Vec<String> = release_checks.iter().filter(|r| !r.1.is_empty()).map(|r| format!("t {}: {}", r.0, r.1.join(", "))).collect();
+                    if bad.is_empty() { String::new() } else { format!(": IN THE FOOTPRINT at {}", bad.join("; ")) }
+                }
+            ),
+            release_checks.iter().all(|r| r.1.is_empty()),
+        ),
+        // (G1 03:34 (1)) the detectors read pressed in the world: the arrival detector once per arrival, the
+        // departure detector once per departure
+        (
+            format!(
+                "the arrival detector {arrival:?} pressed once per arrival ({} press(es) at t {arr_presses:?}, {} arrival(s)) and the departure detector {departure:?} once per departure ({} press(es) at t {dep_presses:?}, {} departure(s))",
+                arr_presses.len(),
+                cs.iter().filter(|c| c.arrival.is_some()).count(),
+                dep_presses.len(),
+                cs.iter().filter(|c| c.departure.is_some()).count()
+            ),
+            arr_presses.len() == cs.iter().filter(|c| c.arrival.is_some()).count() && dep_presses.len() == cs.iter().filter(|c| c.departure.is_some()).count(),
+        ),
+        // (G1 03:39b) at every departure press the departing cart's and rider's boxes are past the footprint
+        (
+            format!(
+                "at every departure press the departing cart's and rider's boxes are clear of the column's footprint (z {:.2}..{:.2}): {}",
+                footprint[2],
+                footprint[5],
+                if dep_boxes.is_empty() {
+                    "no departure".to_string()
+                } else {
+                    dep_boxes
+                        .iter()
+                        .map(|(t, id, b, r, ok)| format!("t {t} cart {id} box z {:.3}..{:.3}{}{}", b[2], b[5], r.map_or(String::new(), |r| format!(", rider z {:.3}..{:.3}", r[2], r[5])), if *ok { "" } else { " IN THE FOOTPRINT" }))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                }
+            ),
+            dep_boxes.iter().all(|d| d.4),
+        ),
+        // (G1 05:00 (1)(b) / 05:07 (2)(a)) the point of no return: no departed cart back on the front, and the departure
+        // detector pressed once per departure (a re-press is a rollback over it)
+        (
+            {
+                let back: Vec<String> = cs.iter().enumerate().filter_map(|(k, c)| c.returned.map(|t| format!("napper {k} BACK on the front at t {t}"))).collect();
+                // the departures: the train's, plus every planted cart that crossed the departure cell
+                let departures = cs.iter().filter(|c| c.departure.is_some()).count() + planted_departed.len();
+                format!(
+                    "no departed cart returns to the front, and no re-press of the departure detector {departure:?} after a departure ({} press(es) for {departures} departure(s), {} of them planted carts: {} re-press(es)){}",
+                    dep_presses.len(),
+                    planted_departed.len(),
+                    dep_presses.len().saturating_sub(departures),
+                    if back.is_empty() { String::new() } else { format!(": {}", back.join("; ")) }
+                )
+            },
+            cs.iter().all(|c| c.returned.is_none()) && dep_presses.len() <= cs.iter().filter(|c| c.departure.is_some()).count() + planted_departed.len(),
+        ),
+    ];
+    let pass = bars.iter().all(|(_, ok)| *ok);
+    // (day-1 05:07, G1 05:03) the token's spans: each SET to its CLEAR, P1 powered for that long; the presses
+    // suppressed (the stall row) and ignored as disarmed
+    if hold.is_some() {
+        out.push(format!(
+            "(leg train) the token (SET by the departure detector's edge when armed, CLEARED by {}, a coincident pair -> CLEAR{}): spans {}; {} press(es) suppressed, {} ignored as disarmed{}",
+            match plants.exit_sensor {
+                Some(xs) => format!("the exit detector {xs:?}'s rising edge read from the world (presses at t {exit_presses:?})"),
+                None => "the cart entering P1's exit cell, by position (EMULATED: an instant press, no detector's +1 gt or recheck hold)".to_string(),
+            },
+            plants.front_recovery.map_or(String::new(), |n| format!("; the RECOVERY: SET when the front holds no {} for {n} gt while a napper waits at rest in P1 (EMULATED presence: boxes, not a sensor block)", if plants.recovery_villager_keyed { "villager" } else { "cart" })),
+            if token_spans.is_empty() { "none".to_string() } else { token_spans.iter().map(|(s, e)| format!("t {s}..{}", e.map_or("(still set)".to_string(), |e| format!("{e} ({} gt)", e - s)))).collect::<Vec<_>>().join(", ") },
+            sets_suppressed,
+            sets_unarmed,
+            if plants.front_recovery.is_some() { format!("; {} SET(s) by the recovery at t {recovery_sets:?}", recovery_sets.len()) } else { String::new() }
+                + &(if plants.release_needs_front_clear { format!("; the release GATED on the front read clear: the token set but the front occupied for {gate_held} tick(s)") } else { String::new() })
+                + &(if plants.token_sequence { format!("; the SEQUENCE evidence (a departure SETs only after an arrival press since the last CLEAR): {sets_no_arrival} departure press(es) ignored for no arrival press") } else { String::new() })
+                + &plants.p1_pulse.map_or(String::new(), |n| format!("; P1 released by {n}-gt PULSES (each clears the token and A_SEEN) at t {pulses:?}"))
+        ));
+    }
+    // (ironspec 08:16a / G1 06:54 (a)) the cover edge, per row: the greatest z any napper's cart rested at on the front
+    // against the arrival detector's search-box edge z -3.71 (the game's own, DetectorRailBlock.getSearchBB's 0.2 inset)
+    {
+        let rests: Vec<(usize, f64)> = cs.iter().enumerate().filter_map(|(k, c)| c.front_z.map(|(_, b)| (k, b))).collect();
+        if let Some((k, z)) = rests.iter().copied().max_by(|a, b| a.1.total_cmp(&b.1)) {
+            out.push(format!(
+                "(leg train) the cover edge: the greatest rest z on the front over {} napper(s) {z:.4} (napper {k}) vs the arrival detector's edge -3.71: margin {:.4}{}",
+                rests.len(),
+                -3.71 - z,
+                if z < -3.71 { "" } else { " OUTSIDE THE COVER" }
+            ));
+        }
+    }
+    // (ironspec 06:31 (1)) the way-in's occupancy: the most nappers in flight at once (spawned, not yet departed from
+    // the front), against its 3 dry waiting places, and the dispatch held by the cap
+    out.push(format!(
+        "(leg train) the way-in's occupancy: at most {max_in_flight} napper(s) in flight at once (sent down the leg minus the departure presses of (9,-11,-3): day-1's room term; its dry waiting places: P1 + 2 on the descent = 3){}",
+        plants.dispatch_cap.map_or(String::new(), |cap| format!("; the dispatch (EMULATED day-1: none while {cap} in flight) held {dispatch_held} tick(s)"))
+    ));
+    // the planted ridden carts' fate (the front, a jam): where each ends and its rider's health
+    for id in &ridden_planted {
+        let fate = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).map_or("GONE".to_string(), |e| {
+            let rider_hp = run.world.entities.list.iter().find(|r| !r.removed && r.vehicle == Some(*id)).and_then(|r| if let EntityKind::Mob(m) = &r.kind { Some(m.health) } else { None });
+            format!(
+                "ends at ({:.4}, {:.4}, {:.4}) in {:?} moving {:.4} b/t, {}",
+                e.pos.x,
+                e.pos.y,
+                e.pos.z,
+                [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32],
+                (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt(),
+                rider_hp.map_or("its rider GONE (dismounted or dead)".to_string(), |h| format!("its rider at {h:.1} HP"))
+            )
+        });
+        let met = planted_met.get(id).map_or("NOT MET by any napper (the jam row NOT JUDGED for it)".to_string(), |(k, t)| format!("MET by napper {k} at t {t} (its box inflated 0.2 in x / z)"));
+        out.push(format!("(leg train) the planted RIDDEN cart {id}: {met}; {fate}"));
+    }
+    // (ironspec 04:32 / 04:37) the boosters' per-tick read
+    for (k, p) in plants.watch_powered.iter().enumerate() {
+        out.push(format!(
+            "(leg train) {p:?} read `powered` every tick: {}",
+            if unpowered[k].is_empty() { format!("POWERED on all {ticks} tick(s)") } else { format!("UNPOWERED on {} tick(s) (first t {:?})", unpowered[k].len(), unpowered[k].iter().take(8).collect::<Vec<_>>()) }
+        ));
+    }
+    // (ironspec 03:13 / 03:23 (6)) the two designed falls' least exit speed (ridden nappers) against the game's
+    // all-phase band: 0.25 ridden, 0.27 empty
+    for (name, vs) in [("the y-22 end (9,22,-4) -> the column", cs.iter().filter_map(|c| c.v_col).collect::<Vec<f64>>()), ("the queue drop's rail end -> the shaft", cs.iter().filter_map(|c| c.v_shaft).collect::<Vec<f64>>())] {
+        if let Some(least) = vs.iter().copied().reduce(f64::min) {
+            out.push(format!("(leg train) {name}: the least exit speed over {} ridden napper(s) {least:.4} b/t (the first tick past the rail end): {:.2}x the ridden all-phase bound 0.25, {:.2}x the empty 0.27", vs.len(), least / 0.25, least / 0.27));
+        }
+    }
+    out.push(format!("(leg train) at most {waiting_max} napper(s) waiting at rest at once; the least distance between two carts {}", if dmin.is_finite() { format!("{dmin:.4}") } else { "-".to_string() }));
+    for (name, ok) in &bars {
+        out.push(format!("(leg train) BAR {name}: {}", if *ok { "PASSES" } else { "FAILS" }));
+    }
+    // the planted empty carts' fate: where each ends (still on the leg line, down the column, on the front)
+    for id in &empties {
+        let fate = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed).map_or("GONE".to_string(), |e| {
+            format!("ends at ({:.4}, {:.4}, {:.4}) in {:?} moving {:.4} b/t", e.pos.x, e.pos.y, e.pos.z, [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32], (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt())
+        });
+        let met = planted_met.get(id).map_or("NOT MET by any napper (the jam row NOT JUDGED for it)".to_string(), |(k, t)| format!("MET by napper {k} at t {t} (its box inflated 0.2 in x / z)"));
+        out.push(format!("(leg train) the planted EMPTY cart {id}: {met}; {fate}"));
+    }
+    out.push(format!("(leg train) the releases: {}", if events.is_empty() { "none".to_string() } else { events.join("; ") }));
+    Ok((override_lines.into_iter().chain(std::iter::once(fluid_line)).chain(out).collect(), pass))
+}
+
+/// (R6; ironspec 01:44b (1), G1 01:46) The hold's sweep: one napper a run down the leg at each start speed
+/// (and phase along its start cell), the hold braked: BRAKING (it comes to rest within the hold's cell, no
+/// overrun into the next cell `ahead`; its rest position printed), then the hold powered: RELAUNCH (the
+/// tick it reaches `ahead`, gravity only), the speed it leaves the line's end at (`edge`, the cell off the
+/// y-22 line's end: fed to the column's drop) and its landing on the arrival detector (the rider's
+/// health). BAR: every run stops within the cell, relaunches within `relaunch_bound` gt, lands on the
+/// arrival detector unhurt.
+#[allow(clippy::too_many_arguments)]
+pub fn hold_sweep_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], heading: [f64; 3], speeds: &[f64], phases: u32, hold: P, ahead: P, edge: P, relaunch_bound: u32, empty: bool) -> Result<(Vec<String>, bool), String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 1200, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o)?);
+    let override_lines = place_overrides(&mut run.world, o.extra.len(), &cells)?;
+    settle_r1(&mut run.world, o)?;
+    let (fluid_line, fluid_ok) = fluids_line(&mut run.world, o.chunk, "hold sweep");
+    if !fluid_ok {
+        return Err(fluid_line);
+    }
+    // the hold: a powered rail in its cell's rail shape, on glass (braked); powered = a redstone block in
+    // place of its support (the token's output, emulated)
+    let hp = BlockPos::new(hold[0], hold[1], hold[2]);
+    let support = BlockPos::new(hold[0], hold[1] - 1, hold[2]);
+    let here = run.world.get(hp).to_string();
+    let shape = here.split("shape=").nth(1).and_then(|s| s.split([',', ']']).next()).ok_or_else(|| format!("the hold {hold:?} holds {here}, no rail shape"))?.to_string();
+    run.world.set_block(hp, Block::parse(&format!("minecraft:powered_rail[powered=false,shape={shape},waterlogged=false]")).map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    run.world.set_block(support, Block::parse("minecraft:glass").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    let redstone = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+    let arrival = [q[0], q[1] + 1, q[2] - 1];
+    let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+    let mut out = vec![format!(
+        "(hold sweep) the hold {hold:?} a powered rail (shape {shape}) braked on glass, then powered (a redstone block at {support}); one napper a run from ({:.4}, {:.4}, {:.4}) heading ({}, {}, {}) at {} speed(s) {:.4}..{:.4} x {} phase(s) along its start cell; the cell ahead {ahead:?}, the line's end {edge:?}, the landing {arrival:?}",
+        start[0],
+        start[1],
+        start[2],
+        heading[0],
+        heading[1],
+        heading[2],
+        speeds.len(),
+        speeds.first().copied().unwrap_or(0.0),
+        speeds.last().copied().unwrap_or(0.0),
+        phases.max(1)
+    )];
+    if empty {
+        out.push("(hold sweep) the runs' carts are EMPTY (no rider): the riderless player fault (ironspec 03:34 (2)); the speeds and stops are an empty cart's".to_string());
+    }
+    let (mut runs, mut fails) = (0u32, Vec::<String>::new());
+    let (mut rest_z, mut relaunch_t, mut edge_v): (Vec<f64>, Vec<u32>, Vec<f64>) = (Vec::new(), Vec::new(), Vec::new());
+    let mut per_run: Vec<String> = Vec::new();
+    let mut contact_agg: std::collections::BTreeMap<String, (std::collections::BTreeSet<u32>, f64, f64, f64)> = std::collections::BTreeMap::new();
+    let mut front_rests: Vec<f64> = Vec::new();
+    let mut fastest_stop: Option<f64> = None;
+    for k in 0..phases.max(1) {
+        // the phase moves the start along its heading within one cell
+        let f = (k as f64 + 0.5) / phases.max(1) as f64 - 0.5;
+        let p0 = [start[0] + heading[0] * f, start[1], start[2] + heading[2] * f];
+        for &v in speeds {
+            runs += 1;
+            let mut r = run.clone();
+            // (ironspec 03:34 (2)) with `empty` the cart carries no rider (the riderless player fault)
+            let nbt = if empty { format!("{{Motion:[{:.6}d,0.0d,{:.6}d]}}", heading[0] * v, heading[2] * v) } else { format!("{{Motion:[{:.6}d,0.0d,{:.6}d],{}", heading[0] * v, heading[2] * v, &rider[1..]) };
+            let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", p0, Some(&nbt))?;
+            let rid = r.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id);
+            let cell_of = |w: &redsim::world::World| w.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| ([e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32], e.pos, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
+            // braking: run until at rest 5 ticks in a row (or 400 gt); an overrun into `ahead` fails
+            let (mut still, mut overrun, mut rested) = (0u32, false, None::<(P, f64)>);
+            for _ in 0..400 {
+                r.tick();
+                let Some((c, p, s)) = cell_of(&r.world) else { break };
+                if c == ahead {
+                    overrun = true;
+                    break;
+                }
+                still = if s < 0.003 { still + 1 } else { 0 };
+                if still >= 5 {
+                    rested = Some((c, p.z));
+                    break;
+                }
+            }
+            let Some((rc, rz)) = rested.filter(|(c, _)| *c == hold) else {
+                fails.push(format!("v {v:.4} phase {k}: {}", if overrun { "OVERRAN the hold into the cell ahead".to_string() } else { format!("did not rest in the hold ({:?})", rested.map(|x| x.0)) }));
+                continue;
+            };
+            let _ = rc;
+            rest_z.push(rz);
+            fastest_stop = Some(fastest_stop.map_or(v, |x: f64| x.max(v)));
+            // relaunch: the hold powered
+            r.world.set_block(support, redstone.clone(), redsim::world::flags::ALL);
+            let (mut t_ahead, mut v_edge, mut landed, mut hmin) = (None::<u32>, None::<f64>, None::<u32>, f32::INFINITY);
+            let (mut still, mut front_rest) = (0u32, None::<f64>);
+            let mut last: Option<(P, Vec3, f64)> = None;
+            for t in 0..600u32 {
+                r.tick();
+                if let Some(i) = rid.and_then(|id| r.world.entities.list.iter().position(|e| !e.removed && e.id == id)) {
+                    if let EntityKind::Mob(m) = &r.world.entities.list[i].kind {
+                        hmin = hmin.min(m.health);
+                    }
+                }
+                let Some((c, pos_now, s)) = cell_of(&r.world) else { break };
+                last = Some((c, pos_now, s));
+                // (ironspec 04:32: the stop wall's question) every contact from the release to the landing,
+                // aggregated per cell and face over the runs (the landing tick included; the roll to the front
+                // after it not)
+                if let Some(i) = r.world.entities.list.iter().position(|e| !e.removed && e.id == cart).filter(|_| landed.is_none()) {
+                    let hits: Vec<(String, f64, f64, f64)> = crate::contacts::cart_hits(&r.world, i)
+                        .into_iter()
+                        .map(|h| (format!("({},{},{}) face {}", h.cell.x, h.cell.y, h.cell.z, h.face.name()), h.depth, h.speed_in, h.speed_out))
+                        .chain(crate::contacts::cart_vertical_hits(&r.world, i).into_iter().map(|h| (format!("({},{},{}) {:?}", h.cell.x, h.cell.y, h.cell.z, h.class), h.depth, h.speed_in, h.speed_out)))
+                        .collect();
+                    for (key, depth, sin, sout) in hits {
+                        let e = contact_agg.entry(key).or_insert((std::collections::BTreeSet::new(), 0.0f64, 0.0f64, f64::INFINITY));
+                        e.0.insert(runs);
+                        e.1 = e.1.max(depth);
+                        e.2 = e.2.max(sin);
+                        e.3 = e.3.min(sout);
+                    }
+                }
+                if t_ahead.is_none() && c == ahead {
+                    t_ahead = Some(t + 1);
+                }
+                if v_edge.is_none() && c == edge {
+                    v_edge = Some(s);
+                }
+                if landed.is_none() && c == arrival {
+                    landed = Some(t + 1);
+                }
+                // (G1 06:54 (a)) after the landing, on to the cart's rest on the front: its z once still 5 ticks
+                if landed.is_some() {
+                    if c == q && s < 0.003 {
+                        still += 1;
+                        if still >= 5 {
+                            front_rest = Some(pos_now.z);
+                            break;
+                        }
+                    } else {
+                        still = 0;
+                    }
+                    if landed.is_some_and(|l| t + 1 > l + 200) {
+                        break;
+                    }
+                }
+            }
+            if let Some(z) = front_rest {
+                front_rests.push(z);
+            }
+            match (t_ahead, landed) {
+                (Some(ta), Some(_)) if ta <= relaunch_bound && hmin >= 20.0 => {
+                    relaunch_t.push(ta);
+                    if let Some(e) = v_edge {
+                        edge_v.push(e);
+                    }
+                    // (G1 03:12) every run's own figures: the rest z, the relaunch time, the speed at the
+                    // first tick past the rail end (a conservative reading of the speed at the end)
+                    per_run.push(format!("v {v:.2} p{k}: z {rz:.4}, {ta} gt, end {}", v_edge.map_or("-".to_string(), |e| format!("{e:.4}"))));
+                }
+                _ => fails.push(format!(
+                    "v {v:.4} phase {k}: rested at z {rz:.4}; relaunch {} (bound {relaunch_bound} gt); landed {}; least health {}; the speed off the line's end {}; ENDS in {}",
+                    t_ahead.map_or("NEVER reached the cell ahead".to_string(), |t| format!("reached the cell ahead at t {t}")),
+                    landed.map_or("NO".to_string(), |t| format!("at t {t}")),
+                    if hmin.is_finite() { format!("{hmin:.1}") } else { "-".to_string() },
+                    v_edge.map_or("- (never off it)".to_string(), |e| format!("{e:.4} b/t")),
+                    last.map_or("-".to_string(), |(c, p, s)| format!("{c:?} at ({:.4}, {:.4}, {:.4}) moving {s:.4} b/t", p.x, p.y, p.z))
+                )),
+            }
+        }
+    }
+    let span = |v: &[f64]| if v.is_empty() { "-".to_string() } else { format!("{:.4}..{:.4}", v.iter().copied().fold(f64::INFINITY, f64::min), v.iter().copied().fold(f64::NEG_INFINITY, f64::max)) };
+    out.push(format!(
+        "(hold sweep) {runs} run(s): BRAKING the rest z in the hold {} (the fastest start speed that stops within the cell {}); RELAUNCH the cell ahead reached {} gt after the power; the speed leaving the line's end {} b/t (fed to the column's drop: the stop wall confines these speeds)",
+        span(&rest_z),
+        fastest_stop.map_or("-".to_string(), |v| format!("{v:.4}")),
+        if relaunch_t.is_empty() { "-".to_string() } else { format!("{}..{}", relaunch_t.iter().min().unwrap_or(&0), relaunch_t.iter().max().unwrap_or(&0)) },
+        span(&edge_v)
+    ));
+    let pass = fails.is_empty() && runs > 0;
+    out.push(format!(
+        "(hold sweep) contacts from the release to the landing (the shared contact rule): {}",
+        if contact_agg.is_empty() {
+            "NONE in any run".to_string()
+        } else {
+            contact_agg.iter().map(|(k, (rs, d, si, so))| format!("{k}: {} of {runs} run(s), depth <= {d:.4}, speed_in <= {si:.4}, speed_out >= {so:.4}", rs.len())).collect::<Vec<_>>().join("; ")
+        }
+    ));
+    for chunk in per_run.chunks(6) {
+        out.push(format!("(hold sweep) per run: {}", chunk.join("; ")));
+    }
+    // (G1 06:54 (a)) the cart's rest on the front after each landing: its z range against the arrival detector's
+    // cover (a cart resting at z < -3.71 presses it)
+    if !front_rests.is_empty() {
+        let (lo, hi) = front_rests.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), z| (a.min(*z), b.max(*z)));
+        out.push(format!(
+            "(hold sweep) the rest on the front after the landing, {} of {runs} run(s): z {lo:.4}..{hi:.4} (the greatest {hi:.4} vs the arrival detector's cover z < -3.71: margin {:.4})",
+            front_rests.len(),
+            -3.71 - hi
+        ));
+    }
+    out.push(format!(
+        "(hold sweep) BAR every run stops within the hold, relaunches within {relaunch_bound} gt of the power and lands on the arrival detector unhurt: {}{}",
+        if pass { "PASSES".to_string() } else { format!("FAILS {} of {runs}", fails.len()) },
+        if fails.is_empty() { String::new() } else { format!(" ({})", fails.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
+    ));
+    Ok((override_lines.into_iter().chain(std::iter::once(fluid_line)).chain(out).collect(), pass))
 }
 
 /// The way-in line's cells laid into the module file (a WIP design against its frame): the queue
@@ -4832,6 +6360,7 @@ mod tests {
             seat_at: None,
             band: [0.11, 0.24],
             r1_built: false,
+            r1_layout: R1Layout::Record7,
             visit_skip: Vec::new(),
             bystander: None,
             visit_clear_stamp: false,
@@ -4846,6 +6375,7 @@ mod tests {
             declared_bounded: Vec::new(),
             reference_run: false,
             rail_end_least: None,
+            ball_head: None,
         }
     }
 
@@ -4993,5 +6523,42 @@ mod tests {
         assert!(way_cell_mode(&ModeFlags { release_pulse: 2, ride_to: 3, ..base.clone() }).unwrap_err().contains("--r1-built"));
         assert_eq!(way_cell_mode(&ModeFlags { release_pulse: 2, ride_to: 3, south: true, r1_built: true, ..base.clone() }), Ok("release pulse"));
         assert_eq!(way_cell_mode(&ModeFlags { launch_speeds: 3, ..base.clone() }), Ok("launch speed"));
+        // (R6) the leg train: its companions, the built gate; with it, the plain leg mode is not chosen
+        let train = ModeFlags { leg_train: 2, leg: 6, bed: 3, leg_day: true, south: true, r1_built: true, ..base.clone() };
+        assert_eq!(way_cell_mode(&train), Ok("leg train"));
+        assert!(way_cell_mode(&ModeFlags { r1_built: false, ..train.clone() }).unwrap_err().contains("built R1"));
+        assert!(way_cell_mode(&ModeFlags { leg_day: false, ..train.clone() }).unwrap_err().contains("--leg-day"));
+        assert!(way_cell_mode(&ModeFlags { leg_train: 1, ..train }).unwrap_err().contains("COUNT,SPACING"));
+    }
+
+    /// (R6, V) the south staircase's cells follow the queue (today's literal cells reproduced at today's
+    /// queue, V's at V's), and the built R1's layouts are laid relative to the queue: record7's at
+    /// today's queue is R1_BUILT exactly, record7's at V's queue is it raised 4, V's at V's queue is
+    /// R1_BUILT_V exactly (N's comparator at (4,-10,-4), DAY's repeater (4,-10,-3), no hatch).
+    #[test]
+    fn the_staircase_and_r1_follow_the_queue() {
+        assert_eq!(rail_end_of([9, -14, -4]), [9, -15, -2]);
+        assert_eq!(not_ready_lever_of([9, -14, -4]), BlockPos::new(8, -14, -5));
+        assert_eq!(shaft_xz_of([9, -14, -4]), (9, -1));
+        assert_eq!(rail_end_of([9, -10, -4]), [9, -11, -2]);
+        assert_eq!(not_ready_lever_of([9, -10, -4]), BlockPos::new(8, -10, -5));
+        let mut o = test_opts([9, -14, -4]);
+        o.south = true;
+        o.r1_built = true;
+        let today: Vec<(BlockPos, String)> = r1_cells(&o).unwrap().into_iter().map(|(p, b)| (p, format!("{b:?}"))).collect();
+        assert_eq!(today.len(), R1_BUILT.len());
+        assert_eq!(today[1].0, BlockPos::new(6, -12, -2), "N's comparator where record7 has it");
+        o.queue = [9, -10, -4];
+        let raised = r1_cells(&o).unwrap();
+        assert!(raised.iter().zip(today.iter()).all(|((p, _), (t, _))| p.x == t.x && p.y == t.y + 4 && p.z == t.z), "record7's layout raised 4 with the queue");
+        o.r1_layout = R1Layout::V;
+        let v = r1_cells(&o).unwrap();
+        assert_eq!(v.len(), R1_BUILT_V.len());
+        assert!(v.iter().any(|(p, b)| *p == BlockPos::new(4, -10, -4) && b.to_string().contains("comparator")), "N's comparator re-routed down");
+        assert!(v.iter().any(|(p, b)| *p == BlockPos::new(4, -10, -3) && b.to_string().contains("repeater")), "DAY's one repeater");
+        assert!(v.iter().all(|(p, b)| !(p.y >= -9 && b.to_string().contains("trapdoor"))), "no hatch, nothing in the pad's layers");
+        assert!(v.iter().all(|(p, _)| p.y <= -10), "V's R1 stays at or below the queue's level");
+        assert_eq!("v".parse::<R1Layout>(), Ok(R1Layout::V));
+        assert!("w".parse::<R1Layout>().is_err());
     }
 }
