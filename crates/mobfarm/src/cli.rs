@@ -17802,38 +17802,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(o.len() == 3, "--swap-part OLD=NEW@dx,dy,dz, not {sw:?}");
                         swaps.push((std::fs::read_to_string(old)?, std::fs::read_to_string(new)?, [o[0], o[1], o[2]]));
                     }
+                    let disk = text.clone();
                     let (out, lines) = crate::layouts::edit_swap(&text, &swaps)?;
                     for l in &lines {
                         println!("{l}");
                     }
+                    // (ironspec / G1 Nov 14 07:31r, part 58) the swap path keeps every `#` line of the file but the
+                    // declarations it swaps with the parts' cells: any other lost one fails the edit by name
+                    let lost = crate::layouts::lost_comment_lines(&disk, &out, true);
+                    anyhow::ensure!(lost.is_empty(), "edit --swap-part: {} `#` line(s) not carried (nothing silently dropped): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
                     text = out;
                 }
-                let original = text.clone();
-                let mut d = mctas::design::Design::parse(&original)?;
-                for s in &set {
-                    let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
-                    let v: Vec<i32> = c.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
-                    anyhow::ensure!(v.len() == 3, "--set x,y,z=state, not {s:?}");
-                    let state = state.trim();
-                    let full = if state.contains(':') { state.to_string() } else { format!("minecraft:{state}") };
-                    // (ironspec Nov 13 04:07: each edit's cell before and after; an edit that
-                    // leaves its cell as it was is a silent no-op and fails)
-                    let before = d.blocks.get(&[v[0], v[1], v[2]]).cloned().unwrap_or_else(|| "minecraft:air".to_string());
-                    anyhow::ensure!(before != full, "NO-OP --set {},{},{}: the design already holds {before} (an override that doesn't change its cell fails, ironspec Nov 13 04:07)", v[0], v[1], v[2]);
-                    println!("set {},{},{}: {} -> {}", v[0], v[1], v[2], before.trim_start_matches("minecraft:"), full.trim_start_matches("minecraft:"));
-                    if full == "minecraft:air" {
-                        d.blocks.remove(&[v[0], v[1], v[2]]);
-                    } else {
-                        d.blocks.insert([v[0], v[1], v[2]], full);
-                    }
-                }
                 if !set.is_empty() {
-                    // (farmopt / ironspec Nov 13 01:08: the design's text rewritten keeps every `#` line,
-                    // each after the line it followed; the count printed before and after)
-                    let (out, kept, moved) = crate::layouts::keep_comments(&original, &d.to_text());
-                    let before = original.lines().filter(|l| l.starts_with('#')).count();
-                    anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
-                    println!("header: {before} `#` lines before, {} after ({kept} each after the line it followed, {moved} moved up: the line before them changed)", out.lines().filter(|l| l.starts_with('#')).count());
+                    // (part 58: one function for the CLI and its round-trip tests: the palette's letters, the head's
+                    // order and every `#` line kept, every untouched line carried byte for byte, else the edit fails)
+                    let (out, log) = crate::layouts::edit_set_text(&text, &set)?;
+                    for l in &log {
+                        println!("{l}");
+                    }
                     text = out;
                 }
                 std::fs::write(&design, &text)?;
@@ -17845,6 +17831,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if chest || how.is_some() || !meta.is_empty() {
                 let text = std::fs::read_to_string(&design)?;
                 let out = crate::layouts::edit_meta(&text, chest, how.as_deref(), &meta)?;
+                // (part 58) the meta path keeps every `#` line, else the edit fails by name
+                let lost = crate::layouts::lost_comment_lines(&text, &out, false);
+                anyhow::ensure!(lost.is_empty(), "edit (meta): {} `#` line(s) not carried (nothing silently dropped): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
                 std::fs::write(&design, out)?;
             }
             println!("{}", design.display());
