@@ -82,11 +82,24 @@ pub struct Cfg {
     pub skipped: Vec<(i64, usize)>,
     /// (day, from lane, to lane) one cart moved between lanes at the day's start (the compression fault).
     pub moved: Vec<(i64, usize, usize)>,
+    /// (day, lane, pick number in the night, delay gt, a gate-G SKIP): that napper's ride to the way-in leg is delayed
+    /// (ironspec 01:05 / G1 00:57: a world open 3, the stack hold 26, a planted stall > 46, a gate-G skip of lane 7's
+    /// intake 100); the FIFO releases in ARRIVAL order, so a delay over the 46-gt margin REORDERS arrivals.
+    pub ride_delay: Vec<(i64, usize, usize, i64, Ride)>,
+    /// ironspec 01:05 (2): on a gate-G skip of a napper-carrying lane-7 intake, lane 7's record entry moves behind the
+    /// entries written at the next REL (+ ~10 blocks): the record stays in arrival order.
+    pub skip_fix: bool,
+    /// (day, lane, pick number): that napper is LOST between its pick and P1 (its cart broken by a player): its record
+    /// entry is never popped by its own release (ironspec 01:05 (b): a desync the + 10 can't see).
+    pub lost_napper: Vec<(i64, usize, usize)>,
+    /// ironspec 01:05 (2)(b): THE RECORD's RESYNC: cleared on evidence that no napper is in flight (P1, the front and the
+    /// stop empty, and >= 3 RELs since the last pick: a napper reaches P1 within 2 RELs of its pick).
+    pub resync: bool,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![] }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true }
     }
 }
 
@@ -131,10 +144,40 @@ pub struct Out {
     /// RELs whose batch carried two / three nappers (two or three lanes picking in the same REL: ironspec 01:00 (3)).
     pub rels_two: usize,
     pub rels_three: usize,
+    /// THE 3-DEEP LANE RECORD (ironspec 01:05 (2)): written at each pick (pick order), its head popped at each napper's
+    /// release into the stop (arrival order); each release where the head names another lane: (day, the napper's lane,
+    /// the head's lane) — the napper is then sent home to the HEAD's lane (its slope tap and RETURN bit).
+    pub record_mismatch: Vec<(i64, usize, usize)>,
+    /// The largest arrival inversion (gt): an earlier pick reaching the front after a later one.
+    pub max_inversion: i64,
+    /// The most entries in the record at once (the 3-deep record's depth bound).
+    pub record_depth: usize,
+    /// The fewest RELs from a lane-7 pick to the next lane -1 / 3 pick (a gate-G skip (+100) reorders only when that
+    /// next pick comes ONE REL later).
+    pub min_after7: i64,
+    /// Nappers lost between their pick and P1 (planted), and the record's resyncs (cleared with entries left).
+    pub lost: usize,
+    pub resyncs: usize,
+}
+
+/// Where a napper's ride is delayed (ironspec 01:05 / G1 00:57): carts never overtake on the shared track, so a delay
+/// AFTER the merge (the lift's stack hold, a world open) holds every later cart of the same batch behind it; a gate-G
+/// SKIP drops lane 7's cart behind the next batch's carts (the record fix applies); a stall BEFORE the merge (on the
+/// lane's own path to it) delays that cart alone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Ride {
+    Shared,
+    GateGSkip,
+    Own,
 }
 
 /// The lanes' offsets inside the period (interleaved picks, one bed).
 const OFFSET: [i64; 3] = [0, 4, 7];
+/// The lanes' x (for the prints).
+const LANES: [i32; 3] = [-1, 3, 7];
+/// ironfarm 00:57 (bench, the last stretch extrapolated): a napper riding its batch cart reaches the way-in leg
+/// (9,25,9) at REL + 132 / 154 / 186 by lane (its release offset included).
+const LEG: [i64; 3] = [132, 154, 186];
 /// cc767b78 23:20 (r10, every night): the napper's ABSENCE is quantized to its lane's slope tap: 8.50 / 8.85 / 10.31 RELs
 /// (lanes -1 / 3 / 7), + exactly 1 REL on a late visit; the model's visit is 9 RELs, lane 7 + 1, a late visit + 1.
 const LANE_EXTRA: [i64; 3] = [0, 0, 1];
@@ -166,6 +209,24 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut bed_waits: Vec<(i64, i64)> = Vec::new();
     let mut prev_start: i64 = i64::MIN;
     let mut bed_busy: i64 = 0;
+    // (the FIFO in ARRIVAL order (G1 00:50 / ironspec 00:58): a picked napper's bed start waits until no later pick can
+    // reach the front before it: (leg arrival, lane, cart, pick REL t, visit v, predecessor, day))
+    let mut pending: Vec<(i64, usize, usize, i64, i64, Option<usize>, i64)> = Vec::new();
+    // (THE 3-DEEP LANE RECORD, ironspec 01:05 (2): lanes written at each pick; with the skip fix a gate-G-skipped lane-7
+    // entry is held and written behind the next REL's entries: (lane, the REL t it was picked at))
+    let mut record: VecDeque<usize> = VecDeque::new();
+    let mut rec_hold: Vec<(usize, i64)> = Vec::new();
+    let mut max_leg: i64 = 0;
+    // (a record mismatch sends the napper home to the head's lane; when the head's own napper is in flight, the two
+    // trade places: each rides home on the other's slope tap into the other's lane, taking the RING POSITION its partner
+    // left (the rejoin is counted on that lane's predecessor): positions are kept, the two VILLAGERS swap lanes (G1
+    // 01:04 (e)); `who` maps a ring slot to the villager in it; the swap lands after the pair's second nap)
+    let mut who: Vec<usize> = (0..nv).collect();
+    let mut pair: Option<(usize, usize)> = None;
+    let mut gone: Vec<bool> = vec![false; nv];
+    let mut last_pick_t: i64 = i64::MIN / 2;
+    let mut last7: Option<i64> = None;
+    o.min_after7 = i64::MAX;
     // (the pointer's step in RING positions: a design constant, D = 5 (coprime with 7 / 8 / 9: ironspec 23:45 (2)),
     // independent of the rejoin rule)
     let delta = cfg.ptr_step;
@@ -207,6 +268,83 @@ pub fn run(cfg: &Cfg) -> Out {
         for k in 0..day_len {
             gt += 100;
             t += 1;
+            // (THE RECORD's RESYNC, ironspec 01:05 (2)(b): no napper in flight (none pending, the stop free: the last
+            // napper's visit over) and >= 3 RELs since the last pick: the record must be empty; any entry left is cleared)
+            if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && (!record.is_empty() || !rec_hold.is_empty()) {
+                o.resyncs += 1;
+                record.clear();
+                rec_hold.clear();
+            }
+            // (the record: a held (gate-G-skipped) lane-7 entry is written once the next REL's picks are in)
+            rec_hold.retain(|&(l, th)| {
+                if th + 2 <= t {
+                    record.push_back(l);
+                    false
+                } else {
+                    true
+                }
+            });
+            // (the FIFO, in ARRIVAL order: every pending napper that no pick from this REL on can overtake (the earliest
+            // pick from now reaches the front at gt + 132 + 60) takes the bed in arrival order; the record's head names
+            // the lane it is released for: its slope tap and RETURN bit send it HOME to that lane)
+            loop {
+                let Some(i) = (0..pending.len()).filter(|&i| pending[i].0 + 60 < gt + 192).min_by_key(|&i| (pending[i].0, pending[i].3)) else {
+                    break;
+                };
+                let (leg, l, c, tp, mut v, pred, pday) = pending.remove(i);
+                let home = match record.pop_front() {
+                    Some(h) if h != l => {
+                        o.record_mismatch.push((pday, l, h));
+                        h
+                    }
+                    _ => l,
+                };
+                let arrive = leg + 60;
+                // (the FIFO's gate: P1 (9,22,-3), reached 15 gt after the leg, released by the previous napper's departure
+                // from the front (its bed start); the front 45 gt below P1)
+                let release = (leg + 15).max(prev_start);
+                let at_front = arrive.max(release + 45);
+                let start = at_front.max(bed_free);
+                o.max_hold_wait = o.max_hold_wait.max(release - (leg + 15));
+                o.max_front_wait = o.max_front_wait.max(start - at_front);
+                prev_start = start;
+                bed_busy += 333;
+                bed_free = start + 333;
+                let wait = start - arrive;
+                o.max_bed_wait = o.max_bed_wait.max(wait);
+                if wait > 0 {
+                    bed_waits.push((arrive, start));
+                }
+                v += (wait + 99) / 100;
+                // (the nap is the villager's in the cart now; a mismatch's pair swaps villagers after its second nap)
+                o.naps[who[c]].push(start);
+                o.nap_day[who[c]].push(pday);
+                let mut send = l;
+                if home != l {
+                    match pair {
+                        Some((a, b)) if b == c => {
+                            who.swap(a, b);
+                            pair = None;
+                        }
+                        _ => match pending.iter().find(|p| p.1 == home) {
+                            Some(p) => pair = Some((c, p.2)),
+                            // (no napper of the head's lane in flight: this one goes to that lane's back, the lanes'
+                            // counts change)
+                            None => send = home,
+                        },
+                    }
+                }
+                if send == l {
+                    transit.push((tp + v, l, c, match cfg.merge {
+                        Merge::Order => pred,
+                        Merge::TwoTrack => Some(usize::MAX),
+                        Merge::Back => None,
+                    }));
+                } else {
+                    away.retain(|a| a.1 != c);
+                    transit.push((tp + v, send, c, None));
+                }
+            }
             // returns: carts back from their circuit or detour (an order-preserving napper goes to its siding; a TwoTrack
             // napper to NAPPED); the ORDER-PRESERVING merge (ironspec 23:21 (2)): a waiting napper rejoins only AT its
             // predecessor's TAIL ENTRY (it enters right behind it, in the same move), and a chain behind it follows
@@ -270,6 +408,7 @@ pub fn run(cfg: &Cfg) -> Out {
                 continue;
             }
             let picks_before = picks_today;
+            let mut shared_floor: Option<(i64, usize)> = None;
             for l in 0..3 {
                 let c = match lanes[l].pop_front() {
                     Some(c) => c,
@@ -285,6 +424,13 @@ pub fn run(cfg: &Cfg) -> Out {
                 // (the full POINTER form: every pick fires when the lane's front cart is the pointer's target AND at least
                 // `period` REAL RELs have passed since the lane's last pick AND HELD is clear; the target then advances
                 // DELTA ring positions)
+                // (a lost cart's position is stepped over: the pointer counts the carts that are there)
+                while let Some(tg) = target[l] {
+                    if !gone[tg] {
+                        break;
+                    }
+                    target[l] = Some(l * N0 + (tg - l * N0 + delta) % N0);
+                }
                 let spaced = since[l] >= cfg.period;
                 let by_target = cfg.pointer && target[l] == Some(c) && spaced;
                 let mut due = in_window && ((!cfg.pointer || target[l].is_none()) && k_rel == next_pick[l] || due_repick || by_target);
@@ -334,38 +480,52 @@ pub fn run(cfg: &Cfg) -> Out {
                         in_flight.push(t + cfg.held_lane.map_or(cfg.held, |h| h[l]));
                     }
                     picks_today += 1;
-                    let mut v = cfg.visit + LANE_EXTRA[l] + if late { 1 } else { 0 };
-                    let mut nap_at = gt + v * 50;
+                    let v = cfg.visit + LANE_EXTRA[l] + if late { 1 } else { 0 };
+                    let nap_at = gt + v * 50;
                     if cfg.bed {
-                        // (THE ONE BED as a single server: the napper reaches it 200 gt after the pick, waits while it
-                        // is taken, sleeps 333 gt; its wait lengthens its absence)
-                        // (G1 00:50 / ironfarm 00:57: the FIFO releases in ARRIVAL order; the outbound napper rides WITH ITS
-                        // BATCH (gate list G11: pocket -> lift -> the split row in PASS shape -> (8,25,9) -> the leg); its
-                        // MEASURED route to the way-in leg (9,25,9): REL + 132 / 154 / 186 by lane (ironfarm, bench, the
-                        // last stretch extrapolated), then ~60 gt down the leg, the line and the column to the front
-                        // (assumed); a 54-gt spread inside the 100-gt REL spacing: arrival order = (REL, slot) = pick
-                        // order unless one napper's ride is delayed > 46 gt (a gate-G skip of the lane-7 intake: + 100)
-                        const LEG: [i64; 3] = [132, 154, 186];
-                        let arrive = gt + LEG[l] + 60;
-                        let start = arrive.max(bed_free);
-                        // (ironspec 00:10 (3) / 00:11: the per-lane hold's gate: a napper reaches its lane's branch
-                        // hold 50 gt after its pick and is released by the PREVIOUS napper's departure from the front
-                        // (its bed start), then reaches the front 150 gt later and waits there for the stop (R1 /
-                        // RS_ready); the bed's start is unchanged by the gate while hold -> front (150) < a visit (333))
-                        let release = (gt + LEG[l] + 15).max(prev_start);
-                        let at_front = arrive.max(release + 45);
-                        o.max_hold_wait = o.max_hold_wait.max(release - (gt + LEG[l] + 15));
-                        o.max_front_wait = o.max_front_wait.max(start - at_front);
-                        prev_start = start;
-                        bed_busy += 333;
-                        bed_free = start + 333;
-                        let wait = start - arrive;
-                        o.max_bed_wait = o.max_bed_wait.max(wait);
-                        if wait > 0 {
-                            bed_waits.push((arrive, start));
+                        // (THE ONE BED as a single server behind the FIFO (P1 + the front), released in ARRIVAL order: the
+                        // outbound napper rides WITH ITS BATCH (gate list G11: pocket -> lift -> the split row in PASS
+                        // shape -> (8,25,9) -> the leg); its MEASURED route to the way-in leg (9,25,9): REL + 132 / 154 /
+                        // 186 by lane (ironfarm 00:57, bench, the last stretch extrapolated), then ~60 gt down the leg,
+                        // the line and the column to the front (assumed); a 54-gt spread inside the 100-gt REL spacing:
+                        // arrival order = (REL, slot) = pick order unless one napper's ride is delayed > 46 gt
+                        // (`ride_delay`: a gate-G skip of the lane-7 intake + 100, a planted stall; a SHARED delay (after
+                        // the merge) holds the same batch's later nappers behind it: carts never overtake)
+                        let dly = cfg.ride_delay.iter().find(|r| r.0 == day && r.1 == l && r.2 == pick_no[l]).copied();
+                        let mut leg = gt + LEG[l] + dly.map_or(0, |r| r.3);
+                        if let Some((fl, fl_l)) = shared_floor {
+                            leg = leg.max(fl + LEG[l] - LEG[fl_l]);
                         }
-                        v += (wait + 99) / 100;
-                        nap_at = start;
+                        if dly.is_some_and(|r| r.4 == Ride::Shared) || shared_floor.is_some() {
+                            shared_floor = Some((leg, l));
+                        }
+                        o.max_inversion = o.max_inversion.max(max_leg - leg);
+                        max_leg = max_leg.max(leg);
+                        if dly.is_some_and(|r| r.4 == Ride::GateGSkip) && cfg.skip_fix {
+                            rec_hold.push((l, t));
+                        } else {
+                            record.push_back(l);
+                        }
+                        o.record_depth = o.record_depth.max(record.len() + rec_hold.len());
+                        if l == 2 {
+                            last7 = Some(t);
+                        } else if let Some(t7) = last7.take() {
+                            o.min_after7 = o.min_after7.min(t - t7);
+                        }
+                        if let (Merge::Order, Some(p)) = (cfg.merge, pred) {
+                            away.push((l, c, p, 0, 0));
+                        }
+                        last_pick_t = t;
+                        if cfg.lost_napper.contains(&(day, l, pick_no[l])) {
+                            // (lost before P1: no bed, no return; its lane runs one short; its away entry is dropped; the
+                            // pointer steps over its position from now on)
+                            away.retain(|a| a.1 != c);
+                            gone[c] = true;
+                            o.lost += 1;
+                            continue;
+                        }
+                        pending.push((leg, l, c, t, v, pred, day));
+                        continue;
                     }
                     o.naps[c].push(nap_at);
                     o.nap_day[c].push(day);
@@ -538,6 +698,35 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut sl = Cfg::new("POINTER, a COUNTER SLIP (+1 ring position, lane 3, night 3's dawn)", 11, 120, Merge::Order);
     sl.slip = vec![(3, 1, 1)];
     prow.push(sl);
+    // (ironspec 01:05 (2) / G1 00:57 / 01:04: the delayed rides: the normal-class delays (a world open on one napper's
+    // ride, the stack hold) can't reorder; a gate-G SKIP of a napper-carrying lane-7 intake (+100) does, removed at its
+    // cause by the +10 record fix (judged: the record exact); without the fix, and under a planted STALL the fix can't
+    // see (> 46 gt), the record's head vs each napper's lane is printed with where each napper went home)
+    for (name, rd, fix) in [
+        ("a world open on lane 3's first napper's ride (+3 gt, night 3: SHARED, every later cart held with it)", vec![(3i64, 1usize, 1usize, 3i64, Ride::Shared)], true),
+        ("the stack hold on lane -1's first napper's ride (+26 gt at the lift top, night 3: SHARED)", vec![(3, 0, 1, 26, Ride::Shared)], true),
+        ("a gate-G SKIP of lane 7's first napper-carrying intake (+100 gt, night 3), the +10 record fix", vec![(3, 2, 1, 100, Ride::GateGSkip)], true),
+        ("gate-G SKIPS of lane 7's first two napper-carrying intakes (night 3), the +10 record fix", vec![(3, 2, 1, 100, Ride::GateGSkip), (3, 2, 2, 100, Ride::GateGSkip)], true),
+        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night, the +10 record fix", (0..10).flat_map(|d| (1..=12).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), true),
+        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night WITHOUT the record fix", (0..10).flat_map(|d| (1..=12).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), false),
+        ("a gate-G SKIP of lane 7's first napper-carrying intake (+100 gt, night 3) WITHOUT the record fix", vec![(3, 2, 1, 100, Ride::GateGSkip)], false),
+        ("a planted STALL before the merge delaying lane -1's first napper 60 gt (night 3; the record fix can't see it)", vec![(3, 0, 1, 60, Ride::Own)], true),
+        ("a planted STALL before the merge delaying lane -1's first napper 250 gt (night 3; the record fix can't see it)", vec![(3, 0, 1, 250, Ride::Own)], true),
+        ("a planted STALL before the merge delaying lane 3's second napper 250 gt (night 3; the record fix can't see it)", vec![(3, 1, 2, 250, Ride::Own)], true),
+    ] {
+        let mut c = Cfg::new(&format!("POINTER, {name}"), 11, 120, Merge::Order);
+        c.ride_delay = rd;
+        c.skip_fix = fix;
+        prow.push(c);
+    }
+    // (ironspec 01:05 (2)(b): a desync the + 10 can't see: a napper LOST between its pick and P1 (a player breaks its
+    // cart): its record entry outlives it; without THE RESYNC every later release is one entry off)
+    for rs in [false, true] {
+        let mut c = Cfg::new(&format!("POINTER, a napper LOST between its pick and P1 (night 3, lane 3's first){}", if rs { ", THE RECORD's RESYNC (cleared when no napper is in flight)" } else { " WITHOUT the record's resync" }), 11, 120, Merge::Order);
+        c.lost_napper = vec![(3, 1, 1)];
+        c.resync = rs;
+        prow.push(c);
+    }
     // (ironspec 23:57 / 00:01: THREE IN FLIGHT, ONE PER LANE (the stop a single server) and the FIRST-entry rejoin with
     // the rejoin counted are the DESIGN, judged; HELD spans as measured (cc767b78 23:59: 264 / 284 / 313 gt -> [3, 3, 4]
     // RELs); the bed modelled (one occupant); printed beside: today's ONE in flight on the measured spans (ironspec
@@ -563,23 +752,30 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             cfg.bed = true;
             let o = run(&cfg);
             let wv = o.max_gap.1;
-            let fault = cfg.name.contains("moved") || cfg.name.contains("SLIP") || cfg.name.contains("HALT");
+            let fault = cfg.name.contains("moved") || cfg.name.contains("SLIP") || cfg.name.contains("HALT") || cfg.name.contains("STALL") || cfg.name.contains("WITHOUT the record fix") || cfg.name.contains("LOST");
             let design = cap == 3 && rj == 1;
             let verdict = if fault {
                 format!(
-                    "PRINTED (a fault path: halts > 1 missed REL are fault class (ironspec 23:50); the slip's cause is a fault, a world-open slip is owed as a strict row): nights holding an interval >= 23,000: {:?} -> {}",
+                    "PRINTED (a fault path: halts > 1 missed REL are fault class (ironspec 23:50); the slip's cause is a fault, a world-open slip is owed as a strict row; a stall or an unfixed skip reorders the FIFO): nights holding an interval >= 23,000: {:?}, the record's mismatches {} -> {}",
                     o.bad_nights,
+                    o.record_mismatch.len(),
                     if ok(&o) { "meets the bars" } else { "misses the bars" }
                 )
             } else if design {
-                v.bar(&format!("ctl-pick: {}: 24 distinct every night from night 2, every interval < 24,000 - {MARGIN}, 0 picks deferred by HELD", cfg.name), ok(&o) && o.deferred.iter().all(|&d| d == 0)).to_string()
+                v.bar(&format!("ctl-pick: {}: 24 distinct every night from night 2, every interval < 24,000 - {MARGIN}, 0 picks deferred by HELD, THE LANE RECORD EXACT (every release's head names the released napper's lane)", cfg.name), ok(&o) && o.deferred.iter().all(|&d| d == 0) && o.record_mismatch.is_empty()).to_string()
             } else {
                 format!("PRINTED (beside the design) -> {}", if ok(&o) && o.deferred.iter().all(|&d| d == 0) { "meets the bars" } else { "MISSES the bars" })
             };
             let wait_gt: Vec<i64> = o.max_wait.iter().map(|w| w * 100).collect();
             lines.push(format!(
-                "  {}: {verdict}; picks per night {:?}, deferred by HELD per night {:?}, the bed's longest wait {} gt, the most nappers WAITING for the bed at once {}, under the FIFO's gate (P1 (9,22,-3) released at the previous napper's front departure; arrival in (REL, slot) order): the longest wait at P1 {} gt and at the front {} gt, the bed busy {} per mille of the windows; batches carrying two nappers {} and three {} (two or three lanes picking in one REL: every napper's D press G11-emulated, their arrival order the slot order); the longest R_l wait per lane {:?} gt (an additive bound on the stamp: r8's 530 + the wait = {:?}; the stamp arms at the first partial HOME path, ironspec 23:57 (3): cc767b78 measures), the most away per lane {:?}, the latest first pick per lane {:?} RELs into REST; the worst villager {wv}'s naps (gt) {:?}",
+                "  {}: {verdict}; THE LANE RECORD: mismatches (night, the napper's lane, the head's lane: a pair trades places, the two villagers swap lanes, positions kept) {:?}, the most entries at once {}, the largest arrival inversion {} gt, the fewest RELs from a lane-7 pick to the next lane -1 / 3 pick {} (a gate-G skip reorders only at 1), nappers lost {}, the record's resyncs {}; picks per night {:?}, deferred by HELD per night {:?}, the bed's longest wait {} gt, the most nappers WAITING for the bed at once {}, under the FIFO's gate (P1 (9,22,-3) released at the previous napper's front departure; arrival in (REL, slot) order): the longest wait at P1 {} gt and at the front {} gt, the bed busy {} per mille of the windows; batches carrying two nappers {} and three {} (two or three lanes picking in one REL: every napper's D press G11-emulated, their arrival order the slot order); the longest R_l wait per lane {:?} gt (an additive bound on the stamp: r8's 530 + the wait = {:?}; the stamp arms at the first partial HOME path, ironspec 23:57 (3): cc767b78 measures), the most away per lane {:?}, the latest first pick per lane {:?} RELs into REST; the worst villager {wv}'s naps (gt) {:?}",
                 line(&cfg, &o),
+                o.record_mismatch.iter().map(|&(d, l, h)| (d, LANES[l], LANES[h])).collect::<Vec<_>>(),
+                o.record_depth,
+                o.max_inversion,
+                o.min_after7,
+                o.lost,
+                o.resyncs,
                 o.picks,
                 o.deferred,
                 o.max_bed_wait,
