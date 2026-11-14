@@ -194,6 +194,9 @@ impl UpSlope {
     }
     /// One tick's centre (x, y, z); the event this tick, judged against the references held before it.
     pub fn step(&mut self, p: (f64, f64, f64)) -> Option<UpEvent> {
+        // (G1's B8: 1e-4 b is "still": below the float noise of a resting cart's position on a rail
+        // (redsim's rest residues are ~1e-9..1e-6) and far below any real move (a slope's least step
+        // under gravity, 0.0078 b/gt); the tool's choice, cited here)
         let still = self.prev.is_some_and(|q| ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2) + (p.2 - q.2).powi(2)).sqrt() < 1e-4);
         self.prev = Some(p);
         self.still = if still { self.still + 1 } else { 0 };
@@ -802,8 +805,12 @@ pub struct SidingOpts {
     /// --gb (dfb89499 20:03): the brake moved up one slot: R_1 (x,17,1) a PLAIN rail ascending south
     /// with no driver; R_2 (x,18,2) the powered rail, driven by the R line at (x+1,18,2).
     pub gb: bool,
-    /// --remove-cart C@T (the interaction row's solo rides): lane cart C and its rider killed at tick T.
-    pub remove_cart: Option<(usize, i64)>,
+    /// --remove-cart (the interaction row's solo rides): lane cart C and its rider killed at the first
+    /// tick in FROM..=UNTIL that the cart has an entity (G1's D2: a lane cart can be parked, with no
+    /// entity, at a fixed tick); no kill in the window is an error.
+    pub remove_cart: Option<(usize, i64, i64)>,
+    /// --plant-shift C,T,DX (G1's D2 control): lane cart C moved DX blocks in x at tick T, in this row alone.
+    pub plant_shift: Option<(usize, i64, f64)>,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -1429,6 +1436,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // --siding-north the guard detector's cell (its rising edge is the pass))
     let pass_z = if so.siding_north { mz + so.guard_dz } else if so.drop_entry { mz - 1 } else { mz };
     let (mut trap_until, mut trap_is) = (-1i64, false);
+    // (G1's B8: the start fill's R drive is on until 10 + --r-pulse: the bench's first release is at
+    // t 10 (the settle before it), so the start's refill gets the same pulse width as every later one)
     let (mut r_until, mut r_is) = (if so.start_steady { -1 } else { 10 + o.r_pulse }, false);
     let mut r_from: i64 = i64::MIN;
     // (R_1's on and off ticks; the refill's first cart-cart contact in slots 1-2 after each R_1 on (G1
@@ -1566,6 +1575,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (the napper bookkeeping: the cart index of the napper waiting, its predecessor's index, the
     // predecessor's merge pass tick, the release tick)
     let mut nap: Option<(usize, usize)> = None;
+    // (G1's D2: the solo ride's kill and the planted shift, read back after the run)
+    let (mut removed_at, mut planted_at): (Option<i64>, Option<i64>) = (None, None);
     let mut pred_pass: Option<i64> = None;
     let mut released_at: Option<i64> = None;
     // (--skip-release: releases skipped so far; G8c: the next trapdoor open and the cut ticks)
@@ -2568,8 +2579,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         run.tick();
         // (the interaction row's solo rides (ironspec 14:47 (a); the parent Nov 13 19:21): --remove-cart
         // C@T kills lane cart C and its rider at tick T, so another cart rides the lip alone)
-        if let Some((rc, rt)) = so.remove_cart
-            && t == rt
+        if let Some((rc, rt0, rt1)) = so.remove_cart
+            && removed_at.is_none()
+            && t >= rt0
+            && t <= rt1
             && let Some(id) = carts.get(rc).copied().flatten()
         {
             if let Some(ri) = rider_index(&run.world, id) {
@@ -2578,6 +2591,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
             redsim::entity::kill(&mut run.world, id)?;
             carts[rc] = None;
+            removed_at = Some(t);
+        }
+        // (G1's D2 control: --plant-shift C,T,DX moves lane cart C by DX in x at tick T, in this row
+        // alone (the interaction row's departure-only negative: a displacement with no contact))
+        if let Some((pc, pt, dx)) = so.plant_shift
+            && t == pt
+        {
+            let id = carts.get(pc).copied().flatten().ok_or_else(|| format!("--plant-shift: lane cart {pc} has no entity at t {pt}"))?;
+            let (x, y, z, _) = st(&run.world, id).ok_or_else(|| format!("--plant-shift: lane cart {pc} has no state at t {pt}"))?;
+            let v = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].delta_movement).ok_or_else(|| format!("--plant-shift: lane cart {pc} gone at t {pt}"))?;
+            if !teleport_cart(&mut run.world, id, [x + dx, y, z], [v.x, v.y, v.z]) {
+                return Err(format!("--plant-shift: lane cart {pc}'s move refused at t {pt}"));
+            }
+            planted_at = Some(t);
         }
         let mut now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
         // (G1 12:32's edge control (G1 14:18 L1): at T, the lane's highest cart AT REST on the slopes (by
@@ -2767,6 +2794,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     let ci = redsim::entity::index_of(&run.world, id)?;
                     let e = &run.world.entities.list[ci];
                     let p = dpos(e.pos);
+                    // (G1's B8: a lane cart below the merge level m by more than half a block (m - 0.5) is
+                    // on the lane's slopes or the drop, not on the merge row or the siding at m)
                     if p.0 < lx as f64 || p.0 >= (lx + 1) as f64 || p.1 > m as f64 - 0.5 {
                         return None;
                     }
@@ -2789,7 +2818,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             if let Some((x, y, z, _)) = now[c]
                 && x >= lx as f64
                 && x < (lx + 1) as f64
-                && z > 1.0
+                // (G1 17:57 N10 / CHANGES 2: R_1's cell from z 1.0 included; G1's B8: the region is the
+                // lane's slope run from R_1 (z 1) to the top slope's end (z 6.6) at the slopes' heights
+                // (y 16.5..23.2), the lane's own column x..x+1)
+                && z >= 1.0
                 && z < 6.6
                 && y > 16.5
                 && y < 23.2
@@ -4022,6 +4054,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     if t1_no_riders {
         extra_nj.push("the riders at t 1 (none present in a run with riders)".to_string());
     }
+    // (G1's D2: the solo ride's kill and the planted shift read back: a miss is an error, never a
+    // silent no-op)
+    if let Some((rc, rt0, rt1)) = so.remove_cart {
+        match removed_at {
+            Some(t) => lines.push(format!("removed lane cart {rc} at t {t} (the interaction row's solo ride, the first tick in {rt0}..={rt1} it had an entity; G1's D2 read-back)")),
+            None => return Err(format!("--remove-cart {rc}@{rt0}..={rt1}: no kill happened (lane cart {rc} had no entity in that window, or the run ended first; G1's D2)")),
+        }
+    }
+    if let Some((pc, pt, dx)) = so.plant_shift {
+        match planted_at {
+            Some(t) => lines.push(format!("planted a shift of {dx} b in x on lane cart {pc} at t {t} (G1's D2 departure-only control)")),
+            None => return Err(format!("--plant-shift {pc},{pt},{dx}: never applied (the run ended first; G1's D2)")),
+        }
+    }
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
     {
@@ -4725,10 +4771,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             arr.sort();
             for (ta, c) in &arr {
                 // (G1 17:00 B4: full precision (Rust's shortest round-trip form), so a departure the
-                // 1e-6 bar must see is never rounded away)
+                // 1e-6 bar must see is never rounded away; G1's B8: the path window -10..=+30 gt around
+                // the lip arrival is the pairing window's own (ironspec 14:47 (a): the lip volume's
+                // occupancy before the arrival and the drop's 30 gt after it), the tool's choice)
                 let pts: Vec<String> = (-10..=30).filter_map(|k| snap_of(ta + k, *c).map(|e| format!("{k}:{},{},{}", e.1 .0, e.1 .1, e.1 .2))).collect();
                 lines.push(format!("lip path t {ta} cart {c}: {}", pts.join(" ")));
             }
+            // (G1's B8: a napper "from R" was on R's siding (x < lx - 0.9: west of the lane's column by
+            // more than a cart's half-width) within the 60 gt before its lip arrival (the siding's
+            // return to the lip takes 25..40 gt at the design's speeds; 60 bounds it with margin))
             let from_r = |ta: i64, c: usize| (ta - 60..ta).any(|t| snap_of(t, c).is_some_and(|e| e.1 .0 < lx as f64 - 0.9));
             let on_r = |e: &(usize, (f64, f64, f64), [f64; 6], Option<[f64; 6]>, f64)| e.1 .0 > (lx - 2) as f64 && e.1 .0 < (lx - 1) as f64 && e.1 .1 >= m as f64 - 0.01 && e.4 < 0.001;
             let mut npairs = 0usize;
@@ -4743,6 +4794,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     b += x as usize;
                     p += y as usize;
                 }
+                // (G1's B8: the leader's clearance read to the napper's arrival + 40 (its window's 30 and a
+                // 10-gt margin for a slow drop), the tool's choice)
                 let clear = (tl..=tn + 40).filter(|t| snap_of(*t, cl).is_some_and(|e| meets(&e.2) || e.3.as_ref().is_some_and(|r| meets(r)))).max().map_or(tl, |t| t + 1);
                 npairs += 1;
                 lines.push(format!(
@@ -6573,6 +6626,7 @@ mod official_row_tests {
             r2_powered: false,
             gb: false,
             remove_cart: None,
+            plant_shift: None,
             d_slope: true,
             out: None,
             no_walkway: false,
