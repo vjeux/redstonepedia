@@ -5554,7 +5554,11 @@ impl GolemTerm {
     /// no collision shape: the hookless string, a torch) makes every term it raises in the feet cell
     /// or above removable, its full-block term included; a floor term never is (no floor, no cell).)
     pub fn removable(&self, w: &redsim::World) -> bool {
-        self.at >= 0 && (rail_kind(&self.block) || redsim::behavior::is_signal_source(w, &self.block) || redsim::behavior::collision_boxes(&self.block).is_empty())
+        // (G1 Nov 13 21:15 (2): the collision-free arm by KIND: a guard (the hookless string, a torch, a
+        // plant) yes; a portal block (the pad's function) and a fluid (water, lava, a bubble column) no)
+        let s = self.block.to_string();
+        let not_guard = s.contains("nether_portal") || matches!(self.block, redsim::block::Block::Water { .. } | redsim::block::Block::Lava { .. } | redsim::block::Block::BubbleColumn { .. }) || matches!(self.block, redsim::block::Block::Terrain(id) if redsim::terrain::blocks::props(id).liquid);
+        self.at >= 0 && (rail_kind(&self.block) || redsim::behavior::is_signal_source(w, &self.block) || (redsim::behavior::collision_boxes(&self.block).is_empty() && !not_guard))
     }
 
     /// Whether flipping its block's changeable state (lit, open, powered) turns the term off: that
@@ -9673,6 +9677,17 @@ mod gate_tests {
             // (ironspec 21:06: the portal's bottom row, refused only by the portal blocks, is PAD FUNCTION
             // with its one fault note, never FRAGILE)
             assert!(gl.iter().any(|l| l.contains("PAD FUNCTION (the portal): 2 cell(s): 1,2,5 2,2,5")) && gl.iter().any(|l| l.contains("FAULT NOTE (PAD FUNCTION, 2 cell(s)): If the pad's portal goes out, its bottom row becomes golem floor")) && !gl.iter().any(|l| l.contains("FAULT NOTE 1,2,5") || l.contains("FAULT NOTE 2,2,5")), "the pad's function: {gl:?}");
+            // (G1 21:15 (1): the twin that proves the note: the same frame with the portal UNLIT (air
+            // inside), where the bottom row (1,2,5) / (2,2,5) becomes golem cells through the real path)
+            let mut unlit = spec.blocks.clone();
+            unlit.retain(|(_, s)| !s.to_string().contains("nether_portal"));
+            let uspec = redsim::entity::mob::farm::FarmSpec { blocks: unlit, ..spec.clone() };
+            let (ul, _, ucells) = super::route_golem_floors(&uspec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+            assert!(ucells.contains(&b(1, 2, 5)) && ucells.contains(&b(2, 2, 5)) && !ul.iter().any(|l| l.contains("PAD FUNCTION (the portal): 2")), "unlit: the bottom row is golem floor: {ul:?}");
+            // (G1 21:15 (2): a portal block is no removable guard by kind, so a cell a portal refuses
+            // together with a rail is never FRAGILE through the portal, nor names it to replace)
+            let pt = super::GolemTerm { at: 0, kind: super::GolemTermKind::FeetNotAirOrLiquid, block: portal, pos: b(1, 2, 5) };
+            assert!(!pt.removable(&w), "a portal block is no removable guard");
         }
         let plat = |s: &str| {
             let mut blocks = Vec::new();
