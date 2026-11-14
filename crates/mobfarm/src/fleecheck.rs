@@ -12175,6 +12175,13 @@ mod gate_tests {
         let dust_n = p("minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
         let (ld2, _) = super::power_out(&mk(vec![(b(1, 1, 1), dust_n), (b(1, 1, 2), dust_n), (b(1, 1, 3), dust_n), (b(2, 1, 2), p("minecraft:stone")), (b(3, 1, 2), lamp_b)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(ld2[0].contains("redstone_wire[east=none,north=side") && !ld2[0].contains("3,1,2"), "dust running past the stone (a north-south line): {ld2:?}");
+        // (G1 Nov 14 06:29, part 54) the faces come from the SETTLED world's state, which redsim settles as
+        // 26.3's getConnectionState computes it LIVE: a dust STORED `east=side` alone (one side) completes
+        // straight through to a line (east + west), so it powers WEST too: the stone and lamp to its west are
+        // reached, and the settled state printed shows both sides
+        let dust_one = p("minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]");
+        let (ld3, nd3) = super::power_out(&mk(vec![(b(2, 1, 2), dust_one), (b(1, 1, 2), p("minecraft:stone")), (b(0, 1, 2), lamp_b)]), &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nd3 >= 1 && ld3[0].contains("west=side") && ld3[0].contains("at 0,1,2 through the conductor stone at 1,1,2"), "a one-side dust powers straight through (live connections): {ld3:?}");
         // a torch: strong into the block above (a lamp beside that block lights), not the block beside it
         let torch_up = p("minecraft:redstone_torch[lit=true]");
         let (lt1, _) = super::power_out(&mk(vec![(b(2, 1, 2), torch_up), (b(2, 2, 2), p("minecraft:stone")), (b(3, 2, 2), lamp_b)]), &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
