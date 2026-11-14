@@ -5,6 +5,11 @@
 //! `--reserve-clash` and an unnamed `--reserve` on a written record exit non-zero; a stand-in whose
 //! support a `--clear` takes, or that names no support, exits non-zero, on a fixture and on V rev 2's
 //! own command (column::traced_tests run the same rules on the library's path).
+//!
+//! Under ironfarm's provenance check (train 16b) these spawns need a STAMPED binary: run them through
+//! `mctas test`, whose runner builds every piece's test binaries with the tested tree's stamp
+//! (MCTAS_SOURCE_TREE); under a plain `cargo test` the binary is unstamped and every case fails
+//! with "binary unstamped: provenance refused" (`named()`), on a clean worktree too.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -23,7 +28,28 @@ fn part(dir: &std::path::Path, n: &str, head: &str, palette: &str, row: &str) ->
 }
 
 fn column(args: &[String]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mctas")).arg("mobfarm").arg("column").args(args).output().unwrap()
+    named(Command::new(env!("CARGO_BIN_EXE_mctas")).arg("mobfarm").arg("column").args(args).output().unwrap())
+}
+
+/// (G1 Nov 14 05:41, ironspec 05:42 (a)) ironfarm's provenance check refuses an UNSTAMPED binary with
+/// exit 4 before any verdict (the evidence exit-code table, ironspec 02:57): every spawn here names
+/// that refusal, so a stamping regression reads as what it is, never as a 0-vs-4 or 1-vs-4 mismatch in
+/// a rule's case (`mctas test`'s runner stamps every binary it builds with the tested tree). Only the
+/// gate's own fixed refusal marker counts (G1 06:22b): an exit 4 whose reason merely mentions
+/// provenance comes back unchanged, to meet the case's own assertion.
+const GATE_REFUSED: &str = "provenance (ironspec Nov 14 01:58 / 02:35 / 02:43): REFUSED: ";
+
+fn named(o: Output) -> Output {
+    if o.status.code() == Some(4) {
+        let t = text(&o);
+        if t.contains(&format!("{GATE_REFUSED}an UNSTAMPED binary")) {
+            panic!("binary unstamped: provenance refused: {t}");
+        }
+        if t.contains(GATE_REFUSED) {
+            panic!("provenance refused (a dirty worktree or a stale stamp, not the rule under test): {t}");
+        }
+    }
+    o
 }
 
 fn text(o: &Output) -> String {
@@ -144,7 +170,7 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
         "--port=output=-6,1,-6".into(),
         format!("--out={}", dir.join("v.txt").display()),
     ];
-    let run = |extra: &[&str], args: &[String]| Command::new(env!("CARGO_BIN_EXE_mctas")).current_dir(&repo).arg("mobfarm").arg("column").args(args).args(extra).output().unwrap();
+    let run = |extra: &[&str], args: &[String]| named(Command::new(env!("CARGO_BIN_EXE_mctas")).current_dir(&repo).arg("mobfarm").arg("column").args(args).args(extra).output().unwrap());
     let ok = run(&[], &args);
     assert_eq!(ok.status.code(), Some(0), "V rev 2's command composes: {}", text(&ok));
     args.push("--clear=-1,27,9,-1,27,9".into());
@@ -152,4 +178,39 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
     assert_ne!(bad.status.code(), Some(0), "{}", text(&bad));
     assert!(text(&bad).contains("stand-in -1,26,9: its support -1,27,9 is empty in the record"), "{}", text(&bad));
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// An `Output` with exit code `code` and `stderr` (a control for `named()`, no binary run).
+#[cfg(unix)]
+fn fake(code: i32, stderr: &str) -> Output {
+    use std::os::unix::process::ExitStatusExt;
+    Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: Vec::new(), stderr: stderr.as_bytes().to_vec() }
+}
+
+#[test]
+#[cfg(unix)]
+fn named_passes_every_other_exit_through_to_the_cases_own_assertion() {
+    // (ironspec Nov 14 06:18 (1), G1 06:22b) the helper can't mask a real failure: an exit 4 without
+    // the gate's refusal marker (its reason merely mentioning provenance included), a provenance word
+    // under any other code, and a wrong code all come back unchanged, so each case's own assert_eq on
+    // the code still decides (a clash case expecting 1 and getting 0 or 4 fails as before)
+    assert_eq!(named(fake(4, "Error: a compose that failed some other way")).status.code(), Some(4));
+    assert_eq!(named(fake(4, "Error: part A's provenance line names no commit")).status.code(), Some(4));
+    assert_eq!(named(fake(1, "CLASH 0,0,0 (the word provenance in a reason)")).status.code(), Some(1));
+    assert_eq!(named(fake(0, "")).status.code(), Some(0));
+    assert_eq!(named(fake(3, "NOT EVIDENCE (--not-evidence): provenance (ironspec Nov 14 01:58 / 02:35 / 02:43): an UNSTAMPED binary")).status.code(), Some(3));
+}
+
+#[test]
+#[cfg(unix)]
+#[should_panic(expected = "binary unstamped: provenance refused")]
+fn named_turns_only_a_provenance_exit_4_into_the_named_panic() {
+    named(fake(4, "provenance (ironspec Nov 14 01:58 / 02:35 / 02:43): REFUSED: an UNSTAMPED binary; the worktree's build tree is 0736d554"));
+}
+
+#[test]
+#[cfg(unix)]
+#[should_panic(expected = "provenance refused (a dirty worktree or a stale stamp")]
+fn named_names_the_gates_other_refusals_too() {
+    named(fake(4, "provenance (ironspec Nov 14 01:58 / 02:35 / 02:43): REFUSED: the worktree at /tmp/w is DIRTY (its tree 81dc, HEAD's 5fb9) and no commit is cited"));
 }
