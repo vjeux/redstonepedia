@@ -95,11 +95,21 @@ pub struct Cfg {
     /// ironspec 01:05 (2)(b): THE RECORD's RESYNC: cleared on evidence that no napper is in flight (P1, the front and the
     /// stop empty, and >= 3 RELs since the last pick: a napper reaches P1 within 2 RELs of its pick).
     pub resync: bool,
+    /// THE STOP STALLED (ironspec 06:23 / 06:31, G1 06:26: b8949c96's way-in overflow row): (gt start, length): no bed
+    /// start inside the window (a token stall: the queue holds its nappers).
+    pub stop_stall: Vec<(i64, i64)>,
+    /// THE WAY-IN ROOM TERM (ironspec 06:31 (1)): a pick only while the nappers DISPATCHED and not yet departed from the
+    /// front (a count by evidence: the pick edges up, the front's departure presses down) number fewer than this
+    /// (the way-in's dry places, P1 + 2 = 3). 0: off.
+    pub wayin_cap: usize,
+    /// ironspec 06:28 (B): RS_READY's EVIDENCE MOVED TO THE BALL EXIT (7,-3,4): each visit's cycle grows by the previous
+    /// rider's travel from the R string to the ball exit (gt).
+    pub rs_extra: i64,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0 }
     }
 }
 
@@ -134,6 +144,12 @@ pub struct Out {
     pub bad_nights: Vec<i64>,
     /// The longest wait at the bed (gt), with `bed`.
     pub max_bed_wait: i64,
+    /// THE WAY-IN's OCCUPANCY: the most nappers at once between the leg (9,25,9) and their bed start (P1, the queue
+    /// behind it, the front), and the most DISPATCHED and not yet departed (the room count's reading).
+    pub max_wayin: usize,
+    pub max_open: usize,
+    /// Picks deferred by THE WAY-IN ROOM TERM.
+    pub wayin_deferred: usize,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
     pub max_queue: usize,
     /// With `bed`: the longest wait on a lane's branch hold and at the front (gt), and the bed's busy fraction over the
@@ -214,6 +230,8 @@ pub fn run(cfg: &Cfg) -> Out {
     // (the FIFO in ARRIVAL order (G1 00:50 / ironspec 00:58): a picked napper's bed start waits until no later pick can
     // reach the front before it: (leg arrival, lane, cart, pick REL t, visit v, predecessor, day))
     let mut pending: Vec<(i64, usize, usize, i64, i64, Option<usize>, i64)> = Vec::new();
+    // (every napper's (leg arrival, bed start) once its start is fixed: the way-in's occupancy and the room count)
+    let mut assigned: Vec<(i64, i64)> = Vec::new();
     // (THE 3-DEEP LANE RECORD, ironspec 01:05 (2): lanes written at each pick; with the skip fix a gate-G-skipped lane-7
     // entry is held and written behind the next REL's entries: (lane, the REL t it was picked at))
     let mut record: VecDeque<usize> = VecDeque::new();
@@ -306,12 +324,19 @@ pub fn run(cfg: &Cfg) -> Out {
                 // from the front (its bed start); the front 45 gt below P1)
                 let release = (leg + 15).max(prev_start);
                 let at_front = arrive.max(release + 45);
-                let start = at_front.max(bed_free);
+                let mut start = at_front.max(bed_free);
+                // (THE STOP STALLED: no bed start inside a stall window)
+                for &(s0, len) in &cfg.stop_stall {
+                    if start >= s0 && start < s0 + len {
+                        start = s0 + len;
+                    }
+                }
+                assigned.push((leg, start));
                 o.max_hold_wait = o.max_hold_wait.max(release - (leg + 15));
                 o.max_front_wait = o.max_front_wait.max(start - at_front);
                 prev_start = start;
                 bed_busy += 333;
-                bed_free = start + 333;
+                bed_free = start + 333 + cfg.rs_extra;
                 let wait = start - arrive;
                 o.max_bed_wait = o.max_bed_wait.max(wait);
                 if wait > 0 {
@@ -410,6 +435,11 @@ pub fn run(cfg: &Cfg) -> Out {
                 continue;
             }
             let picks_before = picks_today;
+            // (THE WAY-IN's OCCUPANCY at this REL: arrived at the leg and not yet in the bed; the room count: dispatched
+            // and not yet departed from the front)
+            assigned.retain(|a| a.1 + 1_000 > gt);
+            let in_wayin = pending.iter().filter(|p| p.0 <= gt).count() + assigned.iter().filter(|a| a.0 <= gt && a.1 > gt).count();
+            o.max_wayin = o.max_wayin.max(in_wayin);
             let mut shared_floor: Option<(i64, usize)> = None;
             for l in 0..3 {
                 let c = match lanes[l].pop_front() {
@@ -437,6 +467,16 @@ pub fn run(cfg: &Cfg) -> Out {
                 let by_target = cfg.pointer && target[l] == Some(c) && spaced;
                 let mut due = in_window && ((!cfg.pointer || target[l].is_none()) && k_rel == next_pick[l] || due_repick || by_target);
                 in_flight.retain(|&e| e > t);
+                let open = pending.len() + assigned.iter().filter(|a| a.1 > gt).count();
+                o.max_open = o.max_open.max(open);
+                if due && cfg.wayin_cap > 0 && open >= cfg.wayin_cap {
+                    // (THE WAY-IN ROOM TERM: the way-in's dry places are all spoken for: the pick is DEFERRED like HELD's)
+                    o.wayin_deferred += 1;
+                    if !by_target && !due_repick {
+                        next_pick[l] += cfg.period;
+                    }
+                    due = false;
+                }
                 if due && cfg.held > 0 && in_flight.len() >= cfg.held_cap {
                     // (HELD: the station's one napper is still in flight: the pick is DEFERRED; a pointer's target comes
                     // round again, a scheduled pick moves to the next period)
@@ -820,6 +860,71 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 o.naps[wv]
             ));
         }
+    }
+    // (ironspec 06:23 / 06:31 (1), G1 06:26 (2): THE WAY-IN OVERFLOW (b8949c96's token-stall row: the 4th napper on spills
+    // onto the split row / lane 7's R / the station's side): THE DESIGN's DISPATCH IS BOUNDED BY THE WAY-IN's DRY PLACES
+    // (P1 + 2 = 3) BY EVIDENCE: THE WAY-IN ROOM TERM (a pick only while dispatched-minus-departed < 3: the pick edges count
+    // up, the front's departure presses (9,-11,-3) count down: never merged (one per visit, ~333 gt apart); two lanes
+    // picking in one REL are two G11 outputs, counted as two). Rows: the normal nights (its margin vs 3, 0 deferred);
+    // THE STOP STALLED for 2,000 / 6,000 gt at every phase of night 3's window (every 250 gt): the way-in never holds a
+    // 4th; the control: the room term off: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name. HELD's in-flight count is
+    // a TIMER (its spans expire whether or not the napper left): it is not this bound)
+    {
+        let design = |name: &str, cap: usize, stall: Option<(i64, i64)>| {
+            let mut c = Cfg::new(name, 11, 120, Merge::Order);
+            c.pointer = true;
+            c.days = 10;
+            c.held = 4;
+            c.held_lane = Some([3, 3, 4]);
+            c.held_cap = 3;
+            c.rejoin_at = 1;
+            c.bed = true;
+            c.wayin_cap = cap;
+            if let Some(s) = stall {
+                c.stop_stall = vec![s];
+            }
+            c
+        };
+        let on = run(&design("normal, the room term on", 3, None));
+        let w = v.bar("ctl-pick: THE WAY-IN ROOM TERM never defers a pick on the normal nights (the design unchanged: 24 distinct, every interval < 24,000 - margin) and the way-in holds at most 3", ok(&on) && on.wayin_deferred == 0 && on.max_wayin <= 3);
+        lines.push(format!("  THE WAY-IN on the normal nights (the room term on): at most {} nappers in the way-in at once (margin {} vs its 3 dry places), the most dispatched-not-departed {}, picks deferred by it {}: {w}", on.max_wayin, 3i64 - on.max_wayin as i64, on.max_open, on.wayin_deferred));
+        let night = 3 * DAY * 100;
+        let (mut worst, mut worst_at, mut n, mut miss) = (0usize, String::new(), 0usize, Vec::new());
+        let (mut worst_off, mut off_at) = (0usize, String::new());
+        for len in [2_000i64, 6_000] {
+            for ph in (0..12_000).step_by(250) {
+                let st = (night + ph, len);
+                let o = run(&design(&format!("stop stalled {len} gt at night 3 + {ph}"), 3, Some(st)));
+                n += 1;
+                if o.max_wayin > worst {
+                    worst = o.max_wayin;
+                    worst_at = format!("{len} gt at + {ph}");
+                }
+                if o.max_wayin > 3 && miss.len() < 3 {
+                    miss.push(format!("A 4th NAPPER IN THE WAY-IN: the stop stalled {len} gt at night 3 + {ph}: {} at once", o.max_wayin));
+                }
+                let of = run(&design(&format!("stop stalled {len} gt at night 3 + {ph}, NO room term"), 0, Some(st)));
+                if of.max_wayin > worst_off {
+                    worst_off = of.max_wayin;
+                    off_at = format!("{len} gt at + {ph}");
+                }
+            }
+        }
+        let w = v.bar_n("ctl-pick: THE STOP STALLED 2,000 / 6,000 gt at every phase of a night (every 250 gt): THE WAY-IN NEVER HOLDS A 4th NAPPER (the room term: dispatched-minus-departed < 3 by evidence)", n, miss.is_empty() && worst <= 3);
+        lines.push(format!("  THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {w}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
+        let c = v.control("ctl-pick CONTROL (ironspec 06:31 (1)): the way-in room term off, the stop stalled: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name (b8949c96's spill)", 1, worst_off > 3).to_string();
+        lines.push(format!("  CONTROL (no room term): at most {worst_off} nappers in the way-in ({off_at}): {c}"));
+        // (ironspec 06:28 (B), G1 06:29: RS_READY AT THE BALL EXIT (7,-3,4): its cost per visit (the previous rider's
+        // travel from the R string (4,0,5) to the ball exit, 58f770cc measuring) against the nap margin: the design's
+        // worst nap-to-nap interval with each visit's cycle grown by 0..120 gt, printed (the bar's margin 1,000))
+        let mut costs = Vec::new();
+        for extra in [0i64, 20, 40, 60, 80, 120] {
+            let mut c = design(&format!("RS_ready at the ball exit, + {extra} gt per visit"), 3, None);
+            c.rs_extra = extra;
+            let o = run(&c);
+            costs.push(format!("+ {extra}: the worst interval {} gt (to 24,000: {}){}", o.max_gap.0, 24_000 - o.max_gap.0, if ok(&o) { "" } else { " MISSES the bars" }));
+        }
+        lines.push(format!("  RS_READY AT THE BALL EXIT (ironspec 06:28 (B)), each visit's cycle grown by the R-string-to-ball-exit travel: {}", costs.join("; ")));
     }
     lines.push("  OWED (before anything is laid, ironspec 23:48 (2)): the COUNTER's netlist (a ring-position counter of each lane's front, counting on the REL pulse in the same tick, the picked-not-rejoined positions in a per-lane register, the rejoin counted as evidence, state in latches; a world-open-mid-count row passing STRICTLY, value read back); the per-lane holds' MECHANISM (the waiting cell per lane; slot-1 supply, F1 and REL while held; each batch's make-up and credit; the gate = the previous napper's departure from the front (the RS_ready reset); the order arbiter releasing EXACTLY ONE, the OLDEST PICK, per departure event, with planted rows of two and three holds at once); the 219-row credit sweep under this schedule; cc767b78's composed night (each waiting napper's stamp age, the bed's busy fraction, golems lost)".into());
     lines
