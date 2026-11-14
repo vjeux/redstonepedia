@@ -356,6 +356,16 @@ pub enum MobfarmCmd {
         #[arg(long)]
         report_only: bool,
     },
+    /// The CORE's REL loop (`ctlcore.rs`, dfb89499; ironspec 14:41c / 14:47c): the 100-gt re-phase loop, its gate
+    /// and inhibit latch, the golem pulse injected mod 100; the period, the re-lock from a lag, freezes with the
+    /// open's lost gate, missing golems, a double start.
+    CtlCoreBench {
+        #[arg(long)]
+        out: PathBuf,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
+    },
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
     /// driver repeater power-forcing a T-junction rail; the edge to the switch and the reset to the
     /// return, at every phase, against <= 10 gt.
@@ -14334,6 +14344,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (_c, spec) = load(version, &out)?;
             let mut v = crate::verdict::Verdict::new("ctl-high-bench");
             for l in crate::ctlhigh::bench(&spec, &mut v).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+        }
+        MobfarmCmd::CtlCoreBench { out, report_only } => {
+            let d = crate::ctlcore::design().map_err(|e| anyhow::anyhow!(e))?;
+            std::fs::write(&out, format!("# The CORE's REL loop prototype (mctas mobfarm ctl-core-bench, dfb89499).\n{}", d.to_text()))?;
+            let (_c, spec) = load(version, &out)?;
+            let mut v = crate::verdict::Verdict::new("ctl-core-bench");
+            for l in crate::ctlcore::bench(&spec, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;

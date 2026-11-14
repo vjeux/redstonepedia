@@ -36,6 +36,7 @@ pub mod ctljunction;
 pub mod ctllatch;
 pub mod ctlfeed;
 pub mod ctlchain;
+pub mod ctlcore;
 pub mod ctlpocket;
 pub mod ctlhigh;
 pub mod holdpulse;
