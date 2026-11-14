@@ -6447,6 +6447,35 @@ fn rail_chain(w: &redsim::World, c: BlockPos) -> Vec<BlockPos> {
     chain
 }
 
+/// (part 93; G1 Nov 14 05:38, part 50) The power sources that can feed a cell `s`, each with its text: a source beside it
+/// whose real faces (`source_faces`) feed it weakly, or a conductor beside it that a source beside the conductor powers
+/// strongly; `skip` a neighbour left out (a QC block's own cell). `power_into`'s reach for any cell but a diode consumer
+/// itself, and the quasi-connectivity static's: one definition.
+pub fn sources_into(w: &redsim::World, s: BlockPos, skip: Option<BlockPos>) -> Vec<(BlockPos, String)> {
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let mut hits = Vec::new();
+    for q in n6(s) {
+        if Some(q) == skip {
+            continue;
+        }
+        let b = w.get(q);
+        if may_source(w, &b) {
+            if source_faces(q, &b.to_string())(s).0 {
+                hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+            }
+        } else if redsim::behavior::is_conductor(w, &b, q) {
+            for r in n6(q) {
+                let rb = w.get(r);
+                if r != s && may_source(w, &rb) && source_faces(r, &rb.to_string())(q).1 {
+                    hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{} beside {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                }
+            }
+        }
+    }
+    hits
+}
+
 pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
@@ -6476,6 +6505,12 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
         let mut locks: Vec<String> = Vec::new();
         let cstate = w.get(*c).to_string();
         for s in &into {
+            // (part 93) a cell other than the consumer itself (its block above, a joined rail): `sources_into`, the one
+            // reach the QC static shares
+            if s != c {
+                hits.extend(sources_into(&w, *s, None));
+                continue;
+            }
             for q in n6(*s) {
                 let b = w.get(q);
                 // (part 53) a diode consumer reads only its input side (part 34's `diode_reads`, as power-out
@@ -6557,7 +6592,80 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
     Ok((lines, bad))
 }
 
-/// Whether a block responds to redstone power (a consumer): a rail of any kind (a plain T is power-
+/// (ironspec Nov 14 14:07p (2), part 93) One `# quasi-connected:` declaration: the block's cell, INTENDED or HARMLESS,
+/// and the owner's reason.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QcDecl {
+    pub cell: BlockPos,
+    pub intended: bool,
+    pub why: String,
+}
+
+/// A design's `# quasi-connected: x,y,z=intended (how its timing uses it); x,y,z=harmless (why: never loaded / never
+/// extended when that power arrives)` lines, strictly read (a malformed entry fails naming it).
+pub fn qc_decls(text: &str) -> Result<Vec<QcDecl>, String> {
+    let mut out = Vec::new();
+    for l in text.lines().filter_map(|l| l.strip_prefix("# quasi-connected:")) {
+        for e in crate::settle::split_outside(l, ';') {
+            let e = e.trim();
+            if e.is_empty() {
+                continue;
+            }
+            let bad = || format!("`# quasi-connected:` entry {e:?}: x,y,z=intended (how) or x,y,z=harmless (why)");
+            let (c, rest) = e.split_once('=').ok_or_else(bad)?;
+            let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|_| bad())?;
+            let (kind, why) = rest.split_once(" (").ok_or_else(bad)?;
+            let why = why.trim_end().strip_suffix(')').ok_or_else(bad)?.trim();
+            if v.len() != 3 || why.is_empty() || !["intended", "harmless"].contains(&kind.trim()) {
+                return Err(bad());
+            }
+            out.push(QcDecl { cell: BlockPos::new(v[0], v[1], v[2]), intended: kind.trim() == "intended", why: why.to_string() });
+        }
+    }
+    Ok(out)
+}
+
+/// (ironspec Nov 14 14:07p (2), part 93) The QUASI-CONNECTIVITY static: every dropper, dispenser and piston (sticky or
+/// not) of the design whose quasi-connected position, the block ABOVE it (26.3 `hasNeighborSignal(pos.above())`), can
+/// be POWERED by anything in the design: a source whose real faces (`source_faces`) feed that cell, or a conductor beside
+/// it a source beside it powers strongly (`power_into`'s reach for one cell). Each listed block must be declared in the
+/// design's `# quasi-connected:` line, INTENDED (its owner states how its timing uses it) or HARMLESS (never loaded,
+/// never extended, when that power arrives); an undeclared one fails by name, as does a declaration for a block not
+/// listed (stale). Returns the lines and the failure count.
+pub fn qc_static(spec: &FarmSpec, decls: &[QcDecl]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let mut cells: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| ["piston", "sticky_piston", "dropper", "dispenser"].contains(&name(*p).split('[').next().unwrap_or(""))).collect();
+    cells.sort_by_key(|p| (p.y, p.z, p.x));
+    cells.dedup();
+    let mut lines = Vec::new();
+    let (mut listed, mut bad) = (Vec::new(), 0usize);
+    for c in &cells {
+        let s = c.above();
+        let mut hits: Vec<String> = sources_into(&w, s, Some(*c)).into_iter().map(|(_, t)| t).collect();
+        hits.sort();
+        hits.dedup();
+        if hits.is_empty() {
+            continue;
+        }
+        listed.push(*c);
+        let decl = decls.iter().find(|d| d.cell == *c);
+        let verdict = match decl {
+            Some(d) => format!("declared {} ({})", if d.intended { "INTENDED" } else { "HARMLESS" }, d.why),
+            None => {
+                bad += 1;
+                "UNDECLARED (FAIL): its owner declares it intended or harmless".to_string()
+            }
+        };
+        lines.push(format!("  QC {},{},{} ({}): the block above {},{},{} ({}) can be powered by {}: {verdict}", c.x, c.y, c.z, name(*c), s.x, s.y, s.z, name(s), hits.join("; ")));
+    }
+    for d in decls.iter().filter(|d| !listed.contains(&d.cell)) {
+        bad += 1;
+        lines.push(format!("  `# quasi-connected:` {},{},{} names no dropper, dispenser or piston whose block above can be powered (a stale declaration, FAIL)", d.cell.x, d.cell.y, d.cell.z));
+    }
+    lines.insert(0, format!("quasi-connectivity (ironspec Nov 14 14:07p (2)): {} dropper(s) / dispenser(s) / piston(s), {} with a block above that can be powered, {bad} failing (undeclared or stale)", cells.len(), listed.len()));
+    Ok((lines, bad))
+}
 /// switched in 26.3), dust, a diode, a piston, a dropper, a dispenser, a hopper, a door, trapdoor or
 /// gate, a lamp, a note block, TNT, a bell, a crafter, a copper bulb, a command block.
 fn power_consumer(id: &str) -> bool {
@@ -11587,6 +11695,46 @@ mod gate_tests {
             assert!(fragile.contains("7,1,1 (") && fragile.contains("observer") && notes.iter().any(|l| l.contains("FAULT NOTE 7,1,1:") && l.contains("the observer at 7,2,1")), "the observer at feet + 1 (waterlogged {wl}): {r} / {notes:?}");
             assert!(fragile.contains("1,1,7 (feet not air or liquid (tripwire") && notes.iter().any(|l| l.contains("FAULT NOTE 1,1,7:") && l.contains("the tripwire at 1,1,7")), "the lone string (waterlogged {wl}): {r} / {notes:?}");
             assert!(n_fragile > 0 && notes.len() == n_fragile, "one FAULT NOTE per FRAGILE cell (waterlogged {wl}): {n_fragile} vs {}: {r} / {notes:?}", notes.len());
+        }
+    }
+
+    /// (ironspec Nov 14 14:07p (2), part 93) the QC static: a PLANTED dropper under a cell a redstone block powers is
+    /// listed and fails undeclared, by name; declared INTENDED it passes; a piston whose block above a lever on the side
+    /// of a stone above it powers THROUGH that conductor is listed; a dropper with nothing powering its block above is
+    /// not listed; a declaration naming it is stale (FAIL); the declaration form is read strictly
+    #[test]
+    fn a_dropper_under_a_powered_cell_is_listed_by_name() {
+        let b = |x: i32, y: i32, z: i32| BlockPos::new(x, y, z);
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in 0..=8 {
+            for z in 0..=2 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        // (the planted dropper at 1,1,1: its block above, 1,2,1, air beside a redstone block at 1,3,1... above it)
+        blocks.push((b(1, 1, 1), p("minecraft:dropper[facing=down,triggered=false]")));
+        blocks.push((b(1, 3, 1), p("minecraft:redstone_block")));
+        // (a lone dropper at 4,1,1: nothing powers 4,2,1)
+        blocks.push((b(4, 1, 1), p("minecraft:dropper[facing=down,triggered=false]")));
+        // (a piston at 7,1,1 under a stone at 7,2,1, a redstone torch on the stone's side... a torch at 7,1,0 powers the
+        // block above it, 7,2,0, strongly: a conductor beside 7,2,1)
+        blocks.push((b(7, 1, 1), p("minecraft:piston[extended=false,facing=up]")));
+        blocks.push((b(7, 2, 0), p("minecraft:stone")));
+        blocks.push((b(7, 1, 0), p("minecraft:redstone_torch[lit=true]")));
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, 0, 0), lo: b(0, 0, 0), hi: b(8, 4, 2), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, bad) = super::qc_static(&spec, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(bad == 2 && l.iter().any(|x| x.starts_with("  QC 1,1,1 (dropper") && x.contains("redstone_block at 1,3,1") && x.contains("UNDECLARED (FAIL)")), "the planted dropper listed, undeclared: {l:?}");
+        assert!(l.iter().any(|x| x.starts_with("  QC 7,1,1 (piston") && x.contains("redstone_torch[lit=true] at 7,1,0 through the conductor stone at 7,2,0")), "the piston through a conductor: {l:?}");
+        assert!(!l.iter().any(|x| x.starts_with("  QC 4,1,1")), "the lone dropper not listed: {l:?}");
+        let decls = super::qc_decls("# quasi-connected: 1,1,1=intended (the ring's step fires it each cycle); 7,1,1=harmless (never extended when the torch is lit)\n").unwrap();
+        let (_, bad) = super::qc_static(&spec, &decls).unwrap();
+        assert_eq!(bad, 0, "both declared: pass");
+        let stale = super::qc_decls("# quasi-connected: 1,1,1=intended (a); 7,1,1=harmless (b); 4,1,1=harmless (c)\n").unwrap();
+        let (l, bad) = super::qc_static(&spec, &stale).unwrap();
+        assert!(bad == 1 && l.iter().any(|x| x.contains("4,1,1 names no dropper") && x.contains("stale")), "{l:?}");
+        for e in ["# quasi-connected: 1,1,1=maybe (x)\n", "# quasi-connected: 1,1,1=intended\n", "# quasi-connected: 1,1=intended (x)\n"] {
+            assert!(super::qc_decls(e).is_err(), "{e:?} refused");
         }
     }
 

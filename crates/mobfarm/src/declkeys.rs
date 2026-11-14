@@ -36,6 +36,9 @@ pub const COMMENT_KEYS: &[&str] = &[
     // (vcompose, ironspec Nov 14 13:09p) a delta's base record and its md5, read by `mobfarm column --delta`
     "base",
     "base-md5",
+    // (ironspec Nov 14 14:07p (2), part 93) a quasi-connected dropper / dispenser / piston declared intended or harmless,
+    // read by `mobfarm qc`
+    "quasi-connected",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional

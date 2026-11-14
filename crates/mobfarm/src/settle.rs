@@ -25,7 +25,7 @@ pub const CAP: u32 = 200;
 pub const MIN_TICKS: u32 = 21;
 
 /// Split on `sep` outside parentheses (a declaration's note can hold the separator).
-fn split_outside(s: &str, sep: char) -> Vec<String> {
+pub fn split_outside(s: &str, sep: char) -> Vec<String> {
     let (mut out, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
     for ch in s.chars() {
         match ch {

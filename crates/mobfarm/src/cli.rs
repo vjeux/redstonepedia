@@ -1378,6 +1378,12 @@ pub enum MobfarmCmd {
     /// (farmopt / G1 Nov 14 13:19, part 88) The portal FRAME check over every nether portal plane of each design:
     /// obsidian under every bottom cell, above every top cell, in both side columns (26.3 `PortalShape`'s `FRAME`;
     /// corners not needed), the interior a full rectangle 2..21 wide and 3..21 high; exit 1 on any failure
+    /// (ironspec Nov 14 14:07p (2), part 93) The QUASI-CONNECTIVITY static: every dropper, dispenser and piston whose
+    /// block above can be powered by anything in the design, each declared in `# quasi-connected:` as intended or
+    /// harmless; an undeclared one (or a stale declaration) fails by name
+    Qc {
+        design: PathBuf,
+    },
     PortalFrames {
         designs: Vec<PathBuf>,
         /// (G1 13:41, part 91) The expected plane counts, OVERWORLD,NETHER (each design listed): a plane whose portal
@@ -15832,6 +15838,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::Qc { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let text = std::fs::read_to_string(&design)?;
+            let decls = crate::fleecheck::qc_decls(&text).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+            let (lines, bad) = crate::fleecheck::qc_static(&spec, &decls).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(bad == 0, "quasi-connectivity: {bad} failing (undeclared or stale)");
         }
         MobfarmCmd::PortalFrames { designs, expect } => {
             let expect = match &expect {
