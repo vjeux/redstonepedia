@@ -59,7 +59,7 @@
 ## bottom, unchanged): the obsidian is strongly powered while the front is occupied; R1's north input below it is a
 ## repeater (below), which no block above can feed
 8,-10,-5 minecraft:glass
-8,-9,-5 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+8,-9,-5 minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
 ## FRONT CLEAR: a wall torch on the obsidian's north face (lit = the front clear); it strongly powers V's cobblestone
 ## (7,-8,-6) above it (unchanged), read by the repeater (8,-8,-6) into the tower's base (9,-8,-6)
 7,-9,-6 minecraft:redstone_wall_torch[facing=north,lit=false]
@@ -98,7 +98,7 @@
 ## replaced by a repeater facing north (input (7,-10,-6)), output into R1's comparator (7,-10,-4)'s side; until car B
 ## its input is day-1's NOT-ready stand-in at (7,-10,-6) (owner day-1's stand-in part)
 7,-10,-5
-7,-10,-5 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+7,-10,-5 minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
 #
 ## ---- (B)'s arrival read (day-1's cells, from the stand-in part: the detector (9,23,6), its read line (8,23,6..3)) ----
 9,23,6 minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
@@ -277,7 +277,7 @@
 1,19,-2 minecraft:glass
 1,20,-2 minecraft:redstone_wire[east=side,north=side,power=4,south=none,west=none]
 2,19,-2 minecraft:glass
-2,20,-2 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+2,20,-2 minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
 ## the departure detector's level (the DEP tower's T14), two up-steps to E0_t (7,20,-1)
 8,17,-2 minecraft:glass
 8,18,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
