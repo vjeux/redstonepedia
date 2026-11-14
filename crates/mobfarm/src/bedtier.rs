@@ -1489,6 +1489,13 @@ pub struct Row {
     pub rest_on_p: usize,
     pub other_on_p: usize,
     pub stepped_off: Option<(i64, [i32; 3])>,
+    /// (ironspec 16:35: the self-heal) the planted stamp release's tick, and the napper's cells on
+    /// foot from its landing to its HOME's re-acquisition.
+    pub release_home: Option<i64>,
+    pub reclaim_cells: Vec<[i32; 3]>,
+    /// (ironspec 16:35: the lock case) the visit's --erase-home-at applied (HOME erased, the ticket
+    /// taken by a stand-in claimant).
+    pub erase_planted: bool,
     /// (G1 15:29 / b8949c96 15:45: R4's planter) the cart's states on each tick its centre is within
     /// 1.5 of a top-half trapdoor's column at its layer or the one above: `x,y,z,vx,vy,vz,rider`
     /// (the design frame, the stored motion), with --cart-states.
@@ -1649,6 +1656,9 @@ pub struct Faults {
     pub release_after_arm: Option<i64>,
     /// (the farm-stop bar's known positive) The napper's HOME erased at this tick.
     pub erase_home_at: Option<i64>,
+    /// (ironspec 16:35: the self-heal) the napper's HOME released at this tick of each visit (the
+    /// stamp release: the memory erased, a fresh stamp, the bed's ticket free).
+    pub release_home_at: Option<i64>,
     /// The 09:00 shape (a control since ironspec 09:45): DAY gates the activator and the abort
     /// releases an unslept napper by day. Without it the activator is always on and an unslept
     /// napper waits for REST.
@@ -3057,6 +3067,24 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             eprintln!("t {t}: the planted erasure: the napper's HOME erased, the bed's ticket taken by a declared stand-in claimant (free tickets {before:?} -> {after:?})");
             erase_done = true;
+            row.erase_planted = true;
+        }
+        // (ironspec 16:35: the self-heal, the FREE-ticket case: the held napper's stamp release (its
+        // HOME erased, a fresh CANT_REACH stamp, as redsim's too-long release does) with the bed's
+        // ticket free: AcquirePoi must re-acquire it at the stop and the visit nap normally;
+        // --erase-home-at is the TAKEN case, the lock)
+        if f.release_home_at == Some(t)
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+        {
+            let bp = wc(BED_HEAD);
+            let free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
+            if free != Some(1) {
+                return Err(format!("--release-home-at {t}: the bed's free tickets are {free:?}, not 1: the free-ticket case needs the ticket free (the taken case is --erase-home-at)"));
+            }
+            redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).home = None;
+            redsim::entity::mob::ai::brain::ex_mut(&mut run.world, vi).mem.cant_reach_since = Some(t);
+            row.release_home = Some(t);
+            println!("t {t}: the planted stamp release (ironspec 16:35, the self-heal): the napper's HOME erased, a fresh CANT_REACH stamp, the bed's ticket free ({free:?})");
         }
         let w = &run.world;
         // (ironspec 05:20, a bench rule: the world's day set before the summon (the visit's hour is
@@ -3305,6 +3333,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             // (ironspec 07:30: a released napper's re-claim at the stop, its delay priced)
             if !had_home && has_home && row.home_lost_at.is_some() && row.reclaimed_at.is_none() {
                 row.reclaimed_at = Some(t);
+            }
+            // (ironspec 16:35: the self-heal: the homeless napper's cells on foot from its landing to
+            // the re-acquisition)
+            if row.release_home.is_some() && !has_home && !riding && row.landed.is_some() && row.reclaim_cells.last() != Some(&vcell) {
+                row.reclaim_cells.push(vcell);
             }
             had_home = has_home;
             let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
@@ -3856,6 +3889,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
         if f.erase_home_at.is_some() && !erase_done {
             unapplied.push("--erase-home-at".into());
+        }
+        if f.release_home_at.is_some() && row.release_home.is_none() {
+            unapplied.push("--release-home-at".into());
         }
         if f.pickup_inject.is_some() && !inject_done {
             unapplied.push("the pickup inject (no release)".into());
@@ -4928,6 +4964,29 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         sk.rest_on_p_visits += (r.rest_on_p > 0) as usize;
                         sk.other_on_p_max = sk.other_on_p_max.max(r.other_on_p);
                         sk.step_offs += r.stepped_off.is_some() as usize;
+                        // (ironspec 16:35: the self-heal / the lock)
+                        if let Some(rl) = r.release_home {
+                            sk.heal_visits += 1;
+                            if let Some(rc) = r.reclaimed_at {
+                                sk.heal_reacquired += 1;
+                                if let Some((_, lt)) = r.landed {
+                                    sk.heal_land_to_reacquire.push(rc - lt);
+                                }
+                                sk.heal_release_to_reacquire.push(rc - rl);
+                                if let Some(s) = r.slept_at.filter(|&s| s >= rc) {
+                                    sk.heal_slept += 1;
+                                    sk.heal_reacquire_to_lie.push(s - rc);
+                                }
+                            }
+                            sk.heal_normal += (r.seated_out && r.r_at.is_some() && r.problems.is_empty()) as usize;
+                            for c in &r.reclaim_cells {
+                                *sk.heal_cells.entry(*c).or_default() += 1;
+                            }
+                        }
+                        if r.erase_planted {
+                            sk.lock_visits += 1;
+                            sk.lock_slept += r.slept_at.is_some() as usize;
+                        }
                         seated += r.seated_out as usize;
                         seated_here += r.seated_out as usize;
                         not_out += r.out_at.is_none() as usize;
@@ -5858,6 +5917,18 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         // (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME: the boarded
         // rider's ride away, as far as this bench follows it)
+        // (ironspec 16:35: the self-heal (the free ticket: re-acquire, lie down, a normal visit) and
+        // the lock (the ticket taken: never sleeps))
+        if sk.heal_visits > 0 {
+            let mm = |v: &[i64]| if v.is_empty() { "none".to_string() } else { format!("{}..{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
+            println!("the self-heal (ironspec 16:35: a stamp-released napper, its HOME erased and a fresh stamp, the bed's ticket free): re-acquired HOME on {} of {} visits ({} gt after the release, {} gt after its landing); lay down after it on {} (re-acquire -> lie-down {} gt); clean visits after (seated, at R, no problem) {}; its cells on foot, landing -> re-acquire (visits): {:?}", sk.heal_reacquired, sk.heal_visits, mm(&sk.heal_release_to_reacquire), mm(&sk.heal_land_to_reacquire), sk.heal_slept, mm(&sk.heal_reacquire_to_lie), sk.heal_normal, sk.heal_cells);
+            if sk.heal_reacquired < sk.heal_visits || sk.heal_slept < sk.heal_visits {
+                failed.push(format!("the self-heal: {} of {} stamp-released nappers re-acquired HOME, {} slept (bar: all)", sk.heal_reacquired, sk.heal_visits, sk.heal_slept));
+            }
+        }
+        if sk.lock_visits > 0 {
+            println!("the lock (ironspec 16:35: a homeless napper with the bed's ticket taken): slept on {} of {} visits (expected 0: it can never re-acquire the bed)", sk.lock_slept, sk.lock_visits);
+        }
         if sk.rest_on_p_visits > 0 || sk.step_offs > 0 || sk.other_on_p_max > 0 {
             println!("the woken napper on P before the pickup (G1 16:09: the step-off; redsim's vanilla REST package: with HOME held it runs SetWalkTargetFromBlockMemory(HOME, 1); InsideBrownianWalk runs only without HOME): calm (REST) on P in {} visits, at most {} gt in one; other awake ticks on P at most {} gt; visits that stepped off P before the pickup {} (bar 0)", sk.rest_on_p_visits, sk.rest_on_p_max, sk.other_on_p_max, sk.step_offs);
         }
@@ -6028,6 +6099,19 @@ struct SkipTotals {
     rest_on_p_visits: usize,
     other_on_p_max: usize,
     step_offs: usize,
+    /// (ironspec 16:35: the self-heal) visits with the planted stamp release; those that
+    /// re-acquired HOME, slept after it and ran a clean visit; the gaps; the cells landing ->
+    /// re-acquire; and the lock (the ticket taken): visits planted, and those that slept anyway
+    heal_visits: usize,
+    heal_reacquired: usize,
+    heal_slept: usize,
+    heal_normal: usize,
+    heal_land_to_reacquire: Vec<i64>,
+    heal_release_to_reacquire: Vec<i64>,
+    heal_reacquire_to_lie: Vec<i64>,
+    heal_cells: std::collections::BTreeMap<[i32; 3], usize>,
+    lock_visits: usize,
+    lock_slept: usize,
     idle_targets: std::collections::BTreeMap<[i32; 3], usize>,
     idle_stamps: usize,
     post_lost: usize,
