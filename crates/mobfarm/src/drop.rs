@@ -1200,6 +1200,59 @@ pub const DRIVE_SLOT_DELTA: i64 = 1;
 /// its twins must fail by the bar.
 pub const HOLD_DRIVE_LEAD_ITERATIONS: i64 = 1;
 
+/// (F′, G1 13:33 [2]) THE RAILS AGAINST THE PORTALS, a static: for every rail of a design file, the
+/// cart's real box (0.98 wide, 0.7 high, its bottom at the rail's level + 0.0625, at the rail's height
+/// along an ascending shape) at rest on the rail and over each transition to the cells its shape
+/// connects (the box swept to the neighbour's centre, its bounding box: conservative), against every
+/// nether portal cell (its entity-inside shape the full block, 26.3 NetherPortalBlock.entityInside: a
+/// cart whose box enters the cell is carried through with its rider); 0 overlaps, or each named.
+#[cfg(test)]
+pub fn rail_portal_overlaps(blocks: &std::collections::BTreeMap<[i32; 3], String>) -> Result<String, String> {
+    let portals: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(p, _)| *p).collect();
+    let shape_of = |s: &str| s.split(['[', ',', ']']).find_map(|kv| kv.strip_prefix("shape=")).map(str::to_string);
+    let mut rails = 0usize;
+    let mut hits = Vec::new();
+    for (p, s) in blocks {
+        let Some(sh) = shape_of(s).filter(|_| s.contains("rail")) else { continue };
+        rails += 1;
+        // (the shape's two ends: the neighbour cell and its rise; an ascending end leads one up)
+        let ends: [([i32; 3], f64); 2] = match sh.as_str() {
+            "north_south" => [([0, 0, -1], 0.0), ([0, 0, 1], 0.0)],
+            "east_west" => [([-1, 0, 0], 0.0), ([1, 0, 0], 0.0)],
+            "ascending_north" => [([0, 1, -1], 1.0), ([0, 0, 1], 0.0)],
+            "ascending_south" => [([0, 1, 1], 1.0), ([0, 0, -1], 0.0)],
+            "ascending_east" => [([1, 1, 0], 1.0), ([-1, 0, 0], 0.0)],
+            "ascending_west" => [([-1, 1, 0], 1.0), ([1, 0, 0], 0.0)],
+            "north_east" => [([0, 0, -1], 0.0), ([1, 0, 0], 0.0)],
+            "north_west" => [([0, 0, -1], 0.0), ([-1, 0, 0], 0.0)],
+            "south_east" => [([0, 0, 1], 0.0), ([1, 0, 0], 0.0)],
+            "south_west" => [([0, 0, 1], 0.0), ([-1, 0, 0], 0.0)],
+            _ => continue,
+        };
+        let rising = sh.starts_with("ascending");
+        // (the box's centre at rest: the cell's centre, the bottom at the rail + 0.0625, half a block up on a slope)
+        let rest = [p[0] as f64 + 0.5, p[1] as f64 + 0.0625 + if rising { 0.5 } else { 0.0 }, p[2] as f64 + 0.5];
+        let boxed = |c: [f64; 3]| ([c[0] - 0.49, c[1], c[2] - 0.49], [c[0] + 0.49, c[1] + 0.7, c[2] + 0.49]);
+        let mut sweeps = vec![("at rest".to_string(), boxed(rest))];
+        for (d, rise) in ends {
+            let n = [rest[0] + d[0] as f64, p[1] as f64 + 0.0625 + rise, rest[2] + d[2] as f64];
+            let (a, b) = (boxed(rest), boxed(n));
+            let lo = [a.0[0].min(b.0[0]), a.0[1].min(b.0[1]), a.0[2].min(b.0[2])];
+            let hi = [a.1[0].max(b.1[0]), a.1[1].max(b.1[1]), a.1[2].max(b.1[2])];
+            sweeps.push((format!("toward ({},{},{})", p[0] + d[0], p[1] + d[1], p[2] + d[2]), (lo, hi)));
+        }
+        for q in &portals {
+            for (what, (lo, hi)) in &sweeps {
+                let inside = (0..3).all(|i| lo[i] < (q[i] + 1) as f64 && hi[i] > q[i] as f64);
+                if inside {
+                    hits.push(format!("the rail ({},{},{}) {sh}, its cart's box {what}, enters the portal cell ({},{},{})", p[0], p[1], p[2], q[0], q[1], q[2]));
+                }
+            }
+        }
+    }
+    if hits.is_empty() { Ok(format!("{rails} rails, {} portal cells: no cart box enters a portal cell", portals.len())) } else { Err(hits.join("; ")) }
+}
+
 /// (F′, ironspec 08:18a (4): one written number, day-1's) The ARM3 release line's LAID pulse width in
 /// game ticks, derived from the cells: the limiter's side branch, the repeaters at the station's
 /// (2,6,11) and (2,6,12) (bench (8,6,17) / (8,6,18), the design's own frame here), 2 x the sum of their
@@ -5929,29 +5982,47 @@ mod tests {
         assert_eq!(super::laid_release_pulse_gt(&g.blocks, [[1, 1, 3], [1, 1, 4]]), Some(REQUIREMENT_FROM_DAY1_INTERFACE_GT));
     }
 
-    /// (F′, G1 08:32 (2b)) THE STATION FILE LOADS STANDALONE: every block of the written station file
-    /// survives where it stands in the file's own world (`can_survive`), and no rail would pop (26.3
-    /// BaseRailBlock.shouldBeRemoved): lane 7's crest (-3,13,7) and the last climb slope (-2,12,7)
-    /// stand on (-3,12,7), the lift's cell laid here too (9fc3155f 08:26 / 08:28).
+    /// (F′, G1 08:32 (2b), ironspec 13:40p (3), G1 13:33 [2]) THE STATION FILE LOADS STANDALONE through the
+    /// battery's paste path: the written file loaded as the battery loads a design (`circuit::Circuit::load`,
+    /// `circuit::mobfarm::spec_of`) and pasted by `Run::start` (everything raw, then the shape updates; a
+    /// design cell the game can't hold, popped at placement or standing without its support, fails the
+    /// paste by name), EVERY portal cell read back as a nether portal; no cart box on any rail enters a
+    /// portal cell (`rail_portal_overlaps`); lane 7's crest (-3,13,7) and its last climb slope (-2,12,7)
+    /// stand on (-3,12,7), the lift's cell laid here too (9fc3155f 08:26 / 08:28). The portal frames'
+    /// completeness, which redsim's updates don't break, is 9fc3155f's part 88 (`mobfarm portal-frames`,
+    /// one frame tool: G1), run on this file in F′'s message, not a second rule here.
     #[test]
     fn the_station_file_loads_standalone() {
-        let d = mctas::design::Design::parse(include_str!("../../../designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt")).unwrap();
-        // (the pad's portal blocks are lit, not placed, the placement order's own rule above: redsim
-        // models no nether portal, so those cells are left out of the world and the check; every other
-        // block must parse, and the frames that hold the portals are checked)
-        let portal = |s: &str| s.starts_with("minecraft:nether_portal");
-        assert!(d.blocks.values().any(|s| portal(s)), "the pad's portals (the rule's own positive case)");
-        let ps: Vec<[i32; 3]> = d.blocks.iter().filter(|(_, s)| !portal(s.as_str())).map(|(p, _)| *p).collect();
-        let lo = redsim::pos::BlockPos::new(ps.iter().map(|p| p[0]).min().unwrap() - 1, ps.iter().map(|p| p[1]).min().unwrap() - 1, ps.iter().map(|p| p[2]).min().unwrap() - 1);
-        let hi = [ps.iter().map(|p| p[0]).max().unwrap() + 1, ps.iter().map(|p| p[1]).max().unwrap() + 1, ps.iter().map(|p| p[2]).max().unwrap() + 1];
-        let mut w = redsim::world::World::new(lo, [hi[0] - lo.x + 1, hi[1] - lo.y + 1, hi[2] - lo.z + 1]);
-        for p in &ps {
-            let s = &d.blocks[p];
-            w.set_block(redsim::pos::BlockPos::new(p[0], p[1], p[2]), redsim::block::Block::parse(s).unwrap(), redsim::world::flags::RAW);
+        let path = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt"));
+        let c = circuit::Circuit::load(&path).unwrap();
+        let spec = circuit::mobfarm::spec_of(&c).unwrap();
+        let run = super::Run::start(&spec, &super::RunOpts::steady(1, 1, super::WalkMode::Random)).unwrap();
+        let d = mctas::design::Design::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let portals: Vec<[i32; 3]> = d.blocks.iter().filter(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(p, _)| *p).collect();
+        assert!(!portals.is_empty(), "the pad's portal cells");
+        for p in &portals {
+            let now = run.world.get(redsim::pos::BlockPos::new(p[0], p[1], p[2])).to_string();
+            assert!(now.starts_with("minecraft:nether_portal"), "the portal cell ({},{},{}) reads {now} after the paste", p[0], p[1], p[2]);
         }
-        let cells: Vec<redsim::pos::BlockPos> = ps.iter().map(|p| redsim::pos::BlockPos::new(p[0], p[1], p[2])).collect();
-        assert_eq!(crate::bedtier::survival_check(&w, &cells), Ok(()));
+        let rails = super::rail_portal_overlaps(&d.blocks);
+        assert!(rails.as_ref().is_ok_and(|r| r.contains("no cart box enters a portal cell")), "{rails:?}");
         assert!(d.blocks.get(&[-3, 12, 7]).is_some_and(|b| b.contains("glass")), "the crest's support (-3,12,7)");
+    }
+
+    /// (G1 13:33 [2]) The rails-against-portals static's control, on the station file: a rail planted
+    /// beside a plane, its shape leading into the plane's portal cell, fails `rail_portal_overlaps` naming
+    /// the rail and the cell.
+    #[test]
+    fn the_rail_portal_static_fails_by_name() {
+        let d = mctas::design::Design::parse(include_str!("../../../designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt")).unwrap();
+        let (&p, axis) = d.blocks.iter().find(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(p, s)| (p, if s.contains("axis=z") { 'z' } else { 'x' })).unwrap();
+        // (beside the plane: the next cell across it, a rail whose shape leads into the portal cell)
+        let (beside, shape) = if axis == 'x' { ([p[0], p[1], p[2] - 1], "north_south") } else { ([p[0] - 1, p[1], p[2]], "east_west") };
+        assert!(d.blocks.get(&beside).is_none_or(|s| !s.contains("rail")), "the planted cell {beside:?} holds no rail of the design");
+        let mut planted = d.blocks.clone();
+        planted.insert(beside, format!("minecraft:rail[shape={shape},waterlogged=false]"));
+        let e = super::rail_portal_overlaps(&planted).unwrap_err();
+        assert!(e.contains(&format!("the rail ({},{},{})", beside[0], beside[1], beside[2])) && e.contains(&format!("enters the portal cell ({},{},{})", p[0], p[1], p[2])), "{e}");
     }
 
     /// (F′, ironspec 08:41a (2): the `# stand-in-guard:` power-reach verdict's evidence) The crest's
