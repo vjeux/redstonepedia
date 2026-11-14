@@ -1125,6 +1125,34 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             c
         };
         let on = run(&design("normal, the room term on", 3, None));
+        // (THE NORMAL-OPERATION PICKS FORM, priced for the scope reset (ironspec 11:20a: no cells for OUT cases): in normal
+        // operation every lane has 8 carts and nothing defers a pick (the room term and HELD defer none on the normal
+        // nights), so the pointer's next target (5 positions on) comes up exactly every 13 RELs: THE SAME PICKS as a
+        // per-lane 13-REL timer (13 = 5 mod 8, coprime with 8), window-gated, staggered 0 / 4 / 8; no pointer, no HELD, no
+        // room count; the pick-rate arbiter kept (ironspec 11:05a). Printed on the normal nights and over the no-hold
+        // sweep: the distinct nappers per night and the worst interval)
+        {
+            let timer = |name: &str, cyc: i64, extra: i64| {
+                let mut c = Cfg::new(name, 13, 120, Merge::Order);
+                c.pointer = false;
+                c.days = 10;
+                c.rejoin_at = 1;
+                c.bed = true;
+                c.max_picks_per_rel = 1;
+                c.bed_cycle = cyc;
+                c.rs_extra = extra;
+                c
+            };
+            let mut pts = Vec::new();
+            let mut all_ok = true;
+            for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                let o = run(&timer("the timer form", cyc, extra));
+                all_ok &= ok(&o);
+                pts.push(format!("cycle {cyc} + {extra}: distinct per night {:?}, worst {} gt, rate-deferred {}, the way-in at most {}{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, o.rate_deferred, o.max_wayin, if ok(&o) { "" } else { " MISSES the nap bars" }));
+            }
+            let sc = v.scope("ctl-pick: the normal-operation picks form (per-lane 13-REL timers)", &format!("priced for ironspec's ruling (the cells: three 13-REL counters + the arbiter + the record, vs three pointers + spacing + HELD + the room count); every point passes: {all_ok}"));
+            lines.push(format!("  PRICED: THE NORMAL-OPERATION PICKS FORM (per-lane 13-REL timers, window-gated, staggered 0 / 4 / 8, the arbiter; no pointer / HELD / room count): {}: {sc}", pts.join("; ")));
+        }
         let w = v.bar("ctl-pick: THE WAY-IN ROOM TERM never defers a pick on the normal nights (the design unchanged: 24 distinct, every interval < 24,000 - margin) and the way-in holds at most 3", ok(&on) && on.wayin_deferred == 0 && on.max_wayin <= 3);
         lines.push(format!("  THE WAY-IN on the normal nights (the room term on): at most {} nappers in the way-in at once (margin {} vs its 3 places: the front + P1 + the second hold (9,24,7)), the most dispatched-not-departed {}, picks deferred by it {}: {w}", on.max_wayin, 3i64 - on.max_wayin as i64, on.max_open, on.wayin_deferred));
         // (the way-in's timings under (B), printed: the longest P1 wait past its earliest release (the token / front clear
