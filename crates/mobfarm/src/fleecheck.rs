@@ -5790,6 +5790,40 @@ fn torch_support(q: BlockPos, s: &str) -> Option<BlockPos> {
 /// marked (dust takes power only from a STRONGLY powered block). A cell that is neither a source nor a
 /// conductor is NOT JUDGED (H2). The design's meant consumers named by `allow`; an allow no cell
 /// reaches FAILS as stale (H3). Returns the lines and the count outside `allow` plus stale allows.
+/// (G1 Nov 14 00:17 non-blocking, ironspec 01:21 (1): facing-aware) Whether the diode at `q` (state `qs`)
+/// reads power from the cell `from` (state `from_s`): a repeater from its input side (26.3's `facing` names
+/// the input, tick-exact Nov 13 22:00), and from a side only when `from` is itself a diode whose output
+/// points into it (a lock); a comparator from its back (the same side) and its two horizontal sides; never
+/// from above or below, nor its front. Any other consumer: true.
+fn diode_reads(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
+    let repeater = qs.starts_with("minecraft:repeater");
+    let comparator = qs.starts_with("minecraft:comparator");
+    if !repeater && !comparator {
+        return true;
+    }
+    let dir = |s: &str| -> Option<(i32, i32)> {
+        match s.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("")).unwrap_or("") {
+            "north" => Some((0, -1)),
+            "south" => Some((0, 1)),
+            "east" => Some((1, 0)),
+            "west" => Some((-1, 0)),
+            _ => None,
+        }
+    };
+    let Some((dx, dz)) = dir(qs) else { return true };
+    let back = BlockPos::new(q.x + dx, q.y, q.z + dz);
+    if from == back {
+        return true;
+    }
+    let side = from == BlockPos::new(q.x + dz, q.y, q.z + dx) || from == BlockPos::new(q.x - dz, q.y, q.z - dx);
+    if comparator {
+        return side;
+    }
+    // (a repeater's side reads only a diode pointing its output into it: a lock)
+    let from_diode = from_s.starts_with("minecraft:repeater") || from_s.starts_with("minecraft:comparator");
+    side && from_diode && dir(from_s).is_some_and(|(fx, fz)| BlockPos::new(from.x - fx, from.y, from.z - fz) == q)
+}
+
 pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
@@ -5818,7 +5852,7 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
                 hits.push((q, format!("{} at {},{},{} on it (its support: it turns off when powered)", name(q), q.x, q.y, q.z)));
                 continue;
             }
-            if power_consumer(&id(q)) {
+            if power_consumer(&id(q)) && diode_reads(q, &qs, *c, &here.to_string()) {
                 let dust = conductor && id(q) == "redstone_wire";
                 hits.push((q, format!("{} at {},{},{} beside it{}", name(q), q.x, q.y, q.z, if dust { " (dust: only if the block is STRONGLY powered)" } else { "" })));
             }
@@ -5833,7 +5867,7 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
                     let rs = w.get(r).to_string();
                     if torch_support(r, &rs) == Some(q) {
                         hits.push((r, format!("{} at {},{},{} on the conductor {} at {},{},{} (its support: it turns off when powered)", name(r), r.x, r.y, r.z, id(q), q.x, q.y, q.z)));
-                    } else if power_consumer(&id(r)) {
+                    } else if power_consumer(&id(r)) && diode_reads(r, &rs, q, &w.get(q).to_string()) {
                         hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{}", name(r), r.x, r.y, r.z, id(q), q.x, q.y, q.z)));
                     }
                 }
@@ -10944,6 +10978,26 @@ mod gate_tests {
         let lamp = mk(vec![(b(2, 1, 2), p("minecraft:redstone_lamp[lit=false]")), (b(3, 1, 2), p("minecraft:lever[face=wall,facing=east,powered=false]")), (b(2, 1, 3), pr)]);
         let (o7, m7) = super::power_out(&lamp, &[b(3, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(m7 >= 2 && o7[0].contains("redstone_lamp[lit=false] at 2,1,2 beside it") && o7[0].contains("at 2,1,3 through the conductor redstone_lamp at 2,1,2"), "through a lamp: {o7:?}");
+        // (part 34) a diode reads only its input side (26.3: a repeater's facing names its input): a redstone
+        // block ABOVE a repeater facing east doesn't feed it (no hit); one at the repeater's east (its input)
+        // does; a comparator also reads its two sides, never its front
+        let rep = p("minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
+        let (lr, nr) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 2, 2), p("minecraft:redstone_block"))]), &[b(2, 2, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nr == 0, "a source above a repeater: {lr:?}");
+        let (lr2, nr2) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(3, 1, 2), p("minecraft:redstone_block"))]), &[b(3, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nr2 == 1 && lr2[0].contains("repeater[delay=1,facing=east"), "a source at its input: {lr2:?}");
+        let (lr3, nr3) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(1, 1, 2), p("minecraft:redstone_block"))]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nr3 == 0, "a source at its output: {lr3:?}");
+        let cmp = p("minecraft:comparator[facing=east,mode=compare,powered=false]");
+        let (lc, nc) = super::power_out(&mk(vec![(b(2, 1, 2), cmp), (b(2, 1, 3), p("minecraft:redstone_block"))]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nc == 1, "a source at a comparator's side: {lc:?}");
+        // (ironspec 01:21 (1)) a repeater's side: a redstone block there doesn't feed it; a repeater pointing
+        // its output into that side locks it (a hit)
+        let (ls, ns) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), p("minecraft:redstone_block"))]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ns == 0, "a block at a repeater's side: {ls:?}");
+        let lock = p("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
+        let (ll, nl) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nl == 1 && ll[0].contains("repeater[delay=1,facing=east") && ll[0].contains("at 2,1,2 beside it"), "a diode locking its side: {ll:?}");
         // (G1 23:06) --no-qc is read back: with no piston, dropper or dispenser among the cells it fails
         let (l8, n8) = super::power_into(&mk(vec![(b(2, 1, 2), act)]), &[b(2, 1, 2)], true, &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(n8 == 1 && l8.iter().any(|x| x.starts_with("--no-qc: no cell is a piston") && x.ends_with("a stale flag (FAIL)")), "a stale --no-qc: {l8:?}");
