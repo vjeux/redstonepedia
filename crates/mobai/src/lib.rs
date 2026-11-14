@@ -44,6 +44,7 @@ pub mod golempad;
 pub mod holdpulse;
 pub mod onewaycross;
 pub mod blockwatch;
+pub mod hopperpin;
 pub mod waterrails;
 pub mod tswitch;
 pub mod liftpair;

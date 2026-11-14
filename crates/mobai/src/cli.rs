@@ -926,6 +926,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, ironspec 19:03 (2)) The hopper / dropper / comparator timings on the game
+    HopperPin {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, ironspec 16:29 (c)) Watched cells' states every tick over restarts
     BlockWatch {
         #[arg(long, default_value = "26.3")]
@@ -2248,6 +2253,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {
             let cells_of = |s: &str| -> anyhow::Result<Vec<([i32; 3], String)>> {
                 let mut out = Vec::new();
