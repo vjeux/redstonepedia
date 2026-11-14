@@ -1572,6 +1572,10 @@ pub enum MobaiCmd {
         /// the load agent's watched chunks (both levels), x0,z0,x1,z1
         #[arg(long, allow_hyphen_values = true, default_value = "-1,-1,3,3")]
         watch: String,
+        /// (G1 on Y #1) keep the loader verdict when the record isn't update-stable (SHAPE differences after
+        /// placement), labelling it; without it a SHAPE difference fails the run
+        #[arg(long)]
+        loader_only: bool,
     },
     /// the official server: the landed item-loop loader in chunk (1,1) with 1 or 4 farm modules
     /// around it, the player beyond simulation distance + 1 or in the Nether: (a) the loop running,
@@ -2576,7 +2580,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::JunctionProbe { version, mirror } => crate::junction::junction_probe(&version, mirror),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
         MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
-        MobaiCmd::LoaderLong { version, world, nether, module, module_offsets, module_nether_ybase, module_no_pads, loader, loader_offset, loader_nether_ybase, chunks, nchunks, portal, nportal, ticks, restart_at, farm_afk, nether_afk, watch } => {
+        MobaiCmd::LoaderLong { version, world, nether, module, module_offsets, module_nether_ybase, module_no_pads, loader, loader_offset, loader_nether_ybase, chunks, nchunks, portal, nportal, ticks, restart_at, farm_afk, nether_afk, watch, loader_only } => {
             let pairs = |s: &str| -> anyhow::Result<Vec<(i32, i32)>> {
                 s.split(';')
                     .filter(|p| !p.trim().is_empty())
@@ -2614,7 +2618,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 }
                 _ => anyhow::bail!("give either --world (world-frame files) or --module with --module-offsets and --loader"),
             };
-            crate::freeze::loader_long(&version, &parts, &pairs(&chunks)?, &pairs(&nchunks)?, one(&portal)?, one(&nportal)?, ticks, restart_at, f3(&farm_afk)?, f3(&nether_afk)?, [w[0], w[1], w[2], w[3]])
+            crate::freeze::loader_long(&version, &parts, &pairs(&chunks)?, &pairs(&nchunks)?, one(&portal)?, one(&nportal)?, ticks, restart_at, f3(&farm_afk)?, f3(&nether_afk)?, [w[0], w[1], w[2], w[3]], loader_only)
         }
         MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),
         MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),

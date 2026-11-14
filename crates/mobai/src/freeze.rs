@@ -689,7 +689,7 @@ pub(crate) fn recipe_part(file: &Path, offset: [i32; 3], nether_ybase: i32, no_p
             image[0],
             image[1],
             image[2],
-            if no_pads { format!(", its {pads} overworld portal block(s) left out") } else { String::new() }
+            if no_pads { format!(", its {pads} overworld portal block(s) left out (pads removed: golem exits absent; not the design)") } else { String::new() }
         ),
         blocks: o.blocks,
         block_entities: o.block_entities,
@@ -697,6 +697,25 @@ pub(crate) fn recipe_part(file: &Path, offset: [i32; 3], nether_ybase: i32, no_p
         nether_blocks: d.nether_blocks.iter().map(|(p, s)| (n(p), s.clone())).collect(),
         nether_block_entities: d.nether_block_entities.iter().map(|(p, s)| (n(p), s.clone())).collect(),
     })
+}
+
+/// (ironspec 16:48 (2), G1 16:47) A placed cell's file state against the game's after placement: SHAPE (the
+/// block changed, or a shape, facing, axis, face, half, type, hinge, attachment or connection property; a
+/// tripwire hook going attached=true -> false: a design finding) or STATE (power, triggered and the like); the
+/// changed properties described.
+pub(crate) fn settle_class(file: &str, game: &str) -> (bool, String) {
+    let props = |s: &str| -> BTreeMap<String, String> {
+        s.split_once('[').map(|(_, r)| r.trim_end_matches(']').split(',').filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect()).unwrap_or_default()
+    };
+    let (f, g) = (props(file), props(game));
+    let same_block = file.split('[').next() == game.split('[').next();
+    if !same_block {
+        return (true, format!("{file} -> {game}"));
+    }
+    let changed: Vec<(String, String, String)> = f.iter().filter(|(k, v)| g.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone(), g.get(k).cloned().unwrap_or_else(|| "?".into()))).collect();
+    let shape = changed.iter().any(|(k, _, _)| matches!(k.as_str(), "shape" | "facing" | "axis" | "face" | "half" | "north" | "south" | "east" | "west" | "up" | "down" | "attachment" | "hinge" | "type"))
+        || (file.contains("tripwire_hook") && f.get("attached").map(|v| v.as_str()) == Some("true") && g.get("attached").map(|v| v.as_str()) == Some("false"));
+    (shape, format!("{} (file {file})", changed.iter().map(|(k, a, b)| format!("{k} {a} -> {b}")).collect::<Vec<_>>().join(", ")))
 }
 
 /// (G1 15:31, ironspec 14:33 / 14:35 / 14:42: the loader check) `mctas mobai loader-long`: the composed
@@ -727,6 +746,7 @@ pub fn loader_long(
     farm_afk: [f64; 3],
     nether_afk: [f64; 3],
     watch: [i32; 4],
+    loader_only: bool,
 ) -> Result<()> {
     anyhow::ensure!(restart_at > 0 && restart_at < ticks, "--restart-at inside 1..--ticks");
     anyhow::ensure!(!parts.is_empty(), "no part to lay");
@@ -819,11 +839,7 @@ pub fn loader_long(
         }
     }
     // (ironspec 16:48 (2), G1 16:47) every overworld cell whose state differs after placement, the file's state
-    // against the game's, classified: SHAPE (a shape, facing, axis, face, half or connection property: a design
-    // finding; a tripwire hook going attached=true -> false too) or STATE (power, triggered and the like)
-    let props = |s: &str| -> BTreeMap<String, String> {
-        s.split_once('[').map(|(_, r)| r.trim_end_matches(']').split(',').filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect()).unwrap_or_default()
-    };
+    // against the game's, classified by `settle_class`
     let mut shape_n = 0usize;
     for part in parts {
         for (p, s) in &part.blocks {
@@ -832,19 +848,23 @@ pub fn loader_long(
             }
             let snap = srv.snapshot(*p, *p)?;
             let game = snap.region.get(*p).unwrap_or("?").to_string();
-            let (f, g) = (props(s), props(&game));
-            let changed: Vec<String> = f.iter().filter(|(k, v)| g.get(*k) != Some(*v)).map(|(k, v)| format!("{k} {v} -> {}", g.get(k).map(|x| x.as_str()).unwrap_or("?"))).collect();
-            let same_block = s.split('[').next() == game.split('[').next();
-            let shape = !same_block
-                || f.iter().any(|(k, v)| g.get(k) != Some(v) && matches!(k.as_str(), "shape" | "facing" | "axis" | "face" | "half" | "north" | "south" | "east" | "west" | "up" | "down" | "attachment" | "hinge" | "type"))
-                || (s.contains("tripwire") && f.get("attached").map(|v| v.as_str()) == Some("true") && g.get("attached").map(|v| v.as_str()) == Some("false"));
+            let (shape, what) = settle_class(s, &game);
             if shape {
                 shape_n += 1;
             }
-            println!("    differs ({},{},{}) {}: {}{}", p[0], p[1], p[2], if shape { "SHAPE" } else { "STATE" }, if same_block { changed.join(", ") } else { format!("{s} -> {game}") }, if same_block { format!(" (file {s})") } else { String::new() });
+            println!("    differs ({},{},{}) {}: {what}", p[0], p[1], p[2], if shape { "SHAPE" } else { "STATE" });
         }
     }
-    println!("  update-stability: {} cell(s) differ after placement, {shape_n} of the SHAPE class (a design finding), {} of the STATE class", differ.len(), differ.len().saturating_sub(shape_n));
+    // (G1 on Y #1) a SHAPE difference fails the composed record, unless `--loader-only` keeps the loader
+    // verdict and labels the record
+    let settle_verdict = if shape_n == 0 {
+        "HELD (no SHAPE difference)".to_string()
+    } else if loader_only {
+        format!("(record not update-stable: {shape_n} SHAPE cells; the loader bars don't read them)")
+    } else {
+        format!("FAILED ({shape_n} SHAPE)")
+    };
+    println!("  update-stability: {} cell(s) differ after placement, {shape_n} of the SHAPE class, {} of the STATE class: {settle_verdict}", differ.len(), differ.len().saturating_sub(shape_n));
     println!("  built: {ocells} overworld cells, {ncells} Nether cells, {nent} entities; {} cells differ after the build{}", differ.len(), if differ.is_empty() { String::new() } else { format!(": {}", differ.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) });
     srv.step(400)?;
     srv.cmd_ok(&format!("forceload remove {} {} {} {}", ow[0], ow[2], ow[3], ow[5]))?;
@@ -989,5 +1009,30 @@ pub fn loader_long(
     );
     anyhow::ensure!(caught_a && caught_b, "the control chunk {ctl:?} was not seen leaving entity-ticking: the count can't see a drop: the run fails");
     anyhow::ensure!(bad.is_empty(), "the loader bars failed: {}", bad.join("; "));
+    // (G1 on Y #1) the record's own verdict: a SHAPE difference fails it unless --loader-only labels it
+    anyhow::ensure!(shape_n == 0 || loader_only, "update-stability FAILED: {shape_n} SHAPE cell(s) differ after placement (the record isn't update-stable; --loader-only keeps the loader verdict and labels it)");
+    if shape_n > 0 {
+        println!("  (record not update-stable: {shape_n} SHAPE cells; the loader bars don't read them)");
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::settle_class;
+
+    /// (G1 on Y #1, the control) a planted SHAPE difference classifies SHAPE (a rail's shape, a block gone, a
+    /// hook detached, a string's connection); a power change classifies STATE
+    #[test]
+    fn settle_class_names_shape_and_state() {
+        let rail = "minecraft:rail[shape=north_south,waterlogged=false]";
+        assert!(settle_class(rail, "minecraft:rail[shape=east_west,waterlogged=false]").0);
+        assert!(settle_class("minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]", "minecraft:air").0);
+        assert!(settle_class("minecraft:tripwire_hook[attached=true,facing=east,powered=false]", "minecraft:tripwire_hook[attached=false,facing=east,powered=false]").0);
+        assert!(settle_class("minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]", "minecraft:tripwire[attached=true,disarmed=false,east=true,north=true,powered=false,south=false,west=true]").0);
+        let (shape, what) = settle_class("minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]", "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
+        assert!(!shape);
+        assert!(what.contains("powered true -> false"));
+        assert!(!settle_class("minecraft:hopper[enabled=true,facing=down]", "minecraft:hopper[enabled=false,facing=down]").0);
+    }
 }

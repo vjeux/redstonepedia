@@ -844,6 +844,40 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     // before the brain knows its owner ("@none"), so the lines between two summons are that entity's
     let mut slog = Log { at: std::fs::metadata(&srv.log)?.len() };
     let mut built: BTreeMap<String, String> = BTreeMap::new();
+    // (ironspec 17:19 (1b), G1 17:14 (2)) MCTAS_REPLAY_TICKET_TAKEN=<x,y,z>: STATE (ii). Before the scene's
+    // entities, a helper villager standing at that frame cell (beside the bed) takes the bed's ticket through
+    // AcquirePoi (no command writes a ticket), is then made NoAI (no brain: no release, no validation) and moved
+    // off the farm beyond 16 of the bed, so the bed's section is a village centre all night (isVillageCenter
+    // reads IS_OCCUPIED)
+    let ticket_taken: Option<[i32; 3]> = match std::env::var("MCTAS_REPLAY_TICKET_TAKEN") {
+        Ok(s) => {
+            let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("MCTAS_REPLAY_TICKET_TAKEN={s}: {e}"))?;
+            anyhow::ensure!(v.len() == 3, "MCTAS_REPLAY_TICKET_TAKEN={s}: x,y,z");
+            Some([v[0], v[1], v[2]])
+        }
+        Err(_) => None,
+    };
+    if let Some(c) = ticket_taken {
+        srv.cmd_ok(&format!("summon minecraft:villager {} {} {} {{Tags:[\"poiholder\"],PersistenceRequired:1b}}", c[0] as f64 + 0.5, c[1] + DY, c[2] as f64 + 0.5))?;
+        let mut got = None;
+        for k in 0..30 {
+            srv.step(10)?;
+            if crate::strict::has_data(&mut srv, "data get entity @e[tag=poiholder,limit=1] Brain.memories.\"minecraft:home\"")? {
+                got = Some(10 * (k + 1));
+                break;
+            }
+        }
+        let gt = got.ok_or_else(|| anyhow::anyhow!("state (ii): the helper at ({},{},{}) took no bed ticket in 300 gt", c[0], c[1], c[2]))?;
+        srv.cmd_ok("data merge entity @e[tag=poiholder,limit=1] {NoAI:1b}")?;
+        srv.cmd_ok(&format!("setblock -40 {} -40 minecraft:glass", DY - 1))?;
+        srv.cmd_ok(&format!("tp @e[tag=poiholder,limit=1] -39.5 {} -39.5", DY))?;
+        println!(
+            "  STATE (ii): the bed's ticket taken by a helper villager through AcquirePoi within {gt} gt of its summon at ({},{},{}); the helper then NoAI:1b and moved to (-39.5,0,-39.5), off the farm and beyond 16 of the bed: the bed's section is a village centre (PoiManager.isVillageCenter: IS_OCCUPIED)",
+            c[0],
+            c[1],
+            c[2]
+        );
+    }
     for (n, e) in d.entities.iter().enumerate() {
         let (nbt, kinds) = tagged(e.nbt.as_deref().unwrap_or(""), n);
         let out = srv.cmd(&format!("summon {} {} {} {} {nbt}", e.kind, e.pos[0], e.pos[1] + DY as f64, e.pos[2]))?;
@@ -921,6 +955,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
     }
     srv.cmd_ok(&format!("time set {day_start}"))?;
+    // (G1 17:25: a refusal through the server path) MCTAS_REPLAY_PLANT_CLOCK=1 adds one tick between the set and the
+    // read-back: the run must refuse
+    if std::env::var("MCTAS_REPLAY_PLANT_CLOCK").is_ok() {
+        srv.cmd_ok("time add 1")?;
+        println!("  PLANTED: `time add 1` after `time set {day_start}` (the read-back must refuse)");
+    }
+    // (G1 17:00; Y's `time query daytime` doesn't exist in 26.3) the overworld clock read back right after the set
+    let day_read = crate::daylight::day_time(&mut srv)?;
+    anyhow::ensure!(day_read == day_start, "the server's clock reads {day_read} after `time set {day_start}`");
     srv.cmd_ok("weather clear 1000000")?;
     srv.cmd_ok("gamerule advance_time true")?;
     let gt0 = srv.game_time()?;
@@ -1400,22 +1443,22 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 println!("  t0 assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
                 anyhow::ensure!(ok, "t0: ({},{},{}) is not {pred}", c[0], c[1], c[2]);
             }
-            // (G1 17:00) the server's own day time at t0 against the run's day start
-            let dt = srv.cmd_long("time query daytime")?;
-            let got: Option<i64> = dt.split_whitespace().filter_map(|w| w.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().ok()).last();
-            anyhow::ensure!(got == Some(day_start.rem_euclid(24000)), "t0: the server's day time ({}) is not the run's day start {day_start}", dt.trim());
-            println!("  t0: the server's day time {} = the day start {day_start} (from {})", got.unwrap_or(-1), if std::fs::read_to_string(drive)?.lines().any(|l| l.trim().starts_with("# day0 ")) { "the drive's `# day0`" } else { "--day-start" });
+            // (G1 17:00) the server's own day time at t0 against the run's day start (checked at the `time set`
+            // below the summons; here the run's report names its source)
+            println!("  t0: the day start {day_start} (from {}), the server's clock read back at the `time set`: {day_read}", if std::fs::read_to_string(drive)?.lines().any(|l| l.trim().starts_with("# day0 ")) { "the drive's `# day0`" } else { "--day-start" });
             println!(
-                "  t0: the run's start day {day_start} (scene {} md5 {}, drive {} md5 {}{}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
+                "  t0: the run's start day {day_start} (scene {} md5 {}, drive {} md5 {}{}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} ({}){}",
                 scene.display(),
                 crate::md5::md5_hex(&std::fs::read(scene)?),
                 drive.display(),
                 crate::md5::md5_hex(&std::fs::read(drive)?),
                 std::env::var("MCTAS_REPLAY_MODULE_MD5").map(|m| format!(", built from module md5 {m}")).unwrap_or_default(),
                 vs.len(),
+                if ticket_taken.is_some() { "state (ii): the ticket taken by the helper" } else { "start state (i): the ticket free" },
                 if home_set_t0 == vs.len() { "" } else { " (NOT every villager holds HOME)" }
             );
-            anyhow::ensure!(taken == 0, "t0: {taken} ticket(s) taken during the setup: not start state (i)");
+            let want_taken = usize::from(ticket_taken.is_some());
+            anyhow::ensure!(taken == want_taken, "t0: {taken} ticket(s) taken during the setup: not start state {}", if want_taken == 1 { "(ii) (the helper's one)" } else { "(i)" });
             // (ironspec 09:42 (R3)) the drive DECLARES its HOME holders (its t0 `home` acts): each read
             // back above, and every other villager HOME-less at t0
             for v in vs.iter() {

@@ -30,7 +30,7 @@ fn power(srv: &mut VanillaServer) -> Result<i32> {
     bail!("the detector reads no power state")
 }
 
-fn day_time(srv: &mut VanillaServer) -> Result<i64> {
+pub(crate) fn day_time(srv: &mut VanillaServer) -> Result<i64> {
     // (26.3: the overworld clock's total ticks; `time query daytime` is gone)
     let out = srv.cmd("time query time")?;
     out.split(|c: char| !c.is_ascii_digit() && c != '-')
