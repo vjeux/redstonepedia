@@ -8997,6 +8997,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             "  the bed's tickets at every change (free count, HOME memory holders; ironspec 06:31 / 06:42 real; ticket state uncertain: pre-fix redsim): {}\n",
             if ticket_rows.is_empty() { "no change".to_string() } else { ticket_rows.join("; ") }
         ));
+        // (ironspec 15:06b / 15:58 (2)) the night's end ticket state: free = the spare intact; taken = a
+        // loss was absorbed (the spare spent); every take counted
+        {
+            let takes = ticket_rows.iter().filter(|r| r.contains("free 1 -> 0")).count();
+            let frees = ticket_rows.iter().filter(|r| r.contains("free 0 -> 1")).count();
+            let end_taken = ticket_rows.iter().rev().find_map(|r| if r.contains("-> 0,") || r.contains("free 0 -> 0") || r.contains("free 0,") { Some(true) } else if r.contains("-> 1,") || r.contains("free 1,") { Some(false) } else { None }).unwrap_or(false);
+            s.push_str(&format!(
+                "  the bed's ticket at the night's end (ironspec 15:06b): {}; spare spends (takes of the free ticket) {takes}, releases {frees}\n",
+                if end_taken { "TAKEN (state (ii): the spare spent)" } else { "free (state (i): the spare intact)" }
+            ));
+        }
         // (ironspec 06:24 / 06:31 / 07:02 real, G1: the decisive bar) every REST entry; the lane
         // riders' REST outside their own trip; those at a design position with a partial HOME path
         {
