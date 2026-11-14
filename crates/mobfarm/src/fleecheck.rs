@@ -5559,6 +5559,20 @@ fn record_ends(track: &Track, reached: &HashMap<TailNode, f64>, window: f64, slo
 /// declared column covers is skipped, a fall out of the design's box is left to the ends report.
 /// Timed like a column (1 block a tick: a bound, the fall is slower). Returns the columns and a line
 /// for each.
+/// (58f770cc / ironspec Nov 13 16:34, ironspec 03:22) A GOLEM GUARD: a lone plain rail standing on a
+/// top-half trapdoor cap (no collision; it keeps a golem's spawn space out of the cap's full top face),
+/// with no rail beside it it could join (level, one up or one down): part of the record, never a track
+/// end.
+pub fn golem_guard(blocks: &HashMap<BlockPos, redsim::block::Block>, p: BlockPos) -> bool {
+    let name = |q: BlockPos| blocks.get(&q).map(|b| b.to_string()).unwrap_or_default();
+    let below = name(p.below());
+    if !name(p).starts_with("minecraft:rail[") || !below.contains("_trapdoor[") || !below.contains("half=top") {
+        return false;
+    }
+    let lone = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|(dx, dz)| (-1..=1).all(|dy| !name(BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).contains("rail")));
+    lone && !name(p.above()).contains("rail") && !name(p.below().below()).contains("rail")
+}
+
 pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, Vec<String>) {
     let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
     let name = |p: BlockPos| blk.get(&p).map(|b| b.to_string()).unwrap_or_else(|| "minecraft:air".to_string());
@@ -5610,6 +5624,10 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
     // (the free falls)
     let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    for (c, _) in rails.iter().filter(|(c, _)| golem_guard(&blk, *c)) {
+        lines.push(format!("auto column: {},{},{} is a golem guard (a lone rail on a top-half trapdoor cap, 58f770cc 16:34): no track end, no fall", c.x, c.y, c.z));
+    }
+    rails.retain(|(c, _)| !golem_guard(&blk, *c));
     for (c, s) in &rails {
         for (dx, dy, dz) in rail_exits(s) {
             if dx == 0 && dz == 0 {
@@ -5913,7 +5931,9 @@ struct Track<'a> {
 
 impl<'a> Track<'a> {
     fn new(spec: &FarmSpec, columns: &'a [[f64; 4]], rests: &'a [BlockPos]) -> Track<'a> {
-        let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+        // (58f770cc / ironspec 16:34: a golem guard is no rail of the track: never a track end)
+        let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
+        let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && !golem_guard(&blk, *p)).map(|(p, b)| (*p, b.to_string())).collect();
         // (G1's note (c) on fa1267b75: the signal sources are the game's `isSignalSource` set;
         // `update_reach` (settle-check's) holds that set with each type's update footprint)
         // (ironspec Nov 13 09:57, G1 09:58: a T is switched only inside the update footprint of an
@@ -7822,6 +7842,20 @@ mod gate_tests {
         let (cols, lines) = super::auto_columns(&spec, &[]);
         assert!(cols.iter().any(|c| c[0] == 5.5 && c[2] == 0.5), "{cols:?} {lines:?}");
         assert!(lines.iter().any(|l| l.contains("UNLANDED")), "{lines:?}");
+        // (58f770cc / ironspec 16:34: the same lone rail on a top-half trapdoor cap is a golem guard:
+        // named, no track end, no fall; with a rail beside it, it is track again)
+        let mut g = spec.blocks.clone();
+        g.retain(|(q, _)| *q != b(0, 5, 1));
+        g.push((b(0, 5, 1), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+        let gspec = redsim::entity::mob::farm::FarmSpec { blocks: g.clone(), ..spec.clone() };
+        let (_, gl) = super::auto_columns(&gspec, &[]);
+        assert!(gl.iter().any(|l| l.contains("0,6,1 is a golem guard")) && !gl.iter().any(|l| l.contains("UNLANDED")), "{gl:?}");
+        let mut t = g;
+        t.push((b(0, 6, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        t.push((b(0, 5, 2), p("minecraft:stone")));
+        let tspec = redsim::entity::mob::farm::FarmSpec { blocks: t, ..spec };
+        let (_, tl) = super::auto_columns(&tspec, &[]);
+        assert!(!tl.iter().any(|l| l.contains("golem guard")), "{tl:?}");
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end
