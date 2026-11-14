@@ -88,8 +88,20 @@ const STRIP: [(i32, i32, &str); 12] = [
 /// sources: switched with their pockets.
 const SERIES_SLOPE_SRC: [(i32, i32, i32); 3] = [(14, -4, 0), (10, -3, 0), (6, -2, 0)];
 
-const TRAPDOOR_SHUT: &str = "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]";
-const TRAPDOOR_OPEN: &str = "oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]";
+const TRAPDOOR_SHUT: &str = "iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]";
+const TRAPDOOR_OPEN: &str = "iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]";
+
+/// A trapdoor's state opened or shut by the pulse, its kind and other properties kept (the
+/// station's iron, a module of record's own); None for a block that is no trapdoor.
+fn trapdoor_state(b: &Block, open: bool) -> Option<Block> {
+    let s = b.to_string();
+    if !s.contains("_trapdoor[") {
+        return None;
+    }
+    let (from, to) = if open { ("false", "true") } else { ("true", "false") };
+    let s = s.replace(&format!("open={from}"), &format!("open={to}")).replace(&format!("powered={from}"), &format!("powered={to}"));
+    Block::parse(&s).ok()
+}
 
 /// The drop design: the pockets (braked powered slopes on switched stone supports, each with an
 /// anchor rail up-west keeping its slope), the departures, the hold cells at `hold_y` (the trapdoor
@@ -341,8 +353,12 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
             // at (x+1,17,1) (glass off, a redstone block on: never through its support, which
             // touches the trapdoor; glass over it so no golem stands on it), R_2's rail up-south on
             // glass as its anchor (ironfarm's lane); the hold's north wall one higher, so the cart
-            // coming off R_1 at ~0.5 b/t drops into the hold rather than over the ring; the hold's
-            // string at rider height (x,17,0), hooks at x +-1, glass at x +-2 (ironfarm's release gate)
+            // coming off R_1 at ~0.5 b/t drops into the hold rather than over the ring (the hold
+            // strings (x,17,0), their hooks (x+-1,17,0) and their supports (x+-2,17,0), glowstone on
+            // main (ironspec 02:59; the 05:23 glass ruling never reached main), are gone (day-1
+            // 21:21, ironspec 21:22 / 22:12): no gate of day-1's list (rev 20:00) read them, no
+            // part rests on or is supported by those supports; the four light-15 sources' checks:
+            // the header's read-path note)
             b.set(x, hold_y + 1, z + 1, "powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
             if extra.r_repeater {
                 // (the built driver: a repeater facing west into R_1 (its FACING the input side,
@@ -364,16 +380,6 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
             // placement, which main's placement check (onechunk's 0f375d1c0) now refuses)
             b.set(x, hold_y + 2, z + 3, "glass");
             b.set(x, hold_y + 1, z - 1, if extra.slab_stop { "smooth_stone_slab[type=bottom,waterlogged=false]" } else { "glass" });
-            b.set(x, hold_y + 1, z, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
-            b.set(x - 1, hold_y + 1, z, "tripwire_hook[attached=true,facing=east,powered=false]");
-            b.set(x + 1, hold_y + 1, z, "tripwire_hook[attached=true,facing=west,powered=false]");
-            // (ironspec 02:59: the hold string's hook supports solid-render instead of glass, a
-            // stroll destination (the station's arm-and-never-clear places 24 -> 8), sight lines
-            // unchanged (glass blocks sight too); every top exposed (nothing over (x+-2,17,0) in
-            // the station; z 0 is outside the lanes' box) and dark at night under the sky, so lit:
-            // glowstone, no natural-spawn spot)
-            b.set(x - 2, hold_y + 1, z, "glowstone");
-            b.set(x + 2, hold_y + 1, z, "glowstone");
         }
         // the departure: a plain rail, then the exit detector (no face on a powered rail or a
         // junction: plain rails north and south of it; its rising edge is the departing cart's
@@ -928,8 +934,11 @@ pub fn sight_crossings_world(w: &redsim::world::World, reference: &std::collecti
             let refb = reference.get(&[c.x, c.y, c.z]).unwrap_or(&air);
             // (a cell holding the reference's own block type in another state is the design
             // operating (a trapdoor open, a rail powered), not a stand-in: stand-ins and overrides
-            // change the block type (dust -> lever, air -> glass))
-            if live == *refb || block_type(&live) == block_type(refb) {
+            // change the block type (dust -> lever, air -> glass); the station's iron trapdoors over
+            // a record's oak ones are the same: trapdoors of every kind share every shape, and the
+            // pulse opens both alike (the record of the moment holds oak until it is recomposed))
+            let trapdoors = block_type(&live).ends_with("_trapdoor") && block_type(refb).ends_with("_trapdoor");
+            if live == *refb || block_type(&live) == block_type(refb) || trapdoors {
                 continue;
             }
             if clips(&live, *a, *b, c) && !clips(refb, *a, *b, c) {
@@ -1831,8 +1840,9 @@ pub struct DropStats {
     pub hold_press: [Option<i64>; 3],
     /// (ironspec 13:00) The least lead of a hold string's last release before the R line rises.
     pub hold_release_lead: Option<i64>,
-    /// (G1 on e2d9333bc (B2)) The hold-string lead bar's failures (a lead under 2 gt, no release
-    /// before the rise, pressed at the rise; or NOT JUDGED when the R line never rose).
+    /// The hold strings' leads under 2 gt before the R line (a lead under 2 gt, no release before the
+    /// rise, pressed at the rise; or the R line never rose): a diagnostic only (G1 on e2d9333bc
+    /// (B2)'s bar, retired by name by ironspec 21:16: its consumer was G8c, not bought at 20:24).
     pub hold_lead_bad: Option<String>,
     /// (ironspec 13:04) Pocket drives off their clock slot (the drive-integrity bar).
     pub drive_off: u32,
@@ -2497,6 +2507,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut hold_press: [Option<i64>; 3] = [None; 3];
     let mut hold_release: [Option<i64>; 3] = [None; 3];
     let mut hold_was: [bool; 3] = [false; 3];
+    let mut hold_string_seen: [bool; 3] = [false; 3];
     let mut drive_fire: [Option<i64>; 3] = [None; 3];
     // (ironfarm's C-fix rows: every minecart's last position, its still ticks, the west leaves and
     // the off-rail rests)
@@ -2709,7 +2720,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     let (px, _, pz) = pockets[k];
                     gap_at_open[k] = Some(pos(&run.world, carts[k]).map_or(f64::INFINITY, |(p, _)| ((p.x - (px as f64 + 0.5)).powi(2) + (p.z - (pz as f64 + 0.5)).powi(2)).sqrt()));
                     feet[k] = feet_of(&run.world, riders[3 + k]);
-                    run.world.set_block(cell, td_open.clone(), redsim::world::flags::ALL);
+                    // (the trapdoor the world holds keeps its kind: the station's iron, the module of
+                    // record's own; only its open / powered state is the pulse's)
+                    let t = trapdoor_state(&run.world.get(cell), true).unwrap_or_else(|| td_open.clone());
+                    run.world.set_block(cell, t, redsim::world::flags::ALL);
                 }
             }
             if o.pulse > 0 && opened[k].is_some() && !shut_again[k] && clock >= opened_live[k] + o.pulse {
@@ -2721,7 +2735,8 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 {
                     shut_onto.push(format!("T+{dt} lane {k}{}", if frozen_now { " (frozen)" } else { "" }));
                 }
-                run.world.set_block(cell, td_shut.clone(), redsim::world::flags::ALL);
+                let t = trapdoor_state(&run.world.get(cell), false).unwrap_or_else(|| td_shut.clone());
+                run.world.set_block(cell, t, redsim::world::flags::ALL);
             }
         }
         // the R line (the refill): every R_1 powered from its side once every trapdoor has shut
@@ -2999,11 +3014,15 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         // was moving toward)
         let before: Vec<(u32, Vec3)> = carts.iter().copied().chain(napper_cart).filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, e.delta_movement))).collect();
         run.tick();
-        // (G1 12:27: the detector-ended R_1 pulse's evidence: each lane's hold string (x,17,0)
-        // pressed again after the R line starts, the new hold cart's rider: its first press tick;
-        // ironspec 13:00: each hold string's last release before the R line rises, >= 2 gt before)
+        // (G1 12:27: each lane's hold string (x,17,0), where a world still has one (the module rows'
+        // record7f12; the station file has none since day-1 21:21): its first press after the R line
+        // starts and its last release before the R line rises, a diagnostic since ironspec 21:16)
         for (k, (x, _, z)) in pockets.iter().enumerate() {
-            let pressed = run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true");
+            let s = run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string();
+            if s.contains("tripwire[") {
+                hold_string_seen[k] = true;
+            }
+            let pressed = s.contains("tripwire[") && s.contains("powered=true");
             // (G1 on 407a29682 (N6): the rise tick itself still updates, so a cart landing on a
             // string in that tick reads "pressed at the rise", and a release in it a lead under 2)
             if r_from.is_none_or(|a| a == dt) {
@@ -3020,7 +3039,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         if let Some(a) = r_from {
             for (k, (x, _, z)) in pockets.iter().enumerate() {
-                if hold_press[k].is_none() && dt >= a && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true") {
+                if hold_press[k].is_none() && dt >= a && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("tripwire[") && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true") {
                     hold_press[k] = Some(dt + 1);
                 }
             }
@@ -3939,10 +3958,14 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     stats.offrail = offrail.len() as u32;
     stats.watch_unseen = watch_in.iter().any(|(_, ids)| ids.is_empty());
     stats.offrail_unseen = o.offrail_y.is_some() && rest_seen.is_empty();
-    // (G1 12:27) the hold strings' first press after the R line starts, per lane
-    if o.refill.is_some() {
+    // (G1 12:27) the hold strings' first press after the R line starts, per lane, where the world
+    // has them (none in the station file since day-1 21:21 / ironspec 21:22)
+    if o.refill.is_some() && !hold_string_seen.iter().any(|s| *s) {
+        out.push("the hold strings (x,17,0): none in this world (removed with their hooks and glowstone supports, day-1 21:21 / ironspec 21:22 / 22:12: no gate read them)".to_string());
+    }
+    if o.refill.is_some() && hold_string_seen.iter().any(|s| *s) {
         out.push(format!(
-            "the hold strings around the R line (the detector-ended R_1 pulse, G1 12:27 / ironspec 13:00: each string's last release before the R line rises, >= 2 gt before it, and its first press after, where the pulse would end): the R line rises at {}; {}",
+            "the hold strings around the R line (a diagnostic: the hold-string lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought at 20:24; each string's last release before the R line rises and its first press after; a string releases at its own 10-gt re-check after its cart leaves, TripWireBlock's scheduleTick(10) while pressed, and a world open shifts that grid against the carts by N): the R line rises at {}; {}",
             r_from.map_or("never".to_string(), |a| format!("T+{a}")),
             (0..3)
                 .map(|k| format!(
@@ -3956,12 +3979,11 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         ));
         stats.hold_press = hold_press;
         stats.hold_release_lead = (0..3).filter_map(|k| hold_release[k].zip(r_from).map(|(t, a)| a - t)).min();
-        // (G1 on e2d9333bc (B2): the lead is a bar (ironspec 13:00: each hold string's last release
-        // >= 2 gt before the R line rises; 16:28: the measured leads adopted): a lead under 2, a
-        // string with no release before the rise, or one still pressed at the rise fails; an R line
-        // that never rose leaves it NOT JUDGED, a failure)
+        // (the leads under 2 gt, a string with no release before the rise, or one still pressed at
+        // the rise: printed as a diagnostic only; G1 on e2d9333bc (B2) made it a bar, RETIRED BY NAME
+        // by ironspec 21:16: its consumer was G8c, not bought at 20:24)
         stats.hold_lead_bad = match r_from {
-            None => Some("NOT JUDGED (the R line never rose): the hold-string lead bar".to_string()),
+            None => Some("the R line never rose".to_string()),
             Some(a) => {
                 let bad: Vec<String> = (0..3)
                     .filter_map(|k| {
@@ -3980,7 +4002,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             }
         };
         if let Some(b) = &stats.hold_lead_bad {
-            out.push(format!("the hold-string lead bar FAILS: {b}"));
+            out.push(format!("the hold-string leads under 2 gt (a diagnostic, the bar retired by name: its consumer was G8c, not bought at 20:24, ironspec 21:16): {b}"));
         }
     }
     // (ironspec 13:04, the drive-integrity bar: each pocket drive's first powered tick against its

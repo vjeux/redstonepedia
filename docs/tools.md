@@ -329,13 +329,16 @@ line and the slope tap are stand-ins at their declared phases, the rest out of i
 "a pocket drive off its clock slot"; `--late-drive-control K,D` (pocket K's drive D gt late) must
 fail by it. `--t-hold-control` is the T-shape bar's negative row: the first station T's constant
 source (form (C): slime under the T, a lit torch under the slime, on glass) laid before the settle,
-the same lever switched on and off beside it: the T must not re-shape. The hold strings' last
-release before the R line rises and first press after it print per lane. ironfarm's C-fix rows:
-`--plant-cart x,y,z@k` (a ridden cart planted at T + k, its rider checked), `--plant-block
-x,y,z=STATE@k` (read back; a no-op refuses), `--watch-west x,y,z` (a cart leaving that cell westward
-fails), `--offrail-y Y` (a cart at or above Y at rest by ironspec 10:42's stall rule, with no rail in
-its cell nor, as the game's minecart checks, in the cell below, fails). The hold strings' leads
-before the R line are a bar: under 2 gt, no release before the rise, or pressed at the rise fails.
+the same lever switched on and off beside it: the T must not re-shape. Where a world has hold
+strings (x,17,0) (the module rows' record7f12; the station file has none since day-1 21:21), their
+last release before the R line rises and first press after it print per lane, a diagnostic (the
+lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought). ironfarm's C-fix rows:
+`--plant-cart x,y,z@k` (a ridden cart planted at T + k, its rider and position read back),
+`--plant-block x,y,z=STATE@k` (read back; a no-op refuses), `--watch-west x,y,z` (a cart leaving
+that cell westward fails; each cell's carts and exit faces are counted, and a cell no cart entered
+is NOT JUDGED, a failure), `--offrail-y Y` (a cart at or above Y at rest by ironspec 10:42's stall
+rule, frozen ticks not counted, with no rail in its cell nor, as the game's minecart checks, in the
+cell below, fails; no cart at rest at or above Y is NOT JUDGED, a failure).
 `mctas mobfarm build-order DESIGN --t x,y,z --cell x,y,z=STATE... [--want SHAPE] [--last x,y,z]...
 [--sequence NAME|WANT|x,y,z=STATE;...]...`: a rail junction's cells placed into the design around
 them in every order the game allows (a block never before the block it is mounted on; `--last`
