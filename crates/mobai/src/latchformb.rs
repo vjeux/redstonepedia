@@ -216,7 +216,7 @@ fn pin(k: u32, cond: bool, what: String) -> Result<()> {
 
 pub fn latch_rig_form_b(version: &str, cells_path: &std::path::Path) -> Result<()> {
     let cells = read_cells(cells_path)?;
-    println!("== latch-rig --form-b on the official {version} server: day-1's P_HOLD latch form (b) from {} ({} cells), at world = local + {OFF:?}; times from the RLS command (between ticks)", cells_path.display(), cells.len());
+    println!("== latch-rig --form-b on the official {version} server: day-1's P_HOLD latch form (b) from {} ({} cells), at world = local + {OFF:?}; times from the RLS command (between ticks: ONE TICK BEFORE the standing start-of-tick frame, where Q = [+4, +24) and the drive [+2, +26))", cells_path.display(), cells.len());
     let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "peaceful".into(), with_bot: false, tick_rate: 1000, ..Default::default() })?;
     srv.cmd_ok("forceload add -16 -16 31 31")?;
     srv.step(20)?;

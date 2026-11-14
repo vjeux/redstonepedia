@@ -936,6 +936,13 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-14, G1 00:01 / ironspec 00:02) A ridden minecart dropped onto a cart at rest on a rail
+    /// (empty or ridden), the rail alone, or dry stone; heights 3..34; both riders' health; MCTAS_CART_ON_CART_PLANT=k
+    /// inverts assert k
+    CartOnCart {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, ironspec 21:42 / 22:07 / 22:58) (g)'s latch alone from 58f770cc's block list (the control)
     LatchRig {
         #[arg(long, default_value = "26.3")]
@@ -2307,6 +2314,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             None => crate::latchrig::latch_rig(&version),
         },
         MobaiCmd::LiftTop { design, version } => crate::lifttop::lift_top(&version, &design),
+        MobaiCmd::CartOnCart { version } => crate::cartoncart::cart_on_cart(&version),
         MobaiCmd::CartFall { version } => crate::cartfall::cart_fall(&version),
         MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
