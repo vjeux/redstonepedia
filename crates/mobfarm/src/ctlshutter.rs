@@ -203,11 +203,15 @@ pub struct LatchOpts {
     pub power_up_set: bool,
     /// The reset line's stretch (gt; delay-4 repeaters).
     pub pair_w: i64,
+    /// The inputs (RLS's line, ARM's edge) change at the END of their tick, after the latch's torches (the game rig's
+    /// command inputs, tick-exact's latch-formb 7b41e8fab); off: RLS's NORMAL-priority output torch changes BEFORE the
+    /// latch's torches in its tick (the real circuit's conservative order for a falling RLS).
+    pub input_last: bool,
 }
 
 impl Default for LatchOpts {
     fn default() -> Self {
-        LatchOpts { branch: true, feedback: true, arm_reset: true, b2_blocked: false, power_up_set: false, pair_w: PARK_W }
+        LatchOpts { branch: true, feedback: true, arm_reset: true, b2_blocked: false, power_up_set: false, pair_w: PARK_W, input_last: false }
     }
 }
 
@@ -268,9 +272,11 @@ impl Torch {
 pub struct LatchSim {
     pub opts: LatchOpts,
     rls: bool,
+    /// ARM's edge line into the reset repeater (ARM_IN in form (b)'s list feeds the RESET repeater (3,0,-1) directly:
+    /// no diode of its own; the game rig's ARM -> Q dark is 4 gt, the repeater and Q's torch).
+    arm: bool,
     br: Rep,
     chain: Vec<Rep>,
-    armd: Rep,
     rst: Rep,
     tap: Rep,
     qbar: Torch,
@@ -296,9 +302,9 @@ impl LatchSim {
         LatchSim {
             opts,
             rls: false,
+            arm: false,
             br: Rep::new(REP),
             chain: vec![Rep::new(2 * REP); (opts.pair_w / (2 * REP)).max(1) as usize],
-            armd: Rep::new(REP),
             rst: Rep::new(REP),
             tap: Rep { on: q, due: None, delay: REP },
             qbar: Torch { lit: qbar, due: None },
@@ -313,11 +319,12 @@ impl LatchSim {
         self.qbar.lit || self.rst.on
     }
     fn rst_in(&self) -> bool {
-        self.chain.last().is_some_and(|r| r.on) || (self.opts.arm_reset && self.armd.on)
+        self.chain.last().is_some_and(|r| r.on) || (self.opts.arm_reset && self.arm)
     }
-    /// One block tick: `rls` is RLS's line after this tick's torch phase (RLS's output torch is a NORMAL-priority torch:
-    /// its change lands after the diodes, and before the latch's own torches, the conservative order for a falling RLS),
-    /// `arm_edge` ARM's edge comparator's output.
+    /// One block tick: `rls` is RLS's line and `arm_edge` ARM's edge line as they stand after this tick: by default RLS's
+    /// change lands after the diodes and BEFORE the latch's own torches (RLS's output torch is a NORMAL-priority torch:
+    /// the conservative order for a falling RLS); with `input_last` both land at the END of the tick, after the latch's
+    /// torches (the game rig's command inputs).
     pub fn step(&mut self, k: i64, rls: bool, arm_edge: bool) -> LatchOut {
         // (the diode phase: every repeater due now, on the inputs as they stand before this tick's torches)
         let rls_prev = self.rls;
@@ -327,13 +334,15 @@ impl LatchSim {
             r.tick(k, input);
             input = r.on;
         }
-        self.armd.tick(k, arm_edge);
         let ri = self.rst_in();
         self.rst.tick(k, ri);
         let ql = self.q.lit;
         self.tap.tick(k, ql);
         // (the torch phase: RLS's output torch first, then the latch's torches in the order they were scheduled)
-        self.rls = rls;
+        if !self.opts.input_last {
+            self.rls = rls;
+            self.arm = arm_edge;
+        }
         let mut dip = false;
         let mut due: Vec<(u64, u8)> = Vec::new();
         if let Some((t, s)) = self.qbar.due {
@@ -354,12 +363,29 @@ impl LatchSim {
                 if !self.qbar.lit && !p {
                     dip = true;
                 }
+                let was = self.qbar.lit;
                 self.qbar.lit = !p;
+                // (a torch's change updates its neighbours AT ONCE, in the scheduled-tick phase (the game's order):
+                // Q-bar going dark schedules Q's turn-on now, before any input change at the tick's end)
+                if self.qbar.lit != was {
+                    let base = self.base();
+                    self.q.update(k, base, &mut self.seq);
+                }
             } else {
                 self.q.due = None;
                 let p = self.base();
+                let was = self.q.lit;
                 self.q.lit = !p;
+                if self.q.lit != was {
+                    let b2 = self.b2();
+                    self.qbar.update(k, b2, &mut self.seq);
+                }
             }
+        }
+        // (the inputs' end-of-tick change, the game rig's order)
+        if self.opts.input_last {
+            self.rls = rls;
+            self.arm = arm_edge;
         }
         // (neighbour updates: schedule every part whose state disagrees with its input)
         let (b2, base) = (self.b2(), self.base());
@@ -371,7 +397,6 @@ impl LatchSim {
             r.update(k, input);
             input = r.on;
         }
-        self.armd.update(k, arm_edge);
         let ri = self.rst_in();
         self.rst.update(k, ri);
         let ql = self.q.lit;
@@ -433,6 +458,9 @@ pub struct Defects {
     pub since_reset_level: bool,
     /// The reset chain's width (P_HOLD's PARK_W) overridden (0: the design's): G1's leave-park control (PARK_W 8).
     pub park_w_override: i64,
+    /// ARM's edge pulse at the latch's reset overridden (0: the design's EDGE_W): G1 01:10 (b) / ironspec 01:17 (2),
+    /// the planted 2-gt ARM (tick-exact's rig, 7b41e8fab: ARM 1 / 2 gt does NOT clear Q, 3 / 4 / 5 gt does).
+    pub arm_edge_w: i64,
 }
 
 /// What a row asserts about its outcome (G1 on 5f79952c2 B6).
@@ -628,6 +656,8 @@ pub struct Out {
     pub park_end: Vec<i64>,
     /// Each RLS pulse's width (block ticks).
     pub rls_widths: Vec<i64>,
+    /// Each ARM edge's width at the latch's reset input (game ticks): the stretcher's output, >= 3 every visit.
+    pub arm_edge_widths: Vec<i64>,
     /// Ticks the latch's Q-bar check read B2 unpowered while Q-bar was dark (a dip that flips the latch back).
     pub latch_dips: Vec<i64>,
     /// The least gap from an ARM edge to P_HOLD's stretch (Q lit), game ticks, after the first park.
@@ -660,13 +690,16 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut park = vec![false; n];
     let mut p_hold = vec![false; n];
     // ((g)'s latch, or the plain drive's P_HOLD with the carried rulings; the old drive keeps its gate model)
-    let mut lsim = LatchSim::new(LatchOpts { branch: !def.no_branch, feedback: true, arm_reset: !def.no_arm_reset, b2_blocked: def.b2_blocked, power_up_set: row.power_up_set, pair_w: if def.park_w_override > 0 { def.park_w_override } else if def.torch { PARK_W_TORCH } else { PARK_W } });
+    let mut lsim = LatchSim::new(LatchOpts { branch: !def.no_branch, feedback: true, arm_reset: !def.no_arm_reset, b2_blocked: def.b2_blocked, power_up_set: row.power_up_set, pair_w: if def.park_w_override > 0 { def.park_w_override } else if def.torch { PARK_W_TORCH } else { PARK_W }, input_last: false });
     let mut tap = vec![false; n];
     let mut brh = vec![false; n];
     let mut park_in = vec![false; n];
+    let mut drv = Rep::new(PARK);
+    drv.on = row.power_up_set && !def.torch;
     let mut rls_first_kb: Option<i64> = None;
     let (mut rls_lit, mut rls_due): (bool, Option<i64>) = (false, None);
     let mut rls_rise_kb: i64 = 0;
+    let mut arm_run: i64 = 0;
     let mut cons_prev = false;
     let (mut q_so, mut q_sen, mut q_cool, mut q_open, mut q_since, mut q_win) = (vec![false; n], vec![false; n], vec![false; n], vec![false; n], vec![false; n], vec![false; n]);
     let mut kb: i64 = -1;
@@ -902,8 +935,11 @@ pub fn run(row: &Row, def: Defects) -> Out {
         };
         // (SINCE's reset, ironspec 22:52 (1): NOT P through one repeater, GATED BY THE SAMPLE: suppressed while a sample
         // stands within the set path's time + 2 (so a press arriving inside the onset window sets SINCE and keeps it);
-        // `since_reset_level` puts back the plain level reset as its control)
-        let since_r = |t: i64| notp(t - REP) && (def.since_reset_level || !(0..=sd + 2).any(|j| obs_s(t - j)));
+        // the gate taps the sample BEFORE the set path's delay, so it stays at the design's set-path time when the old
+        // delay is put back (G1 CHANGES 8 (2): the old-delay twin is ONE change); `since_reset_level` puts back the plain
+        // level reset as its control)
+        let sd_gate = CMP + SINCE_DELAY;
+        let since_r = |t: i64| notp(t - REP) && (def.since_reset_level || !(0..=sd_gate + 2).any(|j| obs_s(t - j)));
         let v_since = !def.no_since && latch(prev(&q_since), s_at(&since_s), r_at(&since_r));
         let d_eff = D_LINE - def.d_cut;
         let w_eff = W_LINE + def.w_delta;
@@ -951,7 +987,16 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // (the park's drive: the plain drive of record (PARK = RLS OR P_HOLD through a delay-1 repeater, P_HOLD the
         // feedback latch with the carried rulings); (g)'s latch Q under the slime (the fallback); the old drive's gate
         // model (no carried rulings) with its two controls)
-        let arm_edge_now = edge(&arm, kb, 0);
+        // (ARM's edge at the latch's reset: the stretcher's output, EDGE_W wide by design; `arm_edge_w` plants a narrower
+        // one (G1 01:10 (b))
+        let aw = if def.arm_edge_w > 0 { def.arm_edge_w } else { EDGE_W };
+        let arm_edge_now = at(&arm, kb - CMP, false) && !at(&arm, kb - CMP - aw, false);
+        if arm_edge_now {
+            arm_run += 1;
+        } else if arm_run > 0 {
+            o.arm_edge_widths.push(arm_run);
+            arm_run = 0;
+        }
         if def.old_drive {
             p_hold[k] = latch(k > 0 && p_hold[k - 1], at(&rls, kb - SET_IN, false), at(&rls, kb - OLD_PARK_W - RESET_IN, false));
             park[k] = if def.no_park_stretch {
@@ -973,9 +1018,13 @@ pub fn run(row: &Row, def: Defects) -> Out {
             } else {
                 // (the plain drive: PARK's OR is B2 itself (RLS's dust, the branch's dust and Q's feedback dust all point
                 // into it: a block ORs its inputs without joining their networks), read by the drive's delay-1 repeater
-                // facing away from it: PARK = B2 + 2, gapless from RLS's rise to Q's reset)
+                // facing away from it: PARK = B2 + 2, gapless from RLS's rise to Q's reset; the repeater at 26.3's
+                // rules (G1 01:30: the model equals the game rig, latch-formb 7b41e8fab: a gap shorter than its delay
+                // never reaches its output, a pulse shorter than it is stretched to it))
                 park_in[k] = lo.b2;
-                park[k] = at(&park_in, kb - PARK, false);
+                drv.tick(kb, k > 0 && park_in[k - 1]);
+                drv.update(kb, park_in[k]);
+                park[k] = drv.on;
             }
         }
         // (the consumers' reset input as it stands this tick; its rises after the first RLS are the visit's consumptions)
@@ -1135,6 +1184,15 @@ pub fn describe(o: &Out) -> String {
 /// the wake's press, SENSED / COOL never rising after RLS within a visit.
 fn invariants(o: &Out) -> Vec<String> {
     let mut bad = Vec::new();
+    // (G1 01:10 (b) / ironspec 01:17 (2): THE ARM RACE is a design constraint: ARM's edge at the latch's reset lasts
+    // >= 3 gt on EVERY visit (tick-exact's rig 7b41e8fab: 1 / 2 gt does NOT clear Q; then the next visit's PARK can
+    // start pre-armed))
+    for &w in &o.arm_edge_widths {
+        if w < 3 {
+            bad.push(format!("ARM's edge at the latch's reset lasted {w} gt (< 3: tick-exact's rig, ARM 1 / 2 gt does NOT clear Q)"));
+            break;
+        }
+    }
     if !o.rls_asleep.is_empty() {
         bad.push(format!("RLS while the napper sleeps at {}", fmt_ticks(&o.rls_asleep)));
     }
@@ -1503,6 +1561,44 @@ fn band_variants(row: &Row) -> Vec<Row> {
     out
 }
 
+/// One latch-formb rig row on the logic model (G1 01:10 / ironspec 01:17 (2): LatchSim compared tick for tick with the
+/// game rig, tick-exact's `mctas mobai latch-rig --form-b`, 7b41e8fab): RLS forced high from tick 12 for `rls_w` ticks
+/// (0: none), ARM's raw input high over `arm` = (start, width) at the reset's input, the latch laid SET or RESET, the
+/// branch kept or removed. Returns Q's window, the tap's window, the drive's window (PARK = RLS OR Q through the
+/// delay-1 repeater) and the drive's gaps (ticks off between its first rise and its last fall), in the STANDING
+/// start-of-tick frame.
+pub fn latch_rig(rls_w: i64, arm: Option<(i64, i64)>, laid_set: bool, branch: bool) -> (Option<(i64, i64)>, Option<(i64, i64)>, Option<(i64, i64)>, i64) {
+    let mut sim = LatchSim::new(LatchOpts { branch, power_up_set: laid_set, input_last: true, ..LatchOpts::default() });
+    let n = 140i64;
+    let (mut q, mut tap, mut drive) = (Vec::new(), Vec::new(), Vec::new());
+    // (the drive: PARK's delay-1 repeater reading B2 (RLS's wire, the branch and Q's feedback), a repeater at 26.3's
+    // rules (a gap shorter than its delay never reaches its output))
+    let mut drv = Rep::new(PARK);
+    let mut b2_prev = laid_set;
+    if laid_set {
+        drv.on = true;
+    }
+    for k in 0..n {
+        drv.tick(k, b2_prev);
+        let rls = rls_w > 0 && k >= 12 && k < 12 + rls_w;
+        let a = arm.is_some_and(|(s, w)| k >= s && k < s + w);
+        let lo = sim.step(k, rls, a);
+        drv.update(k, lo.b2);
+        b2_prev = lo.b2;
+        q.push(lo.q);
+        tap.push(lo.tap);
+        drive.push(drv.on);
+    }
+    let win = |v: &[bool]| -> Option<(i64, i64)> {
+        let a = v.iter().position(|&x| x)? as i64;
+        let b = v.iter().rposition(|&x| x).map_or(n, |b| b as i64 + 1);
+        Some((a, if b >= n { i64::MAX } else { b }))
+    };
+    let dw = win(&drive);
+    let gaps = dw.map_or(0, |(a, b)| (a..b.min(n)).filter(|&k| !drive[k as usize]).count() as i64);
+    (win(&q), win(&tap), dw, gaps)
+}
+
 /// The latch alone at the torch / repeater level (the micro-bench of G1 21:25 / ironspec 21:28 / 21:32): RLS's AND
 /// output torch fed by its OR block (powered except over `gap` ticks from tick 10: the AND's inputs reach the block through
 /// their input repeaters, so its changes land in the diode phase), or RLS's line forced high for `forced` ticks from tick
@@ -1740,14 +1836,17 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // prints the latch's rulings ask for: RLS's least width, the least rest-before-PARK margin, the least
     // last-tick-on-the-park-before-PARK's-end margin, the longest visit (ARM -> boarding), and for the + 9 wake its
     // first-window / re-sleep split, its longest extra time and its runs that never board (G1 (8)))
-    type OpenRes = (usize, i64, Vec<String>, [i64; 4], (usize, usize, i64, usize), (usize, Vec<String>), (Option<(i64, Row)>, Option<(i64, Row)>, usize, Option<(i64, Row)>, i64, usize));
+    type OpenRes = (usize, i64, Vec<String>, [i64; 4], (usize, usize, i64, usize), (usize, Vec<String>), (Option<(i64, Row)>, Option<(i64, Row)>, usize, Option<(i64, Row)>, i64, usize), Vec<Row>);
     let results: Vec<OpenRes> = std::thread::scope(|s| {
         let hs: Vec<_> = rows_all
             .iter()
             .map(|(row, kind, late)| {
                 s.spawn(move || {
                     let (mut n, mut least, mut bad) = (0usize, i64::MAX, Vec::new());
-                    let (mut c1_at, mut w_at, mut argmin_n): (Option<(i64, Row)>, Option<(i64, Row)>, usize) = (None, None, 0);
+                    let (c1_at, w_at, mut argmin_n): (Option<(i64, Row)>, Option<(i64, Row)>, usize) = (None, None, 0);
+                    // (G1 CHANGES 8 (1): THE ARGMIN SET, chosen by the margin alone (m == COOLDOWN - the closed form), never
+                    // by a twin's result: the C1 and W + 4 controls run on every run in it)
+                    let mut argmin_rows: Vec<Row> = Vec::new();
                     let mut bcd_at: Option<(i64, Row)> = None;
                     // (ironspec 23:55: THE BOARDING COOLDOWN's margin: pickup - (eject + 60) >= 5 on every visit)
                     let (mut bcd_least, mut bcd_bad) = (i64::MAX, 0usize);
@@ -1773,20 +1872,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                                     if m < least {
                                         least = m;
                                     }
-                                    // (the runs G1's C1 / W controls run on: the least-margin run where removing the park's
-                                    // read raises the margin by exactly one (the read is a term there), and the least-margin
-                                    // run where W + 4 makes a NEW named miss (the W term binds there); only runs within 3
-                                    // of the closed form's margin are tried)
-                                    if m <= COOLDOWN - fedge + 3 {
-                                        if c1_at.as_ref().is_none_or(|(bm, _)| m < *bm) && run(&r, Defects { edge_no_read: true, ..fdef }).cooldown_margin == Some(m + PARK_READ) {
-                                            c1_at = Some((m, r.clone()));
-                                        }
-                                        if w_at.as_ref().is_none_or(|(bm, _)| m < *bm) && kind_bars(&run(&r, Defects { w_delta: fdef.w_delta + 4, ..fdef }), k, *late).iter().any(|b| b.contains("cooldown")) {
-                                            w_at = Some((m, r.clone()));
-                                        }
-                                    }
                                     if m == COOLDOWN - fedge {
                                         argmin_n += 1;
+                                        argmin_rows.push(r.clone());
                                         if bcd_at.is_none() {
                                             bcd_at = o.cart_at_p.zip(o.may_board_from).map(|(ap, mb)| (ap - mb, r.clone()));
                                         }
@@ -1830,7 +1918,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                             }
                         }
                     }
-                    (n, least, bad, st, nine, (c2n, c2ex), (c1_at, w_at, argmin_n, bcd_at, bcd_least, bcd_bad))
+                    (n, least, bad, st, nine, (c2n, c2ex), (c1_at, w_at, argmin_n, bcd_at, bcd_least, bcd_bad), argmin_rows)
                 })
             })
             .collect();
@@ -1838,15 +1926,15 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     });
     let n: usize = results.iter().map(|r| r.0).sum();
     let least_cool = results.iter().map(|r| r.1).min().unwrap_or(i64::MAX);
-    let c1_row: Option<(i64, Row)> = results.iter().filter_map(|r| r.6 .0.clone()).min_by_key(|(m, _)| *m);
-    let w_row: Option<(i64, Row)> = results.iter().filter_map(|r| r.6 .1.clone()).min_by_key(|(m, _)| *m);
     let argmin_at: Option<(i64, Row)> = results.iter().find_map(|r| r.6 .3.clone());
+    let argmin_rows: Vec<Row> = results.iter().flat_map(|r| r.7.iter().cloned()).collect();
     let argmin_bcd: Option<i64> = argmin_at.as_ref().map(|(x, _)| *x);
     let bcd_least: i64 = results.iter().map(|r| r.6 .4).min().unwrap_or(i64::MAX);
     let bcd_bad: usize = results.iter().map(|r| r.6 .5).sum();
     let wb = vv.bar_n(&format!("ctl-shutter [{form}]: THE BOARDING COOLDOWN's MARGIN over the open sweep (ironspec 23:55: every visit's pickup - (eject + {BOARD_COOLDOWN}) >= {BOARD_CD_MARGIN}; COOL and the release timing are load-bearing for it)"), n, bcd_bad == 0);
     lines.push(format!("    THE BOARDING COOLDOWN's MARGIN over it (pickup - the cooldown's end, >= {BOARD_CD_MARGIN}): least {bcd_least}, {bcd_bad} runs below; at the cooldown edge's argmin it is {}: {wb}", argmin_bcd.map_or("-".to_string(), |x| x.to_string())));
     let argmin_n: usize = results.iter().map(|r| r.6 .2).sum();
+    lines.push(format!("    the open sweep's runs at the closed form's margin (the argmin set): {argmin_n}"));
     let st_min = |i: usize| results.iter().map(|r| r.3[i]).min().unwrap_or(i64::MAX);
     let longest_visit = results.iter().map(|r| r.3[3]).max().unwrap_or(i64::MIN);
     let nine = results.iter().fold((0usize, 0usize, i64::MIN, 0usize), |a, r| (a.0 + r.4 .0, a.1 + r.4 .1, a.2.max(r.4 .2), a.3 + r.4 .3));
@@ -1883,45 +1971,45 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let eq = |cool_edge: i64| COOLDOWN - cool_edge == least_cool;
     let w = vv.bar(&format!("ctl-shutter [{form}]: the closed form is tight: the open sweep's least cooldown margin equals COOLDOWN - the closed form (a bound a run beats is not a bound)"), eq(fedge));
     lines.push(format!("    the sweep's least margin {least_cool} against the closed form's {edge_margin}: {w}"));
-    // (G1 on 33e731660 (1): the C1 twin on the open sweep's ARGMIN run with the park's READ itself removed: the design's
-    // margin there equals the closed form's, the twin's is one higher, so the tightness bar fails BY NAME on the twin;
-    // G1 (2)'s control: W + 4 at the argmin makes a NEW named miss (the cooldown margin at boarding))
+    // (G1 CHANGES 8 (1) on d37ef944d: the C1 and W + 4 controls on THE ARGMIN SET (every open-sweep run at the closed
+    // form's margin, chosen without consulting a twin): the design's margin equals the closed form on EACH (asserted);
+    // with the park's read removed on ALL of them the tightness predicate must FAIL by name (the read is a term at the
+    // argmin); with the W line + 4 on all of them, the runs gaining a NEW named miss are counted (the argmin's latest RLS
+    // sits AT the W cut, so W binds there); an empty argmin set is NOT JUDGED (a control with 0 samples fails))
     {
         let desc = |r: &Row| format!("{}; rest {} board {} pass -> rest {} open {:?}", r.name.chars().take(70).collect::<String>(), r.rest, r.board, r.pass_to_rest, r.open);
-        // (C1: a run AT the closed form's margin where the read is a term: the design's margin = the closed form's, the
-        // twin's one higher, so the tightness bar fails by name on the twin)
-        let (c, l1) = match &c1_row {
-            Some((m1, ar)) => {
-                let d = run(ar, fdef);
-                let x = run(ar, Defects { edge_no_read: true, ..fdef });
-                let bites = d.cooldown_margin == Some(*m1) && x.cooldown_margin == Some(m1 + PARK_READ);
-                (vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) at the least-margin run where the read is a term: the twin's margin one higher (the read is a real term of the latest boarding)"), 1, bites).to_string(), format!("{}: the design's margin {:?}, without the read {:?}", desc(ar), d.cooldown_margin, x.cooldown_margin))
+        let cm = COOLDOWN - fedge;
+        let (mut d_off, mut twin_least, mut twin_up): (Vec<String>, Option<i64>, usize) = (Vec::new(), None, 0);
+        let (mut w_new, mut w_ex): (usize, Option<String>) = (0, None);
+        for ar in &argmin_rows {
+            let (ak, al) = rows_all.iter().find(|(r, _, _)| r.name == ar.name).map(|(_, k, l)| (*k, *l)).unwrap_or((Kind::Recovers, false));
+            let d = run(ar, fdef);
+            if d.cooldown_margin != Some(cm) && d_off.len() < 3 {
+                d_off.push(format!("{}: {:?}", desc(ar), d.cooldown_margin));
             }
-            None => (vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) at the least-margin run where the read is a term: the twin's margin one higher (the read is a real term of the latest boarding)"), 1, false).to_string(), "no run within 3 of the closed form's margin where the read is a term".to_string()),
-        };
-        // (G1 (2)'s control: the least-margin run where W + 4 makes a NEW named miss; PRINTED when no run within 3 of the
-        // closed form's margin is W-bound (W + 4 can't move a run W doesn't bind: the W-from-above sweep (W 52) below is
-        // the control that bites))
-        let (c2, l2) = match &w_row {
-            Some((_, ar)) => {
-                let (ak, al) = rows_all.iter().find(|(r, _, _)| r.name == ar.name).map(|(_, k, l)| (*k, *l)).unwrap_or((Kind::Recovers, false));
-                let d = run(ar, fdef);
-                let xw = run(ar, Defects { w_delta: fdef.w_delta + 4, ..fdef });
-                let bw = kind_bars(&xw, ak, al);
-                (vv.control(&format!("ctl-shutter CONTROL (G1 on 33e731660 (2)) [{form}]: the W line + 4 at the least-margin run where W binds: a NEW named miss (the cooldown margin at boarding), the design passing there"), 1, kind_bars(&d, ak, al).is_empty() && bw.iter().any(|b| b.contains("cooldown"))).to_string(), format!("{}: the design's margin {:?}, with W + 4 {:?} [{}]", desc(ar), d.cooldown_margin, xw.cooldown_margin, bw.join("; ")))
+            let x = run(ar, Defects { edge_no_read: true, ..fdef });
+            if let Some(xm) = x.cooldown_margin {
+                twin_least = Some(twin_least.map_or(xm, |t: i64| t.min(xm)));
+                if xm > cm {
+                    twin_up += 1;
+                }
             }
-            None => ("PRINTED (no W-bound run within 3 of the closed form's margin: the W-from-above sweep is the control)".to_string(), "no run within 3 of the closed form's margin where W binds".to_string()),
-        };
-        lines.push(format!("  CONTROLS (G1's C1 / (2)): C1 on {l1}: {c}; W + 4 on {l2}: {c2}"));
-        // (THE FINDING the twins expose: the closed form's margin is MET (the sweep's least equals it), but at none of the
-        // runs that meet it is the read or W a binding term; the argmin run and its read-removed twin are printed)
+            let xw = run(ar, Defects { w_delta: fdef.w_delta + 4, ..fdef });
+            if kind_bars(&d, ak, al).is_empty() && kind_bars(&xw, ak, al).iter().any(|b| b.contains("cooldown")) {
+                w_new += 1;
+                if w_ex.is_none() {
+                    w_ex = Some(format!("{}: the design's margin {:?}, with W + 4 {:?}", desc(ar), d.cooldown_margin, xw.cooldown_margin));
+                }
+            }
+        }
+        let na = argmin_rows.len();
+        let wd = vv.bar_n(&format!("ctl-shutter [{form}]: THE ARGMIN SET (every open-sweep run at the closed form's margin {cm}, chosen by the margin alone): the design's margin equals {cm} on EACH run"), na, d_off.is_empty());
+        let twin_tight = twin_least == Some(cm);
+        let c = vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) on EVERY argmin run: THE TIGHTNESS PREDICATE FAILS BY NAME (the twin set's least margin rises above the closed form's {cm}: the read is a term at the argmin)"), na, !twin_tight && twin_least.is_some()).to_string();
+        let c2 = vv.control(&format!("ctl-shutter CONTROL (G1 on 33e731660 (2), CHANGES 8 (1)) [{form}]: the W line + 4 on EVERY argmin run: a NEW named miss (the cooldown margin at boarding) on at least one (W binds at the argmin: its latest RLS sits at the W cut)"), na, w_new > 0).to_string();
+        lines.push(format!("  THE ARGMIN SET ({na} runs at margin {cm}): the design's margin {cm} on each: {wd}{}; C1 (the read removed on all): the twin set's least margin {:?}, {twin_up} of {na} runs one higher -> the tightness predicate {}: {c}; W + 4 on all: {w_new} of {na} runs gain a named cooldown miss{}: {c2}", if d_off.is_empty() { String::new() } else { format!(" (off: {})", d_off.join(" | ")) }, twin_least, if twin_tight { "HOLDS (the control does not bite)" } else { "FAILS by name" }, w_ex.map_or(String::new(), |e| format!(" (e.g. {e})"))));
         let (am_d, am_x) = argmin_at.as_ref().map_or((String::new(), String::new()), |(_, ar)| (format!("{}: {}", desc(ar), describe(&run(ar, fdef))), describe(&run(ar, Defects { edge_no_read: true, ..fdef }))));
-        lines.push(format!(
-            "  FINDING (G1's C1, the closed form's terms): the sweep's least margin {least_cool} = the closed form's {edge_margin} at {argmin_n} runs; the park's read IS a term there (least margin where it is: {}), but W does NOT bind within 3 of it (least margin where W + 4 makes a miss: {}): at the argmin the latest RLS rises before the W bound and the closed form's W term is met by other terms' slack; the cart reaches P {} gt after the boarding cooldown's end there; the argmin run {am_d}; with the read removed: {am_x}",
-            c1_row.as_ref().map_or("none within 3".to_string(), |(m, _)| m.to_string()),
-            w_row.as_ref().map_or("none within 3".to_string(), |(m, _)| m.to_string()),
-            argmin_bcd.map_or("-".to_string(), |x| x.to_string())
-        ));
+        lines.push(format!("  the first argmin run {am_d}; with the read removed: {am_x}; the cart reaches P {} gt after the boarding cooldown's end there", argmin_bcd.map_or("-".to_string(), |x| x.to_string())));
     }
     if fi == 1 {
         let f = vg.fails();
@@ -2145,34 +2233,54 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let (w20, p20, _, _) = latch_micro(20, None, d0, None);
     let win = |p: Option<(i64, i64)>| p.map_or("never".to_string(), |(a, b)| format!("[{a}, {b})"));
     let filtered = w1 == 0 && w2 == 0 && p1.is_none() && p2.is_none();
-    let w = v.bar("ctl-shutter (MODELLED: LatchSim, pending the AND rig on real cells): THE STRUCTURAL RLS >= 3: every input reaches RLS's OR block through its input repeater (a diode tick, before the torches), so RLS's output torch, reading its block at its own scheduled tick, turns a 1- or 2-gt gap into NO RLS at all (no B2, no PARK, nothing consumed) and a gap of 3 into an RLS of 3", filtered && w3 == 3);
+    let w = v.bar("ctl-shutter (LatchSim, the real circuit's order: RLS from the AND's output torch; the AND's own rig on real cells pending): THE STRUCTURAL RLS >= 3: every input reaches RLS's OR block through its input repeater (a diode tick, before the torches), so RLS's output torch, reading its block at its own scheduled tick, turns a 1- or 2-gt gap into NO RLS at all (no B2, no PARK, nothing consumed) and a gap of 3 into an RLS of 3", filtered && w3 == 3);
     lines.push(format!("  the latch alone: an OR-block gap of 1 gt: RLS {w1} gt, PARK {}; of 2: RLS {w2} gt, PARK {}; of 3: RLS {w3} gt, PARK {}, the tap {}, Q-bar checks reading B2 unpowered {:?}: {w}", win(p1), win(p2), win(p3), win(t3), dp3));
     let fixed = |p: Option<(i64, i64)>, r: i64| p == Some((r + PARK_TORCH, r + PARK_TORCH + PARK_W));
-    let w = v.bar(&format!("ctl-shutter (MODELLED: LatchSim; form (b)'s game row agrees: Q [+3, +23) from the command for every width, tick-exact 23:47): the latch's Q (P_HOLD) is the fixed window [RLS + 4, RLS + 4 + {PARK_W}) for a 3-gt RLS and a 20-gt RLS alike (the reset dominates at the base)"), fixed(p3, 12) && fixed(p20, 12));
+    let w = v.bar(&format!("ctl-shutter (LatchSim = the game rig on pins 2-7, standing frame: Q [RLS + 4, RLS + 24) for every RLS width 1..30): the latch's Q (P_HOLD) is the fixed window [RLS + 4, RLS + 4 + {PARK_W}) for a 3-gt RLS and a 20-gt RLS alike (the reset dominates at the base)"), fixed(p3, 12) && fixed(p20, 12));
     lines.push(format!("    Q for a 3-gt RLS rising at 12: {}; for a 20-gt RLS: {} (design [{}, {})): {w}", win(p3), win(p20), 12 + PARK_TORCH, 12 + PARK_TORCH + PARK_W));
     let (f1, fp1, _, _) = latch_micro(0, Some(1), d0, None);
     let (f2, fp2, _, _) = latch_micro(0, Some(2), d0, None);
-    let (_, fpn, _, _) = latch_micro(0, Some(2), LatchOpts { branch: false, ..d0 }, None);
-    let w = v.bar(&format!("ctl-shutter (MODELLED: LatchSim; form (b)'s game row: the branch keeps the drive gapless): the branch repeater covers B2 without a gap for an RLS line forced to 1 or 2 gt (a NORMAL-priority path as a stress): Q sets, the window [RLS + 4, RLS + 4 + {PARK_W})"), fixed(fp1, 12) && fixed(fp2, 12));
+    let (_, fpn, _, _) = latch_micro(0, Some(1), LatchOpts { branch: false, ..d0 }, None);
+    let w = v.bar(&format!("ctl-shutter (LatchSim = the game rig on pins 2-7, standing frame; the real circuit's conservative order): the branch repeater covers B2 without a gap for an RLS line forced to 1 or 2 gt (a NORMAL-priority path as a stress): Q sets, the window [RLS + 4, RLS + 4 + {PARK_W})"), fixed(fp1, 12) && fixed(fp2, 12));
     lines.push(format!("    an RLS line forced to {f1} gt: Q {}; to {f2} gt: Q {}: {w}", win(fp1), win(fp2)));
-    let c = v.control("ctl-shutter CONTROL (the branch removed): an RLS line forced to 2 gt races Q-bar's check at RLS + 2 and the latch never sets (harmless under the tap-keyed consumers: nothing consumed, RLS retries)", 1, fpn.is_none()).to_string();
-    lines.push(format!("  CONTROL (no branch, a forced 2-gt RLS line): Q {}: {c}", win(fpn)));
+    let c = v.control("ctl-shutter CONTROL (the branch removed): an RLS line forced to 1 gt never sets the latch (the game rig agrees: no branch, RLS 1 never sets; harmless under the tap-keyed consumers: nothing consumed, RLS retries)", 1, fpn.is_none()).to_string();
+    lines.push(format!("  CONTROL (no branch, a forced 1-gt RLS line): Q {}: {c}", win(fpn)));
     let (_, pu_set, _, _) = latch_micro(0, None, LatchOpts { power_up_set: true, ..d0 }, Some(10));
     let (_, pu_noarm, _, _) = latch_micro(0, None, LatchOpts { power_up_set: true, arm_reset: false, ..d0 }, Some(10));
-    let w = v.bar("ctl-shutter (MODELLED: LatchSim; tick-exact 23:47: ARM must hold >= 3 gt to clear Q): POWER-UP: a latch that comes up SET is cleared by ARM's edge through its diode (Q dark within 10 gt of the edge)", pu_set.is_some_and(|(_, b)| b <= 20));
+    let w = v.bar("ctl-shutter (LatchSim = the game rig on pins 2-7, standing frame: ARM 3 / 4 / 5 gt clear Q 4 gt after ARM, 1 / 2 gt don't): POWER-UP: a latch that comes up SET is cleared by ARM's edge (Q dark within 10 gt of the edge)", pu_set.is_some_and(|(_, b)| b <= 20));
     lines.push(format!("    power-up SET, ARM's edge at 10: Q lit until {}: {w}", pu_set.map_or("-".into(), |(_, b)| b.to_string())));
     let c = v.control("ctl-shutter CONTROL (the ARM-edge reset removed): a latch that came up SET stays SET (the park powered at rest)", 1, pu_noarm.is_some_and(|(_, b)| b == i64::MAX)).to_string();
     lines.push(format!("  CONTROL (power-up SET without the ARM-edge reset): Q lit until {}: {c}", pu_noarm.map_or("-".into(), |(_, b)| if b == i64::MAX { "never cleared".into() } else { b.to_string() })));
     // (G1 on 33e731660 (6): THE LATCH FINDING, stated: the as-listed latch (58f770cc 22:07) does NOT hold in 26.3 (tick-
-    // exact's rig a/2239880473237753: its descending dust can't step down the glass staircase); FORM (b), the one-level
-    // two-torch NOR latch (ironspec 22:55 (2), day-1's list a/1902620467569082), LATCHES in 26.3 (tick-exact 23:47,
-    // a/1841767613704681: Q exactly [+3, +23) from the command for every RLS width 1..30; the drive [+1, +25) for widths
-    // <= 20; ARM clears Q only when held >= 3 gt); the LatchSim bars above are MODELLED on form (b); PARK's 24 gt, the tap
-    // consumers and the consistency / leave-park bars rest on them; the latch cites when its game row is on the cells AS
-    // LAID: an OWED miss until then)
-    lines.push("  THE LATCH FINDING: the as-listed latch does NOT hold in 26.3 (tick-exact a/2239880473237753); FORM (b), the one-level NOR latch, latches (tick-exact 23:47, a/1841767613704681: Q [+3, +23) for every RLS width 1..30, the drive [+1, +25) for widths <= 20, ARM clears only when held >= 3 gt); the LatchSim bars above are MODELLED on form (b)".into());
-    let w = v.bar("ctl-shutter OWED: the P_HOLD latch's game row on the cells AS LAID (form (b) transplanted one level down into the re-laid stop, tick-exact's commit with its plants, ARM's 3-gt stretcher asserted): the LatchSim bars cite only then", false);
-    lines.push(format!("  OWED (form (b)'s game row on the cells as laid): {w}"));
+    // exact's rig a/2239880473237753); FORM (b), the one-level two-torch NOR latch (ironspec 22:55 (2), day-1's list
+    // a/1902620467569082), LATCHES in 26.3. G1 01:10 (a) / 01:30, ironspec 01:17 (2): LatchSim compared tick for tick
+    // with tick-exact's game rig (latch-formb 7b41e8fab, `mctas mobai latch-rig --form-b`, asserts 2-8, its recording
+    // pending/latch-formb.rec), IN THE STANDING start-of-tick frame (the rig times from the RLS command, one tick
+    // earlier: its [+3, +23) is [+4, +24) here); the rig's command inputs land at the end of their tick (`input_last`);
+    // LatchSim made EQUAL on every row (the ARM path without a diode of its own; a torch's change updating its
+    // neighbours at once; the drive a repeater at 26.3's rules))
+    let rq = |w: i64| latch_rig(w, None, false, true);
+    let pin2: Vec<i64> = (1..=30).filter(|&w| rq(w).0 != Some((16, 36))).collect();
+    let pin3: Vec<i64> = (1..=30).filter(|&w| { let (q, t, _, _) = rq(w); !q.zip(t).is_some_and(|(q, t)| t == (q.0 + 2, q.1 + 2)) }).collect();
+    let pin4: Vec<i64> = (1..=20).filter(|&w| { let (_, _, d, g) = rq(w); !(d == Some((14, 38)) && g == 0) }).collect();
+    let pin4_long: Vec<(i64, Option<(i64, i64)>)> = [24i64, 30].iter().map(|&w| (w, rq(w).2)).collect();
+    let pin4_long_ok = pin4_long.iter().all(|&(w, d)| d == Some((14, 12 + w + 4)));
+    let pin5 = latch_rig(0, None, true, true).0.is_some_and(|(a, b)| a == 0 && b >= 60);
+    let pin6 = (1..=2).all(|aw| latch_rig(2, Some((20, aw)), false, true).0 == Some((16, 36)) && latch_rig(0, Some((10, aw)), true, true).0.is_some_and(|(_, b)| b == i64::MAX));
+    let pin7 = (3..=5).all(|aw| latch_rig(2, Some((20, aw)), false, true).0 == Some((16, 24)) && latch_rig(0, Some((10, aw)), true, true).0.is_some_and(|(_, b)| b > 10 && b <= 10 + 6));
+    let nb: Vec<(i64, Option<(i64, i64)>, Option<(i64, i64)>, i64)> = (1..=3).map(|w| { let (q, _, d, g) = latch_rig(w, None, false, false); (w, q, d, g) }).collect();
+    let pin8 = nb[0].1.is_none() && nb[1].1 == Some((16, 36)) && nb[1].3 == 2 && nb[2].1 == Some((16, 36)) && nb[2].3 == 0;
+    let w2 = v.bar("ctl-shutter: LatchSim EQUALS the game rig (latch-formb 7b41e8fab, standing frame): pin 2, Q exactly [RLS + 4, RLS + 24) for every RLS width 1..30", pin2.is_empty());
+    let w3 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 3, the TAP = Q + 2 (both edges) for every RLS width 1..30", pin3.is_empty());
+    let w4 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 4, the DRIVE exactly [RLS + 2, RLS + 26), gapless, for every RLS width 1..20 (and RLS end + 4 above: 24 -> + 28, 30 -> + 34)", pin4.is_empty() && pin4_long_ok);
+    let w5 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 5, laid SET holds >= 60 gt with no input", pin5);
+    let w6 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 6, ARM of 1 or 2 gt does NOT clear Q (at RLS + 8, and on a laid SET)", pin6);
+    let w7 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 7, ARM of 3 / 4 / 5 gt clears Q (at RLS + 8: Q dark at RLS + 12; on a laid SET within 6 gt of ARM)", pin7);
+    let w8 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 8, no branch: RLS 1 never sets Q; RLS 2 sets it with a 2-gt gap in the drive; RLS 3 sets it clean", pin8);
+    lines.push(format!("  THE LATCH vs THE GAME RIG (latch-formb 7b41e8fab; standing frame): pin 2 Q, failing widths {pin2:?}: {w2}; pin 3 TAP = Q + 2, failing {pin3:?}: {w3}; pin 4 the drive, failing widths {pin4:?}, long RLS {pin4_long:?}: {w4}; pin 5 laid SET: {w5}; pin 6 ARM 1 / 2: {w6}; pin 7 ARM 3 / 4 / 5: {w7}; pin 8 no branch (width, Q, drive, gaps) {nb:?}: {w8}"));
+    let all_equal = pin2.is_empty() && pin3.is_empty() && pin4.is_empty() && pin4_long_ok && pin5 && pin6 && pin7 && pin8;
+    let w = v.bar("ctl-shutter: THE P_HOLD LATCH's GAME ROW: LatchSim equals tick-exact's rig on every pin (2-8) in the standing frame, so the latch bars above cite (the real circuit differs from the rig only in RLS's source: the AND's output torch, ordered BEFORE the latch's torches in its tick, the conservative order for a falling RLS; the AND's own rig on real cells is the remaining owed row)", all_equal);
+    lines.push(format!("  THE LATCH's GAME ROW (G1 01:10 (a), ironspec 01:17 (2)): {w}"));
     // (THE VISIT WITH THE LATCH'S PLANTS, on the plain drive of record unless named; each row judged by its kind bars,
     // which carry the consistency bar both ways)
     let plant = |name: &str, key: &str, edit: &dyn Fn(&mut Row), def: Defects, kind: Kind, lines: &mut Vec<String>, v: &mut Verdict| {
@@ -2230,6 +2338,15 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         lines.push(format!("  POWER-UP SET (the visit): {}; SO set at the first lie-down's pulse: {}: {w}", describe(&o), if o.pulses.is_empty() { "no pulse".to_string() } else { "see OPEN / RLS above".to_string() }));
         let c = v.control("ctl-shutter CONTROL (power-up SET without the ARM-edge reset): the park is powered when the first cart arrives (it rides through unbraked)", 1, !x.park_before_rest.is_empty() || x.departed.map(|d| !d.1).unwrap_or(false)).to_string();
         lines.push(format!("  CONTROL (power-up SET, no ARM-edge reset): {}; park powered before the rest at {}: {c}", describe(&x), fmt_ticks(&x.park_before_rest)));
+        // (G1 01:10 (b) / ironspec 01:17 (2): THE ARM RACE: the planted 2-gt ARM edge (tick-exact's rig: 1 / 2 gt does
+        // NOT clear Q) fails the every-visit ARM bar by name, and the power-up SET latch is not cleared: the park is
+        // powered when the first cart arrives)
+        let y = run(&r, Defects { arm_edge_w: 2, ..Default::default() });
+        let yb = invariants(&y);
+        let c = v.control("ctl-shutter CONTROL (THE ARM RACE: ARM's edge planted at 2 gt, power-up SET): \"ARM's edge at the latch's reset lasted 2 gt\" fails by name and the SET latch is not cleared (the park powered before the cart's rest)", 1, yb.iter().any(|b| b.contains("ARM's edge at the latch's reset lasted 2 gt")) && (!y.park_before_rest.is_empty() || y.departed.map(|d| !d.1).unwrap_or(false))).to_string();
+        lines.push(format!("  CONTROL (a 2-gt ARM edge, power-up SET): ARM edges {:?}; {}; park powered before the rest at {} [{}]: {c}", y.arm_edge_widths, describe(&y), fmt_ticks(&y.park_before_rest), yb.join("; ")));
+        let w = v.bar(&format!("ctl-shutter: ARM's edge at the latch's reset >= 3 gt on EVERY visit of the design run (the stretcher: EDGE_W {EDGE_W}; tick-exact's rig: 3 / 4 / 5 gt clear Q): edges {:?}", o.arm_edge_widths), !o.arm_edge_widths.is_empty() && o.arm_edge_widths.iter().all(|&w| w >= 3));
+        lines.push(format!("  ARM's edges at the reset (the design, every visit): {:?}: {w}", o.arm_edge_widths));
     }
     // (THE NON-WIDTH LATCH FAILURE (B2's set blocked), G1 21:28 (2) / ironspec 21:31 (2): under (g) nothing is consumed and
     // RLS retries (a visible stuck stop, never a consumed hold); the resets on RLS or on RLS_S consume the visit with no
@@ -2348,15 +2465,62 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         b
     };
     let mut changed = Vec::new();
+    let mut n_bands = 0usize;
+    // (G1 CHANGES 8 (2): over EVERY band of every forced row, the old delay a single change (the gate held at the
+    // design's set-path time))
     for (row, kind, late) in forced_rows() {
-        let a = all_bars(&run(&row, Defects::default()), kind, late).is_empty();
-        let b = all_bars(&run(&row, Defects { since_delay_back: true, ..Default::default() }), kind, late).is_empty();
-        if a != b {
-            changed.push(format!("{} ({})", row.name.chars().take(60).collect::<String>(), if b { "passes WITH the old delay" } else { "fails with the old delay" }));
+        let mut ch = (0usize, 0usize, 0usize);
+        for rr in band_variants(&row) {
+            n_bands += 1;
+            ch.0 += 1;
+            let a = all_bars(&run(&rr, Defects::default()), kind, late).is_empty();
+            let b = all_bars(&run(&rr, Defects { since_delay_back: true, ..Default::default() }), kind, late).is_empty();
+            if a && !b {
+                ch.1 += 1;
+            } else if !a && b {
+                ch.2 += 1;
+            }
+        }
+        if ch.1 + ch.2 > 0 {
+            changed.push(format!("{} ({} of {} bands fail with the old delay, {} pass only with it)", row.name.chars().take(60).collect::<String>(), ch.1, ch.0, ch.2));
         }
     }
-    let w = v.bar("ctl-shutter: SINCE's old delay put back (4 gt more on SINCE's set path) changes no forced row's verdict (G1 on 33e731660 (3): judged; the rows it changes named)", changed.is_empty());
-    lines.push(format!("  SINCE's old delay put back: {}: {w}", if changed.is_empty() { "no forced row's verdict changes".to_string() } else { format!("CHANGED on {}", changed.join(" | ")) }));
+    let w = v.bar_n("ctl-shutter: SINCE's old delay put back (4 gt more on SINCE's set path; the reset's gate at the design's set-path time: ONE change) changes no band's verdict over every forced row's full band (G1 on 33e731660 (3), CHANGES 8 (2): judged; the rows it changes named with their counts)", n_bands, changed.is_empty());
+    lines.push(format!("  SINCE's old delay put back, {n_bands} bands: {}: {w}", if changed.is_empty() { "no band's verdict changes".to_string() } else { format!("CHANGED on {}", changed.join(" | ")) }));
+    // (G1 CHANGES 8 (2): THE SINCE GATE's CONTROL: the plain level reset put back (`since_reset_level`): the first-window
+    // boardings it costs, per forced row (bands boarding first-window under the gate and NOT under the level reset), and
+    // the old-delay comparison's rows (hurt + 8, merged (7, + 3)) under it)
+    let mut fell = Vec::new();
+    let mut n_g = 0usize;
+    for (row, kind, _late) in forced_rows() {
+        if !matches!(kind, Kind::BoardsEarly | Kind::Boards) {
+            continue;
+        }
+        let mut c = (0usize, 0usize);
+        for rr in band_variants(&row) {
+            n_g += 1;
+            c.0 += 1;
+            let g = first_window_miss(&run(&rr, Defects::default()), kind).is_none();
+            let l = first_window_miss(&run(&rr, Defects { since_reset_level: true, ..Default::default() }), kind).is_none();
+            if g && !l {
+                c.1 += 1;
+            }
+        }
+        if c.1 > 0 {
+            fell.push(format!("{}: {} of {} bands fall back", row.name.chars().take(60).collect::<String>(), c.1, c.0));
+        }
+    }
+    let c = v.control("ctl-shutter CONTROL (G1 CHANGES 8 (2), THE SINCE GATE): SINCE's plain level reset put back (`since_reset_level`): first-window boardings fall back on named bands", n_g, !fell.is_empty()).to_string();
+    lines.push(format!("  CONTROL (SINCE's level reset, {n_g} bands): {}: {c}", if fell.is_empty() { "no band falls back".to_string() } else { fell.join(" | ") }));
+    let mut od_level = Vec::new();
+    for key in ["an early wake from the bed (a hurt at ARM + 8)", "lie-down at ARM + 7, a hurt at + 3"] {
+        if let Some((row, kind, late)) = forced_rows().into_iter().find(|(r, _, _)| r.name.contains(key)) {
+            let a = all_bars(&run(&row, Defects { since_reset_level: true, ..Default::default() }), kind, late).is_empty();
+            let b = all_bars(&run(&row, Defects { since_reset_level: true, since_delay_back: true, ..Default::default() }), kind, late).is_empty();
+            od_level.push(format!("{}: the level reset {}, with the old delay {}", row.name.chars().take(60).collect::<String>(), if a { "passes" } else { "fails" }, if b { "passes" } else { "fails" }));
+        }
+    }
+    lines.push(format!("  under the level reset, the old-delay comparison's rows (PRINTED): {}", od_level.join(" | ")));
     lines.push("  OWED (not in this logic bench): the golem cost and the rest of the farm during a halt (the counter / coverage halt row); the real napper's per-tick cell and the hold delta's (-2,0,5) entry (58f770cc's stop bench on this wiring); tick-exact's press / pulse row, from which the onset's allowance is set".into());
     lines
 }
@@ -2364,6 +2528,37 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latch_equals_the_game_rig() {
+        // (tick-exact's latch-formb rig, 7b41e8fab, its recording's frames in the standing frame (RLS at 12): Q
+        // [+4, +24) for every width; the drive [+2, +26) gapless for widths <= 20, RLS end + 4 above; no branch: RLS 1
+        // never sets, RLS 2 sets with the drive's gap [+4, +6), RLS 3 clean; ARM 1 / 2 gt don't clear Q, 3 / 4 / 5 clear it
+        // at RLS + 12 (ARM at RLS + 8); laid SET holds; on a laid SET ARM 3+ clears within 6 gt)
+        for w in 1..=30 {
+            let (q, t, d, g) = latch_rig(w, None, false, true);
+            assert_eq!(q, Some((16, 36)), "Q, RLS {w}");
+            assert_eq!(t, Some((18, 38)), "TAP, RLS {w}");
+            if w <= 20 {
+                assert_eq!((d, g), (Some((14, 38)), 0), "the drive, RLS {w}");
+            } else {
+                assert_eq!(d, Some((14, (12 + w + 4).max(38))), "the drive, RLS {w}");
+            }
+        }
+        assert_eq!(latch_rig(1, None, false, false).0, None, "no branch, RLS 1");
+        let (q2, _, d2, g2) = latch_rig(2, None, false, false);
+        assert_eq!((q2, d2, g2), (Some((16, 36)), Some((14, 38)), 2), "no branch, RLS 2");
+        assert_eq!(latch_rig(3, None, false, false).3, 0, "no branch, RLS 3 clean");
+        for aw in 1..=2 {
+            assert_eq!(latch_rig(2, Some((20, aw)), false, true).0, Some((16, 36)), "ARM {aw} does not clear");
+            assert_eq!(latch_rig(0, Some((10, aw)), true, true).0, Some((0, i64::MAX)), "laid SET, ARM {aw}");
+        }
+        for aw in 3..=5 {
+            assert_eq!(latch_rig(2, Some((20, aw)), false, true).0, Some((16, 24)), "ARM {aw} clears at RLS + 12");
+            assert!(latch_rig(0, Some((10, aw)), true, true).0.is_some_and(|(_, b)| b > 10 && b <= 16), "laid SET, ARM {aw}");
+        }
+        assert_eq!(latch_rig(0, None, true, true).0, Some((0, i64::MAX)), "laid SET holds");
+    }
 
     #[test]
     fn the_normal_visit_releases_once_with_the_napper_aboard() {
@@ -2417,15 +2612,18 @@ mod tests {
         ];
         // (G1 on 33e731660 (2): C2 pinned per row, over the band and over the open sweep, every other bar at 0 misses;
         // (3) the old-delay bar judged (it passes now: SINCE's sample-gated reset made both delays equal on every row);
-        // (6) the latch's OWED game row; (7) the rls_filter_off twin's FINDING: the closed form without the filter (11) is
-        // one below the sweep's least without it (12): conservative by one)
+        // (6) the latch's game row: LatchSim equals tick-exact's rig on pins 2-8 (G1 01:10 (a) / 01:30): no longer owed;
+        // (7) the rls_filter_off twin's FINDING: the closed form without the filter (11) is one below the sweep's least
+        // without it (12): conservative by one)
         let mut expected: Vec<(String, bool)> = Vec::new();
         for r in rows {
             expected.push((format!("C2, THE FIRST WINDOW (FORCED wake, by wake + 90): {r}"), true));
             expected.push((format!("C2 OVER THE OPEN SWEEP (the first window, a FORCED wake by wake + 90): {r}"), true));
         }
         expected.push(("THE rls_filter_off TWIN".to_string(), false));
-        expected.push(("ctl-shutter OWED: the P_HOLD latch's game row on the cells AS LAID".to_string(), false));
+        // (G1 CHANGES 8 (1): W + 4 on the argmin set: no run gains a miss (the argmin's RLS at pulse + 57 is 2 gt before
+        // W 48's cut at pulse + 59: W does not bind there): the control does not bite, pinned)
+        expected.push(("ctl-shutter CONTROL (G1 on 33e731660 (2), CHANGES 8 (1))".to_string(), true));
         assert_eq!(fails.len(), expected.len(), "ctl-shutter-bench: the pinned verdict changed ({} misses, {} pinned): {:?}", fails.len(), expected.len(), fails);
         for (e, per_form) in &expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e.as_str()) && (!per_form || f.contains("the plain drive of record"))).count(), 1, "ctl-shutter-bench: the pinned miss \"{e}\" is not exactly once among {:?}", fails);
