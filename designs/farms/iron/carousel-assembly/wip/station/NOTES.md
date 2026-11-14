@@ -15,7 +15,9 @@ lanes' feed are emulated until the circuit is laid).
   loop (2,16,-6) came out (9fc3155f's static (c) with the summoner-only scarers: 0 never-clearing
   places without it), and with it the 6.08 question.
 - The run line (cc767b78's L1 judge runs it):
-  `drop-bench --layout station --pad --hold-y 16 --stagger 0,14,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --r-repeater --l1 --slab-stop`
+  `drop-bench --layout station --pad --hold-y 16 --stagger 0,14,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --r-repeater --hold-repeater --l1 --slab-stop`
+  (`--hold-repeater`, commit E: the holds' trapdoors through their built drive, not the
+  emulation's state write; see the holds below)
   (`--refill 2,10`: the R line at all three trapdoors shut + 2 for 10 gt, labelled, verbatim
   (ironspec 20:24): "(the refill: the R line at all shut + 2 for 10 gt, unfixed; the game's direct
   bars V1–V3 pass at the deepest normal depth, ironspec 20:24; the design accepts the measured
@@ -104,7 +106,23 @@ lanes' feed are emulated until the circuit is laid).
   opens one; the bench's pulse keeps the trapdoor kind the world holds), carts at y 16.1875 (riders'
   feet 16.19), each resting on its shut trapdoor's top (a designed floor contact, face up, ironspec
   16:45: its bounded declaration waits for onechunk's closed-loop bases); the ring's
-  glass at (x+-1,16,0) and (x,16,+-1); the north stop a bottom slab at (x,17,-1). The hold strings
+  glass at (x+-1,16,0) and (x,16,+-1); the north stop a bottom slab at (x,17,-1). THE TRAPDOOR'S
+  BUILT DRIVE (commit E, ironspec 00:43 (2), day-1 00:38 / 00:45: the holds open per lane 4 gt after
+  D_k rises after REL + offset k and shut `pulse` gt later, day-1's controller wiring the HOLD pulse
+  to the cells named here): the ring's NORTH glass (x,16,-1) is a SLIME block, the conductor (it
+  conducts and isn't solid-render, the pocket back's choice, ironspec 15:08; its full side is still
+  the hold cart's designed north rest; its top is covered by the north stop slab (x,17,-1), so no
+  stroll or spawn top; a full collider like the glass, so sight is unchanged), fed by a repeater
+  (delay 1) at (x,16,-2) facing south into it (block state facing=north) on glass (x,15,-2); its
+  input (x,16,-3) is the controller's line end (day-1's, on its own support (x,15,-3)); the bench
+  drives it from a lever stand-in on glass there (left out of the written file), HOLD_DRIVE_LATENCY
+  gt before each declared open and shut, and checks each trapdoor opens and shuts at its declared
+  tick. Power-out: the powered slime's other neighbours are the north stop slab and the empty cells
+  (x+-1,16,-1), (x,15,-1), so it powers only the trapdoor; neither the R-line repeater (x+1,17,1) nor
+  a pocket drive (x-1,0,0) touches the slime or its repeater. Not the ring's other cells: the east /
+  west glass's feeding repeater would have its back in the next lane's ring glass; the south glass
+  (x,16,1) is R_1's support and would power R_1. +2 blocks per lane (the repeater, its glass).
+  The hold strings
   (x,17,0), their hooks (x+-1,17,0) and their supports (x+-2,17,0) = (-3/1/5/9,17,0), GLOWSTONE on
   main (ironspec 02:59; the farmopt 05:18 / ironspec 05:23 glass ruling never reached main: ironspec
   21:56, "ruled but unlanded"), are gone
@@ -118,9 +136,11 @@ lanes' feed are emulated until the circuit is laid).
   glass (ironspec 22:44 / 22:47 / 22:52; `exterior-spawn --lit`; a/2372781836828254, md5
   6c0cbc4cbfaf4b3690012fe2b2c3cba8): 0 cells spawnable with or without the four (interior 878 / 878,
   tops 588 -> 584, LIGHT-DEPENDENT 73 -> 69, the 4 dropped the tops themselves): no cell needs them;
-  it holds with F3's end rods (endgame); (the earlier rev-3 run, a/4551510055096892, read
-  onechunk's glowstone F3 lights);
-  golem-proof: the golem rule identical (52 / 48 / 4 off-pad, 317 refused, FRAGILE 19, PAD 16); a
+  it holds with F3 r3's lanterns (ironspec 23:34 (a): light only rises, 15 against the end rods'
+  14, and glass passes light, so no cell needs the four a fortiori); (the earlier rev-3 run,
+  a/4551510055096892, read onechunk's glowstone F3 lights);
+  golem-proof: the golem rule identical (52 / 48 / 4 off-pad, 317 refused, FRAGILE 19, PAD 16: rev
+  3's run, 9fc3155f 22:07; V's: 0 off-pad); a
   solid-render stroll destination: that reason is WITHDRAWN (ironspec 23:01): the tops were
   unreachable idle-stroll candidates arming CANT_REACH (9fc3155f's 05:18 statics: an unreached
   idle-stroll STAMP class), so the removal IMPROVES the stamp: the stroll-cell print on V (the same
@@ -147,6 +167,14 @@ lanes' feed are emulated until the circuit is laid).
   T+70, none at rest off its rails; ridden carts planted in all three holds at T+55, so the R line
   launches each slot-1 cart north into a full hold: each rests on its R_1 at z 1.28, on the rail,
   none off its rails (the refill rows fail by design: the holds were full).
+- The station's string classes (9fc3155f's string-audit, tools10 part 20; ironspec 01:11 / farmopt
+  01:20: declared in commit E): the slot-1 strings (-1|3|7,18,1) are CART-KEYED (a cart on R_1
+  presses it, ridden or empty (ironspec 14:26; tick-exact AI / AH)). PROSE until 9fc3155f's part 35
+  (tools11) reads the header line; then the station file's header carries, verbatim:
+  `# string-class: -1,18,1+3,18,1+7,18,1=cart-keyed (a cart on R_1 presses it, ridden or empty
+  (ironspec 14:26; tick-exact AI / AH))` (today's header check would flag the unknown key), with the
+  other station strings' classes from the same audit. Until then string-audit takes them as flags:
+  `--expect -1,18,1=cart-keyed --expect 3,18,1=cart-keyed --expect 7,18,1=cart-keyed`.
 - The slot-1 presence strings over R_1 (F1's input, day-1's G8: REL = the three strings pressed AND
   RE_ARMED; ironspec 11:46's form): the string (x,18,1), its hooks (x-1,18,1) facing east and
   (x+1,18,1) facing west (in the cell that held the glass over R_1's driver), their supports glass at

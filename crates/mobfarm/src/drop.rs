@@ -134,6 +134,11 @@ pub struct Extras {
     /// (ironspec 09:32) R_1's built driver laid: a repeater at (x+1,17,1) facing west into R_1,
     /// on glass, fed from (x+2,17,1) (the controller's cell), instead of the side cell's glass.
     pub r_repeater: bool,
+    /// (ironspec 00:43 (2), commit E) The iron holds' built drive laid: the ring's north glass
+    /// (x,16,-1) a slime block (the conductor), fed by a repeater (delay 1) at (x,16,-2) facing
+    /// south into it on glass (x,15,-2), its input (x,16,-3) day-1's line end (the bench: a lever
+    /// stand-in on glass there).
+    pub hold_repeater: bool,
 }
 
 /// [`design_full`] with [`Extras`].
@@ -345,7 +350,22 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
         b.set(x + 2, y + 1, z, "glass");
         b.set(x, hold_y, z, TRAPDOOR_SHUT);
         for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-            b.set(x + dx, hold_y, z + dz, "glass");
+            // (commit E, ironspec 00:43 (2): with the holds' built drive the ring's north cell is
+            // slime, the conductor: it conducts and isn't solid-render (the pocket back's choice,
+            // ironspec 15:08), its full side still the hold cart's designed north rest, its top
+            // covered by the north stop slab (x,17,-1))
+            b.set(x + dx, hold_y, z + dz, if extra.hold_repeater && (dx, dz) == (0, -1) { "slime_block" } else { "glass" });
+        }
+        if extra.hold_repeater {
+            // (the hold pulse's path: a repeater (delay 1) at (x,16,-2) facing south into the slime
+            // (its FACING the input side, north), on glass; its input (x,16,-3) the controller's
+            // line end (day-1's), driven by the bench from a lever stand-in there on glass
+            // (x,15,-3), both left out of the written file; the powered slime's other neighbours
+            // are the north stop slab and empty cells, so it powers only the trapdoor)
+            b.set(x, hold_y, z - 2, "repeater[delay=1,facing=north,locked=false,powered=false]");
+            b.set(x, hold_y - 1, z - 2, "glass");
+            b.set(x, hold_y, z - 3, "lever[face=floor,facing=north,powered=false]");
+            b.set(x, hold_y - 1, z - 3, "glass");
         }
         if refill {
             // the lane's front cell R_1 (loop (x,17,1)): a powered rail ascending south (the cart
@@ -381,8 +401,8 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
             // (x-1,18,1) facing east and (x+1,18,1) facing west (the latter in the cell that held the
             // glass over R_1's driver: a hook gives no golem a floor either), their supports glass at
             // (x+-2,18,1) (no light, not solid-render, a sturdy hook face, no power; shared at x 1 and
-            // 5); read from the hooks by day-1's controller; the refill latch's sensor (B), ironspec
-            // 18:16 / G1 18:28)
+            // 5); read from the hooks by day-1's controller (the refill latch that would have read it
+            // as its sensor (B), ironspec 18:16 / G1 18:28, was cancelled, ironspec 20:24)
             b.set(x, hold_y + 2, z + 1, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
             b.set(x - 1, hold_y + 2, z + 1, "tripwire_hook[attached=true,facing=east,powered=false]");
             b.set(x + 1, hold_y + 2, z + 1, "tripwire_hook[attached=true,facing=west,powered=false]");
@@ -1096,6 +1116,13 @@ pub const COLUMN_BAR: i64 = 16;
 /// 3bc27a8613a4774c70f6ec7ea301eecb, with the edge controls).
 pub const DRIVE_SLOT_DELTA: i64 = 1;
 
+/// (commit E, ironspec 00:43 (2)) The holds' built drive's lead: the lever stand-in at the line end
+/// (x,16,-3) goes on (off) this many bench iterations before the iteration whose tick opens (shuts)
+/// the trapdoor through the delay-1 repeater (x,16,-2) and the north slime, as the pocket drive's
+/// lever leads its rail by DRIVE_SLOT_DELTA; each run checks it: a trapdoor seen open or shut off
+/// its declared (the emulation's) iteration fails ("a hold's trapdoor off its declared tick").
+pub const HOLD_DRIVE_LATENCY: i64 = 1;
+
 /// (the checklist audit (5)) The due summon tick S relative to T on the summon's own clock: the
 /// first game tick after T's at game time % 100 == 0 (redsim: the bench's iteration dt runs game
 /// tick T + dt + 1, so S runs in iteration S - 1 and its end is that iteration's post-tick state).
@@ -1241,7 +1268,7 @@ pub fn station_reference(text: &str, lo: DropLayout, hold_y: i32) -> Result<std:
         // lever (x+2,17,1) and its glass (x+2,16,1); G1 on 834d6329d (T11): the riser's glass
         // (x-2,-1,z) is day-1's BUILT cell (M16bw), so it stays in the reference)
         for (x, _, z) in lo.pockets() {
-            for c in [[x - 2, 0, z], [x + 2, hold_y + 1, z + 1], [x + 2, hold_y, z + 1]] {
+            for c in [[x - 2, 0, z], [x + 2, hold_y + 1, z + 1], [x + 2, hold_y, z + 1], [x, hold_y, z - 3], [x, hold_y - 1, z - 3]] {
                 reference.remove(&c);
             }
         }
@@ -1307,11 +1334,14 @@ pub fn station_loop_text(file_text: &str, hold_y: i32, header: &[String]) -> Res
         m.blocks.remove(&[*x, hold_y + 2, z + 2]);
         m.blocks.remove(&[*x, hold_y + 2, z + 3]);
         // (the bench's lever stand-ins and their glass: the pocket drive's input (x-2,0,0) (the
-        // riser's cells, day-1's) and the R line's input (x+2,17,1) (the controller's))
+        // riser's cells, day-1's), the R line's input (x+2,17,1) (the controller's) and, with the
+        // holds' built drive (commit E), the hold pulse's input (x,16,-3) (the controller's))
         m.blocks.remove(&[x - 2, 0, *z]);
         m.blocks.remove(&[x - 2, -1, *z]);
         m.blocks.remove(&[x + 2, hold_y + 1, z + 1]);
         m.blocks.remove(&[x + 2, hold_y, z + 1]);
+        m.blocks.remove(&[*x, hold_y, z - 3]);
+        m.blocks.remove(&[*x, hold_y - 1, z - 3]);
     }
     // (path (a): the crest's support (-3,12,7) is the lift's cell (7b90c3f1's file, ironspec
     // 16:04), a stand-in in the bench's file only)
@@ -1491,6 +1521,10 @@ pub struct DropOpts {
     /// (ironspec 09:32) The R line through R_1's built driver (the design's repeater, fed by a
     /// redstone block at (x+2,17,1) for the pulse), not a redstone block in R_1's side cell.
     pub r_repeater: bool,
+    /// (ironspec 00:43 (2), commit E) The holds' trapdoors driven through their built drive (the
+    /// north slime, its repeater (x,16,-2), a lever stand-in at the line end (x,16,-3)), the lever
+    /// flipped HOLD_DRIVE_LATENCY before each declared open / shut, not the trapdoor's state written.
+    pub hold_repeater: bool,
     /// (golem-stamp path (a)) The module laid (the merge row and the shared lift): the departing
     /// carts roll on past the station's exit, each rider tracked against every next-batch caller's
     /// 10-box.
@@ -1882,6 +1916,9 @@ pub struct DropStats {
     /// (G1 on 407a29682 (N4)) The --lever-off pocket's drive that never fired (the control's own
     /// collateral, apart from the bar's other pockets).
     pub drive_off_control: u32,
+    /// (commit E) The holds' trapdoors seen open or shut off their declared iteration, or never
+    /// (the holds' built drive).
+    pub hold_drive_off: u32,
     /// (ironfarm's C-fix rows) Carts that left a watched cell westward; carts at rest off their
     /// rails above the off-rail line.
     pub west_leaves: u32,
@@ -2231,6 +2268,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             if o.r_repeater && o.refill.is_some() {
                 levers.push((BlockPos::new(x + 2, o.hold_y + 1, z + 1), BlockPos::new(x + 1, o.hold_y + 1, z + 1), false));
             }
+            // (commit E: the hold pulse's line end (x,16,-3) and the repeater it feeds)
+            if o.hold_repeater {
+                levers.push((BlockPos::new(x, o.hold_y, z - 3), BlockPos::new(x, o.hold_y, z - 2), false));
+            }
         }
     }
     if o.napper.is_some() && o.napper_held.is_none() {
@@ -2337,6 +2378,18 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut r_was = false;
     let mut r_switch_frozen: Vec<String> = Vec::new();
     let mut shut_again = [false; 3];
+    // (commit E: the holds' built drive: each lane's lever on / off iteration, the declared open /
+    // shut iteration (the emulation's), the pre-tick snapshot at a possible open (dt, clock, the
+    // arriving cart's position, the departing cart's gap, the rider's feet) and at a possible shut
+    // (dt, the arriving cart still in the hold cell, frozen))
+    let mut hold_lever_on: [Option<i64>; 3] = [None; 3];
+    let mut hold_lever_off: [Option<i64>; 3] = [None; 3];
+    let mut hold_declared_open: [Option<i64>; 3] = [None; 3];
+    let mut hold_declared_shut: [Option<i64>; 3] = [None; 3];
+    let mut hold_snap: [Option<(i64, i64, Option<Vec3>, f64, Option<f64>)>; 3] = [None, None, None];
+    let mut hold_shut_snap: [Option<(i64, bool, bool)>; 3] = [None; 3];
+    let mut hold_seen_open: [Option<i64>; 3] = [None; 3];
+    let mut hold_seen_shut: [Option<i64>; 3] = [None; 3];
     let mut from: [Option<Vec3>; 3] = [None; 3];
     let mut feet: [Option<f64>; 3] = [None; 3];
     let mut waited = [0i64; 3];
@@ -2560,8 +2613,9 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut rest_seen: Vec<u32> = Vec::new();
     let mut planted: Vec<String> = Vec::new();
     let mut plants_done = 0usize;
-    // (ironspec 22:28 (2): the empty carts planted, for the slot-1 rest bar: (id, the plant's k, its
-    // first tick over a slot-1 string's cell with that string pressed)
+    // (the empty carts planted, a diagnostic (ironspec 22:28 (2)'s slot-1 rest bar retired by name,
+    // ironspec 23:34): (id, the plant's k, its first tick over a slot-1 string's cell with that
+    // string pressed)
     let mut empty_planted: Vec<(u32, i64, Option<i64>)> = Vec::new();
     // (G1 on e2d9333bc (B4): a plant at T + k past the run never fires: refused before the run)
     if let Some(k) = o.plant_carts.iter().map(|(_, k, _)| *k).chain(o.plant_blocks.iter().map(|(_, _, k)| *k)).find(|k| *k < 0 || *k >= o.ticks) {
@@ -2752,6 +2806,29 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             if opened[k].is_none() && due {
                 if occupied {
                     waited[k] = t_now - o.release + 1;
+                } else if o.hold_repeater {
+                    // (commit E, ironspec 00:43 (2): the trapdoor driven through its built drive:
+                    // the lever stand-in at the line end (x,16,-3) on HOLD_DRIVE_LATENCY before
+                    // the declared open (the emulation's open tick); the open itself is the
+                    // trapdoor's own state, read after the tick)
+                    if hold_lever_on[k].is_none() && t_now >= ready_at[k].unwrap_or(t_now) + o.open_delay - HOLD_DRIVE_LATENCY {
+                        let lp = BlockPos::new(x, o.hold_y, z - 3);
+                        set_lever(&mut run.world, lp, true)?;
+                        hold_lever_on[k] = Some(dt);
+                    }
+                    if ready && hold_declared_open[k].is_none() {
+                        hold_declared_open[k] = Some(dt);
+                    }
+                    if hold_lever_on[k].is_some() {
+                        let (px, _, pz) = pockets[k];
+                        hold_snap[k] = Some((
+                            dt,
+                            clock,
+                            pos(&run.world, carts[3 + k]).map(|(p, _)| p),
+                            pos(&run.world, carts[k]).map_or(f64::INFINITY, |(p, _)| ((p.x - (px as f64 + 0.5)).powi(2) + (p.z - (pz as f64 + 0.5)).powi(2)).sqrt()),
+                            feet_of(&run.world, riders[3 + k]),
+                        ));
+                    }
                 } else if ready {
                     opened[k] = Some(dt);
                     opened_live[k] = clock;
@@ -2767,7 +2844,20 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     run.world.set_block(cell, t, redsim::world::flags::ALL);
                 }
             }
-            if o.pulse > 0 && opened[k].is_some() && !shut_again[k] && clock >= opened_live[k] + o.pulse {
+            if o.hold_repeater && o.pulse > 0 && opened[k].is_some() && !shut_again[k] {
+                // (commit E: the lever off HOLD_DRIVE_LATENCY before the declared shut; the shut
+                // itself is read after the tick)
+                if hold_lever_off[k].is_none() && clock >= opened_live[k] + o.pulse - HOLD_DRIVE_LATENCY {
+                    let lp = BlockPos::new(x, o.hold_y, z - 3);
+                    set_lever(&mut run.world, lp, false)?;
+                    hold_lever_off[k] = Some(dt);
+                }
+                if clock >= opened_live[k] + o.pulse && hold_declared_shut[k].is_none() {
+                    hold_declared_shut[k] = Some(dt);
+                }
+                hold_shut_snap[k] = Some((dt, pos(&run.world, carts[3 + k]).is_some_and(|(p, _)| p.y > o.hold_y as f64 - 0.3), frozen_now));
+            }
+            if !o.hold_repeater && o.pulse > 0 && opened[k].is_some() && !shut_again[k] && clock >= opened_live[k] + o.pulse {
                 shut_again[k] = true;
                 // (a trapdoor shut onto its cart: the arriving cart still in the hold cell, frozen
                 // on the open trapdoor: it stays up and misses its drop)
@@ -3063,6 +3153,37 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         // was moving toward)
         let before: Vec<(u32, Vec3)> = carts.iter().copied().chain(napper_cart).filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, e.delta_movement))).collect();
         run.tick();
+        // (commit E: the holds' built drive, read after the tick: a trapdoor seen open takes the
+        // open's bookkeeping from this tick's pre-tick snapshot (block ticks run before the
+        // entities, so its cart fell this tick, as with the emulation's write before it); a
+        // trapdoor seen shut again after its lever went off is the shut, its cart's place taken
+        // before the tick)
+        if o.hold_repeater {
+            for k in 0..3 {
+                let (x, _, z) = pockets[k];
+                let open_now = run.world.get(BlockPos::new(x, o.hold_y, z)).to_string().contains("open=true");
+                if opened[k].is_none() && open_now {
+                    let Some((d, c, f, g, ft)) = hold_snap[k].take() else {
+                        return Err(format!("the hold drive: lane {k}'s trapdoor opened at T+{} with its lever off", dt + 1));
+                    };
+                    opened[k] = Some(d);
+                    opened_live[k] = c;
+                    from[k] = f;
+                    gap_at_open[k] = Some(g);
+                    feet[k] = ft;
+                    hold_seen_open[k] = Some(d);
+                }
+                if opened[k].is_some() && !shut_again[k] && !open_now && hold_lever_off[k].is_some() {
+                    shut_again[k] = true;
+                    if let Some((d, above, frz)) = hold_shut_snap[k] {
+                        if above {
+                            shut_onto.push(format!("T+{d} lane {k}{}", if frz { " (frozen)" } else { "" }));
+                        }
+                        hold_seen_shut[k] = Some(d);
+                    }
+                }
+            }
+        }
         // (G1 12:27: each lane's hold string (x,17,0), where a world still has one (the module rows'
         // record7f12; the station file has none since day-1 21:21): its first press after the R line
         // starts and its last release before the R line rises, a diagnostic since ironspec 21:16)
@@ -4117,8 +4238,8 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     }
     if slot1_was.iter().any(|w| w.is_some()) {
         out.push(format!(
-            "the slot-1 presence strings over R_1 (x,18,1) (F1's input, day-1's G8; ironspec 11:46 / 14:26: a cart presses it, ridden or empty): {}; the slab inside each resting rider's box over the string's cell by at least {} (ironspec 11:46: >= 0.05)",
-            (0..3).map(|k| format!("lane {k}: {}", if slot1_edges[k].is_empty() { "-".to_string() } else { slot1_edges[k].join(", ") })).collect::<Vec<_>>().join("; "),
+            "the slot-1 presence strings over R_1 (x,18,1) (F1's input, day-1's G8; ironspec 11:46 / 14:26: a cart presses it, ridden or empty): {}; the slab inside each resting rider's box over the string's cell by at least {} (ironspec 11:46's >= 0.05, printed, not judged)",
+            (0..3).map(|k| format!("lane {k}: {}", if slot1_was[k].is_none() { "not watched (no string there)".to_string() } else if slot1_edges[k].is_empty() { "no edge".to_string() } else { slot1_edges[k].join(", ") })).collect::<Vec<_>>().join("; "),
             (0..3).map(|k| format!("lane {k} {}", slot1_margin[k].map_or("- (no resting rider over it)".to_string(), |m| format!("{m:.4}")))).collect::<Vec<_>>().join(", ")
         ));
         for k in 0..3 {
@@ -4134,6 +4255,40 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     // dependency recorded: an empty slot-1 cart is pushed to z 1.2590 / 1.2800 by the next arrival
     // (tick-exact 23:25), F1 then held by slot 2's rider; if (C) is ever removed, the analysis
     // starts there)
+    // (commit E, ironspec 00:43 (2): the holds' built drive per lane: the lever's on / off
+    // iterations, the trapdoor seen open / shut and its declared iterations; any off its declared
+    // iteration, or never seen, fails)
+    if o.hold_repeater {
+        let mut off = 0u32;
+        let lines: Vec<String> = (0..3)
+            .map(|k| {
+                // (a hold its gate never opened (its pocket never emptied: a stall) is the drive
+                // agreeing with its declaration, as is a hold opened at its declared tick)
+                let ok_open = hold_seen_open[k] == hold_declared_open[k];
+                let ok_shut = o.pulse <= 0 || hold_seen_shut[k] == hold_declared_shut[k];
+                if !ok_open || !ok_shut {
+                    off += 1;
+                }
+                let t = |v: Option<i64>| v.map_or("never".to_string(), |d| format!("T+{d}"));
+                format!(
+                    "lane {k}: lever on {}, the trapdoor open {} (declared {}){}; lever off {}, shut {} (declared {}){}",
+                    t(hold_lever_on[k]),
+                    t(hold_seen_open[k]),
+                    t(hold_declared_open[k]),
+                    if ok_open { "" } else { " OFF ITS TICK" },
+                    t(hold_lever_off[k]),
+                    t(hold_seen_shut[k]),
+                    t(hold_declared_shut[k]),
+                    if ok_shut { "" } else { " OFF ITS TICK" }
+                )
+            })
+            .collect();
+        out.push(format!(
+            "the holds' built drive (commit E, ironspec 00:43: a lever stand-in at the line end (x,16,-3), the delay-1 repeater (x,16,-2), the north slime (x,16,-1) into each iron trapdoor; the lever leads by HOLD_DRIVE_LATENCY {HOLD_DRIVE_LATENCY}; bench iterations, the emulation's ticks declared): {}",
+            lines.join("; ")
+        ));
+        stats.hold_drive_off = off;
+    }
     if !empty_planted.is_empty() {
         let mut lines = Vec::new();
         for (id, k, press) in &empty_planted {
@@ -4158,7 +4313,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     )
                 }
             };
-            lines.push(format!("cart {id} planted T+{k}: {verdict}; its slot-1 string first pressed with it over the cell T+{}", press.map_or("-".to_string(), |t| t.to_string())));
+            lines.push(format!("cart {id} planted T+{k}: {verdict}; its slot-1 string first pressed with it over the cell {} (an end-position print; near z 1.30 not cited)", press.map_or("never".to_string(), |t| format!("T+{t}"))));
         }
         out.push(format!("the empty carts planted (a diagnostic: the slot-1 rest bar retired by name, ironspec 23:34: its purpose ended when (C) was bought at 22:41): {}", lines.join("; ")));
     }
@@ -4329,12 +4484,15 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         closest.map_or("-".to_string(), |(d, t, a, m)| format!("{d:.2} (arriving cart {a} to departing cart {m} at T+{t})"))
     ));
     out.push(format!(
-        "pockets: {}; departures {}; contacts {} (the fastest {:.3}){}; riders hurt {hurt}, unseated ticks {unseated}",
+        "pockets: {}; departures {}; contacts {} (the fastest {:.3}){}; riders hurt {hurt}, unseated ticks {unseated}{}",
         if wrong.is_empty() { "every arriving cart at rest mid-cell in its own pocket".to_string() } else { format!("WRONG POCKET: {}", wrong.join("; ")) },
         (0..3).map(|k| if o.dep_absent[k] { format!("cart {k} absent (cold start)") } else { exits[k].map_or(format!("cart {k} STUCK"), |(t, v)| format!("cart {k} out T+{t} at {v:.3}")) }).collect::<Vec<_>>().join(", "),
         contacts.len(),
         contact_max,
-        if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
+        if contacts.is_empty() { String::new() } else { format!(" ({})", contacts.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        // (ironspec 01:41: a hurt rider's health printed, the drop-landing table's figure: of 20,
+        // the departing riders 0..2 and the arriving 3..5 as last read)
+        if hurt == 0 { String::new() } else { format!(" (the riders' health at their last read, of 20: {})", (0..6).filter_map(|n| health[n].filter(|h| *h < 20.0).map(|h| format!("{} rider {}: {h:.1}", if n < 3 { "departing" } else { "arriving" }, n % 3))).collect::<Vec<_>>().join(", ")) }
     ));
     if !next_carts.is_empty() {
         out.push(format!(
