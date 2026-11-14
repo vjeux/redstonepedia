@@ -225,7 +225,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: false, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -1621,6 +1621,30 @@ struct GuardRec {
 }
 
 impl GuardRec {
+    /// G1 CHANGES 7 on 8d3c3c190 (3): BOTH EDGES FROM THE CREDITS' SOURCES on the guard-OFF (and cap-off) twin: each credit,
+    /// in time order, is its batch's FIRST (legitimate: its gap after the previous credit is the window's early edge) or a
+    /// SECOND (a duplicate: its gap after the previous credit is the late edge).
+    fn take_sources(&mut self, off: &Out, label: &str) {
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut last: Option<i64> = None;
+        let mut order: Vec<(i64, usize)> = off.credits.iter().zip(off.credit_src.iter()).filter(|(_, s)| s.1 != NET_SRC).map(|(c, s)| (c.0, s.1)).collect();
+        order.sort();
+        for (t, b) in order {
+            if let Some(lt) = last {
+                let gap = t - lt;
+                if seen.contains(&b) {
+                    if self.dup_max.as_ref().is_none_or(|d| gap > d.0) {
+                        self.dup_max = Some((gap, label.to_string()));
+                    }
+                } else if self.least.as_ref().is_none_or(|l| gap < l.0) {
+                    self.least = Some((gap, label.to_string()));
+                }
+            }
+            seen.insert(b);
+            last = Some(t);
+        }
+    }
+
     /// One run with the guard ON (`o`) and, when given, its guard-OFF twin (`off`, the would-be duplicates).
     fn take2(&mut self, o: &Out, off: Option<&Out>, label: &str) {
         self.runs += 1;
@@ -1891,6 +1915,8 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         (n, bad, ex)
     };
     let mut g = GuardRec::default();
+    // (G1 CHANGES 7 on 8d3c3c190 (3): the guard's edges from the credits' SOURCES on the guard-off twins)
+    let mut gs = GuardRec::default();
     let (n, bad, ex) = sweep(S3OLD_TAP, 2, &mut g);
     // (the same rows with the net on: the duplicates it blocks with the store kept by the net)
     for (name, r0) in &rows {
@@ -1939,7 +1965,10 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     for (name, r) in &guard_rows {
         let mut r0 = r.clone();
         r0.dm1_block7 = 0;
-        g.take2(&run(r, Defects::default()), Some(&run(&r0, Defects::default())), name);
+        let off = run(&r0, Defects::default());
+        g.take2(&run(r, Defects::default()), Some(&off), name);
+        gs.take_sources(&off, name);
+        gs.runs += 1;
     }
     // (the reference rows' would-be duplicates on their guard-off twins, a third of the opens)
     for (name, r0) in &rows {
@@ -1954,8 +1983,43 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 }
                 let mut roff = r.clone();
                 roff.dm1_block7 = 0;
-                g.take2(&run(&r, Defects::default()), Some(&run(&roff, Defects::default())), &format!("{name}, signs {vv:04b}, open REL_6 + {} (guard-off twin)", t0 - 606));
+                let off = run(&roff, Defects::default());
+                let label = format!("{name}, signs {vv:04b}, open REL_6 + {} (guard-off twin)", t0 - 606);
+                g.take2(&run(&r, Defects::default()), Some(&off), &label);
+                gs.take_sources(&off, &label);
+                gs.runs += 1;
             }
+        }
+    }
+    // (G1 CHANGES 7 on 8d3c3c190 (3): BOTH EDGES FROM THE CREDITS' SOURCES (the guard and the claim cap off): every
+    // credit its batch's first (legitimate) or second (a duplicate); bar_n over the runs; the two controls)
+    {
+        let dmax = gs.dup_max.as_ref().map(|x| x.0);
+        let lmin = gs.least.as_ref().map(|x| x.0);
+        let ok = dmax.is_some_and(|d| d <= DM1_BLOCK7) && lmin.is_some_and(|l| l > DM1_BLOCK7);
+        let w = v.bar_n(&format!("ctl-credit: THE GUARD ({DM1_BLOCK7} gt) FROM THE CREDITS' SOURCES (G1 CHANGES 7 on 8d3c3c190 (3), the guard and the claim cap off): every second credit of a batch lands within the window after the previous credit, every first credit after it"), gs.runs, ok);
+        lines.push(format!("  THE GUARD FROM THE CREDITS' SOURCES (guard and cap off; {} runs): the latest duplicate (a batch's second credit) {:?} gt after the previous credit ({}), the least first credit {:?} gt after one ({}); the window {DM1_BLOCK7}: margins {:?} / {:?}: {w}", gs.runs, dmax, gs.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone()), lmin, gs.least.as_ref().map_or("-".to_string(), |x| x.1.clone()), dmax.map(|d| DM1_BLOCK7 - d), lmin.map(|l| l - DM1_BLOCK7)));
+        // (the controls: the window at the duplicates' max - 1 lets a batch be credited twice; at the least first credit it
+        // blocks a legitimate one (a batch never credited))
+        if let (Some(d), Some(l)) = (dmax, lmin) {
+            let (mut twice, mut never) = (Vec::new(), Vec::new());
+            for (name, r) in &guard_rows {
+                let mut ra = r.clone();
+                ra.dm1_block7 = (d - 1).max(0);
+                if ledger_bars(&run(&ra, Defects::default())).iter().any(|b| b.contains("CREDITED TWICE")) {
+                    twice.push(name.clone());
+                }
+                let mut rb = r.clone();
+                rb.dm1_block7 = l;
+                rb.resync_net = false;
+                if ledger_bars(&run(&rb, Defects::default())).iter().any(|b| b.contains("NEVER CREDITED")) {
+                    never.push(name.clone());
+                }
+            }
+            let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (3)): the guard at the duplicates' max - 1 ({} gt): A BATCH CREDITED TWICE by name", (d - 1).max(0)), 1, !twice.is_empty()).to_string();
+            lines.push(format!("  CONTROL (the guard at {} gt): A BATCH CREDITED TWICE on {} rows (e.g. {}): {c}", (d - 1).max(0), twice.len(), twice.first().cloned().unwrap_or_default()));
+            let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (3)): the guard at the least first-credit gap ({l} gt), the net off: A BATCH NEVER CREDITED by name"), 1, !never.is_empty()).to_string();
+            lines.push(format!("  CONTROL (the guard at {l} gt, the net off): A BATCH NEVER CREDITED on {} rows (e.g. {}): {c}", never.len(), never.first().cloned().unwrap_or_default()));
         }
     }
     let least = g.least.as_ref().map(|x| x.0);
@@ -2024,15 +2088,19 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     let c = v.control("ctl-credit CONTROL: THE ONE-CREDIT-PER-BATCH GUARD removed: the lane 7 cart 21..25 gt late is credited twice (A BATCH CREDITED TWICE by name on all 5 rows), the store below full at both credits (no cap catches it)", 1, gained == 5).to_string();
     lines.push(format!("  CONTROL (the guard removed): {gained} of 5 rows credited twice: {}: {c}", levels.join(" | ")));
     // (THE CLAIM CAP (day-1 03:44; ironspec 02:06 / 02:10's "the store CAPPED at its legitimate maximum given what's in
-    // flight"): every REL opens a claim and every credit answers one; a credit with no open claim is refused. Its row:
-    // THE STALLED-THEN-RECOVERED CART at EVERY stall length 30..400 on every slot: without the cap a late D press landing
-    // outside every guard window credits twice (a gain for good); with it, none; the normal run refuses nothing)
+    // flight"): every REL opens a claim and every credit answers one; a credit with no open claim is refused. A CANDIDATE,
+    // OUT OF THE DESIGN until its conditions are met (G1 CHANGES 7 on 8d3c3c190: its resync from the order state, the
+    // hopper's cooldown / lock / persistence validated in redsim, per-run ledger + early-REL bars, refusals printed;
+    // ironspec 03:54 (5)): `claims_cap` is OFF by default and run explicitly here. THE DESIGN's ROW: THE STALLED-THEN-
+    // RECOVERED CART at EVERY stall length 30..400 on every slot: a late D press landing outside every guard window inside
+    // the next batch's SEEN3 credits twice (a gain for good): pinned by name; the candidate's rows beside it)
     {
         let (mut g_on, mut g_off, mut refused, mut lost) = (Vec::new(), Vec::new(), 0usize, Vec::new());
         for late in 30..=400 {
             for s in 0..3 {
                 let mut r = Row::normal("stall");
                 r.late = vec![(5, s, late)];
+                r.claims_cap = true;
                 let o = run(&r, Defects::default());
                 refused += o.claim_refused.len();
                 let sb = store_correct_bars(&o);
@@ -2044,16 +2112,26 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 }
                 let mut r0 = r.clone();
                 r0.claims_cap = false;
-                if store_correct_bars(&run(&r0, Defects::default())).iter().any(|b| b.contains("GAINED")) {
-                    g_off.push(format!("lane {} {late}", LANES[s]));
+                let o0 = run(&r0, Defects::default());
+                if store_correct_bars(&o0).iter().any(|b| b.contains("GAINED")) {
+                    // (G1 06:00: each gain's CONSEQUENCE: the least REL spacing after it (REL is clocked: an extra credit
+                    // can only remove a later wait, never fire REL under its period) and how the store recovers (no
+                    // mechanism removes a credit: the store stays one over for good))
+                    let minp = o0.rels.windows(2).map(|w| w[1] - w[0]).min().unwrap_or(PERIOD);
+                    g_off.push(format!("lane {} {late} (the least REL spacing {minp} gt vs the period {PERIOD}; the store one over for good)", LANES[s]));
                 }
             }
         }
-        let on = run(&Row::normal("cap normal"), Defects::default());
-        let w = v.bar_n("ctl-credit: THE CLAIM CAP: the stalled-then-recovered cart at every stall length 30..400 on every slot leaves the store correct (no gain, no loss) and the normal run refuses no credit", 3 * 371, g_on.is_empty() && lost.is_empty() && on.claim_refused.is_empty());
-        lines.push(format!("  THE CLAIM CAP over every stall 30..400 on every slot: gains {}, losses {}, credits refused {refused}; the normal run refuses {}: {w}", if g_on.is_empty() { "none".to_string() } else { g_on.join(", ") }, if lost.is_empty() { "none".to_string() } else { lost.join(", ") }, on.claim_refused.len()));
-        let c = v.control("ctl-credit CONTROL: the claim cap off: a stalled-then-recovered cart's late D press outside every guard window gains a credit for good (A CREDIT GAINED)", 1, !g_off.is_empty()).to_string();
-        lines.push(format!("  CONTROL (no claim cap): gains at {}: {c}", g_off.join(", ")));
+        let w = if g_off.is_empty() {
+            v.bar_n("ctl-credit: THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): the store correct", 3 * 371, true).to_string()
+        } else {
+            v.bar(&format!("ctl-credit: THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): A CREDIT GAINED at {} (the claim cap's case, a candidate)", g_off.join(", ")), false).to_string()
+        };
+        lines.push(format!("  THE STALLED-THEN-RECOVERED CART over every stall 30..400 on every slot (the design): gains at {}: {w}", if g_off.is_empty() { "none".to_string() } else { g_off.join(", ") }));
+        let mut rcap = Row::normal("cap normal");
+        rcap.claims_cap = true;
+        let on = run(&rcap, Defects::default());
+        lines.push(format!("  THE CLAIM CAP (A CANDIDATE, not judged until its conditions are met) over the same stalls: gains {}, losses {}, credits refused {refused}; the normal run refuses {}", if g_on.is_empty() { "none".to_string() } else { g_on.join(", ") }, if lost.is_empty() { "none".to_string() } else { lost.join(", ") }, on.claim_refused.len()));
     }
     // (THE RESYNC NET (ironspec 02:40 (4) / 02:46 (1), G1 02:44b (1), CHANGES 7 C1): THE PREMISE printed beside its trigger
     // (the batches in flight at each credit wait, a MODEL PRINT, and the ITEM COUNT the net reads); the trigger, the ITEM
@@ -4165,6 +4243,7 @@ mod tests {
         }
         let fails = v.fails();
         let expected = [
+            ("THE STALLED-THEN-RECOVERED CART at every stall length 30..400 on every slot (the design, no claim cap): A CREDIT GAINED at lane 7 135", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind PICK-DIVERTED at REL_6 + 109..120", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
