@@ -378,7 +378,7 @@ fn redsim_arrival(x: f64, z: f64) -> Result<Option<(u32, [f64; 3], i32)>> {
 
 /// Clear a design's box (its blocks' bounds, `margin` more on each side) to air in `dim`, in fills
 /// of at most 32768 cells: the world's own terrain stays out of the design's air cells.
-fn clear_box(srv: &mut VanillaServer, dim: &str, blocks: &[(mctas::sim::Pos, String)], margin: i32) -> Result<()> {
+pub(crate) fn clear_box(srv: &mut VanillaServer, dim: &str, blocks: &[(mctas::sim::Pos, String)], margin: i32) -> Result<()> {
     let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
     for (p, _) in blocks {
         for i in 0..3 {
@@ -399,7 +399,7 @@ fn clear_box(srv: &mut VanillaServer, dim: &str, blocks: &[(mctas::sim::Pos, Str
 /// Paste a design's blocks at their own coordinates in `dim` (`setblock .. strict`: no updates,
 /// so a portal's cells stand before its frame is whole), then give every fluid its update (air,
 /// then the fluid again: its first flow tick scheduled).
-fn paste(srv: &mut VanillaServer, dim: &str, blocks: &[(mctas::sim::Pos, String)]) -> Result<()> {
+pub(crate) fn paste(srv: &mut VanillaServer, dim: &str, blocks: &[(mctas::sim::Pos, String)]) -> Result<()> {
     let run = format!("execute in {dim} run");
     let fluid = |s: &str| s.starts_with("minecraft:lava") || s.starts_with("minecraft:water");
     for (p, s) in blocks.iter().filter(|(_, s)| !fluid(s)) {
@@ -631,7 +631,7 @@ pub fn ticket(version: &str) -> Result<()> {
 }
 
 /// The chunk box [x0, z0, x1, z1] (block coordinates) of a design's blocks, with a margin.
-fn chunk_box(blocks: &[(mctas::sim::Pos, String)], margin: i32) -> [i32; 4] {
+pub(crate) fn chunk_box(blocks: &[(mctas::sim::Pos, String)], margin: i32) -> [i32; 4] {
     let (mut x0, mut z0, mut x1, mut z1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
     for (p, _) in blocks {
         x0 = x0.min(p[0]);
