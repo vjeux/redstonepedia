@@ -3917,6 +3917,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     );
     let start_ticket = (start_free, start_holders);
     let mut recs: BTreeMap<u32, Rec> = BTreeMap::new();
+    // (ironspec 17:10 (3)) per lane cell (x, y, z): panic ticks, stroll attempts, draws with a target,
+    // clears in PANIC
+    let mut panic_cells: BTreeMap<(i32, i32, i32), [u64; 4]> = BTreeMap::new();
     // (day-1 01:10 PT, the per-pick trace) each napper's milestones of its earlier visits (a pick
     // starts a visit's list afresh)
     let mut past_marks: BTreeMap<u32, Vec<(String, i64)>> = BTreeMap::new();
@@ -7105,6 +7108,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (tick-exact 17:03 (iii)) the sight list's own scan phase: NEAREST_LIVING_ENTITIES (index 0)
                 r.living_phase = Some((now + b.sensors[0]).rem_euclid(20));
             }
+            // (ironspec 17:10 (3)) per lane cell: the panic ticks, the stroll attempts (PANIC with WALK_TARGET
+            // absent: one draw per tick), the draws that set a target, and the clears in PANIC
+            if panic && LANES.contains(&c[0]) {
+                let e = panic_cells.entry((c[0], c[1], c[2])).or_insert([0; 4]);
+                e[0] += 1;
+                if target.is_none() {
+                    e[1] += 1;
+                }
+                if target.is_some() && r.prev_target.is_none() {
+                    e[2] += 1;
+                }
+                if r.prev_stamp.is_some() && stamp.is_none() {
+                    e[3] += 1;
+                }
+            }
             // (G1 16:37 (2)) the lift foot (-4,2,7): each pass of a rider through the cell counted
             if c == [-4, 2, 7] && r.prev_cell != Some(c) {
                 r.foot_passes += 1;
@@ -10287,6 +10305,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 .collect::<Vec<_>>()
                 .join(" | ")
         ));
+        // (ironspec 17:10 (3)) per lane and cell: panic ticks, stroll attempts, draws with a target, clears
+        for l in LANES {
+            let rows: Vec<String> = panic_cells
+                .iter()
+                .filter(|((x, _, _), _)| *x == l)
+                .map(|((_, y, z), v)| format!("({y},{z}): panic {} attempts {} targets {} clears {}", v[0], v[1], v[2], v[3]))
+                .collect();
+            s.push_str(&format!(
+                "the panic periods by cell, lane x {l} (ironspec 17:10 (3): PANIC ticks, the stroll's attempts (WALK_TARGET absent, one draw per tick), the draws that set a target, the clears in PANIC): {}\n",
+                if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
+            ));
+        }
     }
     // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class: per
     // class, the stamp's oldest age at any REST tick over the villagers, against the 1,200 release
