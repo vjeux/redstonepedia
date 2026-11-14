@@ -51,6 +51,7 @@ pub mod estringcells;
 pub mod abutlatch;
 pub mod cartfall;
 pub mod cartoncart;
+pub mod parkstring;
 pub mod latchformb;
 pub(crate) mod latchformbcells;
 pub mod latchrig;
