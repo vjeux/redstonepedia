@@ -105,6 +105,9 @@ pub struct Cfg {
     /// ironspec 06:28 (B): RS_READY's EVIDENCE MOVED TO THE BALL EXIT (7,-3,4): each visit's cycle grows by the previous
     /// rider's travel from the R string to the ball exit (gt).
     pub rs_extra: i64,
+    /// The bed's cycle per visit (gt): the front's departure to the next release's RS_ready: 333 (the exit-hold era);
+    /// 58f770cc 06:55's no-hold re-runs: entry -> lie-down 27..37, the nap 56..76, wake -> RS_ready 68..84 (151..197).
+    pub bed_cycle: i64,
     /// G1 06:35 (a): the departure presses (their index over the run, 1-based) the room count MISSES (no down-count).
     pub missed_dep: Vec<usize>,
     /// G1 06:35 (b): EXTRA departure presses (gt): the room count goes down once more (clamped at >= 0).
@@ -113,7 +116,7 @@ pub struct Cfg {
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, missed_dep: vec![], extra_dep: vec![] }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![] }
     }
 }
 
@@ -371,8 +374,8 @@ pub fn run(cfg: &Cfg) -> Out {
                 o.max_hold_wait = o.max_hold_wait.max(release - (leg + 15));
                 o.max_front_wait = o.max_front_wait.max(start - at_front);
                 prev_start = start;
-                bed_busy += 333;
-                bed_free = start + 333 + cfg.rs_extra;
+                bed_busy += cfg.bed_cycle;
+                bed_free = start + cfg.bed_cycle + cfg.rs_extra;
                 let wait = start - arrive;
                 o.max_bed_wait = o.max_bed_wait.max(wait);
                 if wait > 0 {
@@ -997,7 +1000,29 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let o = run(&c);
             costs.push(format!("+ {extra}: the worst interval {} gt (to 24,000: {}){}", o.max_gap.0, 24_000 - o.max_gap.0, if ok(&o) { "" } else { " MISSES the bars" }));
         }
-        lines.push(format!("  RS_READY AT THE BALL EXIT (ironspec 06:28 (B)), each visit's cycle grown by the R-string-to-ball-exit travel: {}", costs.join("; ")));
+        lines.push(format!("  RS_READY AT THE BALL EXIT (ironspec 06:28 (B)), each visit's cycle (333, the exit-hold era) grown by the R-string-to-ball-exit travel: {}", costs.join("; ")));
+        // (58f770cc 06:55 / ironspec 07:07 (2): THE NO-HOLD CYCLE: entry -> lie-down 27..37, the nap 56..76, wake -> RS_ready
+        // 68..84: the bed's cycle 151..197 gt (median 168); the nap bar re-read at its worst and median, with (B)'s travel
+        // (the R string -> the napper lift's foot 3..4 gt + V's climb to (7,-3,4), cc767b78 measuring) swept 0..120)
+        for cyc in [197i64, 168] {
+            let mut nc = Vec::new();
+            for extra in [0i64, 20, 40, 60, 80, 120] {
+                let mut c = design(&format!("the no-hold cycle {cyc}, + {extra} gt"), 3, None);
+                c.bed_cycle = cyc;
+                c.rs_extra = extra;
+                let o = run(&c);
+                nc.push(format!("+ {extra}: {} ({}){}", o.max_gap.0, 24_000 - o.max_gap.0, if ok(&o) { "" } else { " MISSES" }));
+            }
+            lines.push(format!("  THE NO-HOLD CYCLE {cyc} gt (58f770cc 06:55), the worst nap-to-nap interval (to 24,000) with (B)'s travel: {}", nc.join("; ")));
+        }
+        {
+            let mut c = design("the no-hold cycle 197 (worst), (B) + 40", 3, None);
+            c.bed_cycle = 197;
+            c.rs_extra = 40;
+            let o = run(&c);
+            let w = v.bar("ctl-pick: THE NAP BAR ON THE NO-HOLD CYCLE (its worst, 197 gt) with (B)'s travel at + 40 gt (the R string -> foot 3..4 + V's climb, to be measured): 24 distinct every night, every interval < 24,000 - 1,000", ok(&o));
+            lines.push(format!("  THE NAP BAR on the no-hold cycle's worst (197) with (B) + 40: the worst interval {} gt (margin {} to 23,000): {w}", o.max_gap.0, 23_000 - o.max_gap.0));
+        }
     }
     lines.push("  OWED (before anything is laid, ironspec 23:48 (2)): the COUNTER's netlist (a ring-position counter of each lane's front, counting on the REL pulse in the same tick, the picked-not-rejoined positions in a per-lane register, the rejoin counted as evidence, state in latches; a world-open-mid-count row passing STRICTLY, value read back); the per-lane holds' MECHANISM (the waiting cell per lane; slot-1 supply, F1 and REL while held; each batch's make-up and credit; the gate = the previous napper's departure from the front (the RS_ready reset); the order arbiter releasing EXACTLY ONE, the OLDEST PICK, per departure event, with planted rows of two and three holds at once); the 219-row credit sweep under this schedule; cc767b78's composed night (each waiting napper's stamp age, the bed's busy fraction, golems lost)".into());
     lines
