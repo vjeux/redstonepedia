@@ -2514,8 +2514,20 @@ pub fn clear_rate(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32;
 }
 
 pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str) -> Result<Vec<(BlockPos, &'static str, Vec<String>)>, String> {
+    clearing_fixes_in(spec, home, panic_boxes, claims, place, block, &[])
+}
+
+/// (G1 / ironspec Nov 14 06:59, part 55) [`clearing_fixes`] with candidate floors kept out of the `exclude` boxes
+/// (the floor, its standing cell and the head room above, as `clear_rate` has it: the column's outside, other
+/// parts' reserved cells), each candidate classed on the target place ALONE first (`check_inner`'s `only`), the
+/// full re-check (every place's class and sight) run only for a floor that turns the place.
+pub fn clearing_fixes_in(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], place: BlockPos, block: &str, exclude: &[([i32; 3], [i32; 3])]) -> Result<Vec<(BlockPos, &'static str, Vec<String>)>, String> {
     let glass = golem_proof(block)?;
     let base = check_inner(spec, home, &[], panic_boxes, true, claims, &[], None, &[])?;
+    // (part 55: a floor is kept when it RAISES the place's clearing share: from nothing for a place that can't
+    // clear an armed arrival, above its present share for one that already can)
+    let base_share = base.iter().find(|p| p.cell == place && !p.on_foot).map(clear_share).unwrap_or(0.0);
+    let inside = |q: &BlockPos| exclude.iter().any(|(a, b)| a[0] <= q.x && q.x <= b[0] && a[1] <= q.y && q.y <= b[1] && a[2] <= q.z && q.z <= b[2]);
     let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
     let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
     let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
@@ -2526,24 +2538,38 @@ pub fn clearing_fixes(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([
                 let c = BlockPos::new(place.x + dx, place.y + dy, place.z + dz);
                 let up = BlockPos::new(c.x, c.y + 1, c.z);
                 let f = BlockPos::new(c.x, c.y - 1, c.z);
-                if solid.contains(&c) || solid.contains(&up) || solid.contains(&f) || cart_space(f) || cart_space(c) {
+                if solid.contains(&c) || solid.contains(&up) || solid.contains(&f) || cart_space(f) || cart_space(c) || inside(&f) || inside(&c) || inside(&up) {
                     continue;
                 }
                 let mut s2 = spec.clone();
                 s2.blocks.push((f, glass.clone()));
+                // (part 55: the target place alone first; G1 / ironspec Nov 14 06:59: a fix must let an ARMED
+                // arrival clear there, so it is kept when the place's clearing share becomes positive (a reached
+                // stroll or panic target), whatever its class was ("arms, never clears", or "never arms" with
+                // nothing to reach))
+                let one = check_inner(&s2, home, &[], panic_boxes, true, claims, &[], Some(place), &[])?;
+                let Some(p1) = one.iter().find(|p| p.cell == place && !p.on_foot) else { continue };
+                if clear_share(p1) <= base_share + 1e-9 {
+                    continue;
+                }
                 // (the full re-check, G1's review: every place's class and `seen` with the floor
                 // placed, since a floor can cut a zombie's sight or add a stroll target elsewhere)
                 let ps = check_inner(&s2, home, &[], panic_boxes, true, claims, &[], None, &[])?;
-                if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot) {
-                    let k = stamp_class(p);
-                    if k != "arms, never clears" {
-                        out.push((f, k, class_changes(&base, &ps, place)));
-                    }
+                if let Some(p) = ps.iter().find(|p| p.cell == place && !p.on_foot)
+                    && clear_share(p) > base_share + 1e-9
+                {
+                    out.push((f, stamp_class(p), class_changes(&base, &ps, place)));
                 }
             }
         }
     }
     Ok(out)
+}
+
+/// (part 55) A place's clearing share: the summed reached share of its stamp sources (a stroll or panic draw
+/// that a complete path reaches clears an armed stamp).
+pub fn clear_share(p: &Place) -> f64 {
+    stamp_sources(p).iter().map(|(_, s)| s.reached_share).sum()
 }
 
 /// [`clearing_fixes`] over pairs: when no single glass floor turns the place, every pair of the
@@ -10769,6 +10795,14 @@ mod gate_tests {
         let places = super::check(&s, None, &[], &[]).unwrap();
         let rows = super::stamp_classes(&places, true);
         assert!(rows.iter().any(|r| r.contains("arms, never clears")), "{rows:?}");
+        // (part 55) the fast fix search's mechanics on a clearing place: candidate glowstone floors within 2 that
+        // raise its clearing share are found (each fully re-checked); with every candidate cell excluded
+        // nothing is found
+        let rider = places.iter().find(|p| !p.on_foot).expect("a rider place").cell;
+        let fixes = super::clearing_fixes_in(&s, None, &[], &[], rider, "minecraft:glowstone", &[]).unwrap();
+        assert!(!fixes.is_empty() && fixes.iter().all(|(_, k, _)| *k != "never arms"), "glowstone floors keep it clearing: {:?}", fixes.iter().map(|(f, k, _)| (f.x, f.y, f.z, *k)).collect::<Vec<_>>());
+        let none = super::clearing_fixes_in(&s, None, &[], &[], rider, "minecraft:glowstone", &[([-99, -99, -99], [99, 99, 99])]).unwrap();
+        assert!(none.is_empty(), "every candidate excluded: {}", none.len());
         assert!(rows.iter().all(|r| !r.contains("NIGHT")) && !rows.iter().any(|r| r.starts_with("night classes")), "no bed known: no night class: {rows:?}");
         // (G1 Nov 14 02:50 (2b), part 41) with a bed no rider reaches: every row carries the NIGHT class
         // "UNREACHED ... (arms, never clears)", the counts line names them, and the day tag no longer says
