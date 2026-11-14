@@ -173,6 +173,10 @@ pub struct Opts {
     pub integrity_from: Option<(std::path::PathBuf, [i32; 3])>,
     /// (ironspec 16:50 (3)) every villager's VILLAGER_HOSTILES scan phase forced to this value mod 20.
     pub force_hostile_phase: Option<i64>,
+    /// (ironspec 17:42 (2)) OPEN's set on A70 (the old form; then PARK = RLS + 2) instead of PARKED.
+    pub open_on_a70: bool,
+    /// (ironspec 17:35 / 17:42) PARK = RLS + p (default 4, provisional).
+    pub park_delay: i64,
     /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
     pub nap_lane_control: bool,
     /// (G1 14:21's control) the old defect restored: each K write's cell from nap_lane at fire time.
@@ -789,6 +793,11 @@ struct Ctl {
     a_release_off: Option<i64>,
     a_pstring_prev: bool,
     a_lie_at: Option<i64>,
+    /// (ironspec 17:42 (2)) OPEN's set on A70 (the old form) instead of PARKED, and PARK = RLS + p
+    open_on_a70: bool,
+    park_p: i64,
+    /// (G1 17:40 (1)) per visit, the window's first open against the lie-down
+    a_open_vs_lie: Vec<String>,
     in_stop: [bool; 3],
     in_stop_rider: [Option<u32>; 3],
     tap_off: Option<i64>,
@@ -2791,12 +2800,19 @@ impl Ctl {
         // the edge 2 + the latch 2 = 6), reset = RLS OR P_STRING; G20 the shutter = NOT OPEN through a
         // torch, 2 gt
         let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
-        let cond = armed70 && self.a_slept_once && !pstring;
+        // (ironspec 17:32 (4) / 17:42 (2): the adopted lever) OPEN's set keys on PARKED (ARM + 52) in place
+        // of A70; `--open-on-a70` keeps the A70 form (then with p = 2: ironspec 17:42)
+        let open_gate = if self.open_on_a70 { armed70 } else { !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 52) };
+        let cond = open_gate && self.a_slept_once && !pstring;
         if cond && !self.a_open_cond_prev && !self.a_open {
             self.a_open = true;
             self.a_open_at = Some(now + 6);
             self.a_shutter_writes.push((now + 8, false));
-            self.nap_events.push(format!("t {now}: A70 AND SLEPT_ONCE AND NOT P_STRING: OPEN set at t {}, the window opens at t {} (F)", now + 6, now + 8));
+            self.nap_events.push(format!("t {now}: {} AND SLEPT_ONCE AND NOT P_STRING: OPEN set at t {}, the window opens at t {} (F)", if self.open_on_a70 { "A70" } else { "PARKED (ARM + 52)" }, now + 6, now + 8));
+            // (G1 17:40 (1)) the window's first open against the lie-down, bar >= 4 + 2
+            if let Some(l) = self.a_lie_at {
+                self.a_open_vs_lie.push(format!("the lie-down t {l}: the window opens t {} (+{}){}", now + 8, now + 8 - l, if now + 8 - l >= 6 { "" } else { " (under 4 + 2: FAIL)" }));
+            }
         }
         self.a_open_cond_prev = cond;
         if self.a_open && pstring && !self.a_pstring_prev {
@@ -2820,9 +2836,9 @@ impl Ctl {
                 self.a_shutter_writes.push((now + 2, true));
             }
             // (ironspec 17:35: PARK = RLS + p, p = 4 PROVISIONAL)
-            self.release_at = Some(now + 4);
+            self.release_at = Some(now + self.park_p);
             self.a_rls_log.push(format!("t {now}: RLS (P_STRING held since t {} through the pulse t {} + 12, PARKED)", self.a_press_start.unwrap_or(now), pulse_l.unwrap_or(now)));
-            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 4));
+            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + self.park_p));
         }
         self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
@@ -4033,6 +4049,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
     }
     ctl.delta7 = o.delta7;
+    ctl.open_on_a70 = o.open_on_a70;
+    ctl.park_p = o.park_delay;
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
     // EIGHT (C loads 19) and RISE (C loads 0), each the analytic detector's crossing)
@@ -10651,7 +10669,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
             g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
             g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
-            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 4 (ironspec 17:35: p = 4 PROVISIONAL); OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
+            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + p (--park-delay, 4 provisional: ironspec 17:35); OPEN set = PARKED (ARM + 52; ironspec 17:32 (4) / 17:42 (2); A70 with --open-on-a70) AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
             g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
         ];
         let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
@@ -10704,6 +10722,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 "the park rest against PARKED's timer (G1 17:33: PARKED = ARM + 52 is a timer; a cart resting after it is held unreleased; the margin per visit, bar > 0): {}{}\n",
                 if ctl.a_park_log.is_empty() { "no visit".to_string() } else { ctl.a_park_log.join(" | ") },
                 if ctl.a_park_log.iter().any(|l| l.contains("margin -") || l.ends_with("margin 0")) { " (FAIL)" } else { " (PASS)" }
+            ));
+            s.push_str(&format!(
+                "the (A) stop's form (ironspec 17:42 (2)): OPEN set on {}, PARK = RLS + {}{}; the window's first open against the lie-down per visit (G1 17:40 (1), bar >= 4 + 2): {}{}\n",
+                if ctl.open_on_a70 { "A70" } else { "PARKED (ARM + 52, the adopted lever)" },
+                ctl.park_p,
+                if ctl.open_on_a70 { " (A70 form; p = 2 pending the close + 27 mechanism)" } else { " (p provisional)" },
+                if ctl.a_open_vs_lie.is_empty() { "no visit".to_string() } else { ctl.a_open_vs_lie.join(" | ") },
+                if ctl.a_open_vs_lie.iter().any(|l| l.contains("FAIL")) { " (FAIL)" } else { " (PASS)" }
             ));
             let gaps: Vec<i64> = ctl.a_so_gaps.iter().copied().filter(|g| *g != i64::MAX).collect();
             s.push_str(&format!(
