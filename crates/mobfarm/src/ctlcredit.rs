@@ -74,13 +74,22 @@ pub const RING_X: i64 = 72;
 /// window is + 78..+ 82 (re-centred from + 79 by the timing rule); X = + 72 sampled just before a faulted batch's late
 /// D(3) set SEEN3.
 pub const S3OLD_TAP: i64 = 80;
-/// ironspec 02:16 (3) / 02:33 (5): THE ONE-CREDIT-PER-BATCH GUARD: a pulse extender on EVERY credit pulse inhibiting D(7)'s
-/// credit line for DM1_BLOCK7 gt: on THE REFERENCE TIMING ROW the duplicates it must block land up to 18 gt after their
-/// credit and the least legitimate D(7) credit 66 gt after one: the window is centred in that passing range (18..65).
-pub const DM1_BLOCK7: i64 = 42;
+/// ironspec 02:16 (3) / 02:33 (5) / 04:30 (1): THE ONE-CREDIT-PER-BATCH GUARD: a pulse extender on EVERY credit pulse
+/// inhibiting D(7)'s credit line for DM1_BLOCK7 gt: on THE REFERENCE TIMING ROW WITH THE NAPPERS' D PRESSES IN IT the
+/// duplicates it must block land up to 35 gt after their credit and the least legitimate D(7) credit 66 gt after one (no
+/// legitimate credit blocked, every blocked press judged): the window is centred in that passing range (35..65).
+pub const DM1_BLOCK7: i64 = 50;
 /// The resync net's credit: its dropper pulse lands this many gt after the minting wait's start; its source tag.
 pub const NET_LAT: i64 = 4;
 pub const NET_SRC: usize = usize::MAX - 1;
+/// THE ITEM COUNT's quiet-point resync: no cart at a J and no D press for this long (gt) resets the count to 0 (the
+/// longest cart ride from REL to its D press is REL + 189).
+pub const ITEMS_QUIET: i64 = 200;
+/// THE LANES MODEL: a lane's carts circulate one cycle of 8 RELs (8 carts per lane at P = 100).
+pub const LANE_CYCLE: i64 = 8 * PERIOD;
+/// THE REBALANCE's over-correction guard (G1 03:45 (c)): after a move, no new latch until the moved cart has come round
+/// (one lane cycle: 8 RELs) and the queues show its effect.
+pub const REB_HOLDOFF: usize = 9;
 /// The lift's exit detector (-4,24,9) -> J(-1) (-1,25,9): the cart's ride (gt; ironfarm's split-row trace, ~3 cells).
 pub const EXIT_TO_JM1: i64 = 10;
 /// The D-press ring's resync: the row read empty this long before the batch-start state is forced (gt).
@@ -159,6 +168,18 @@ pub struct Row {
     pub resync_net: bool,
     /// THE CLAIM CAP's candidate (a credit with no open claim, RELs issued minus credits made, is refused).
     pub claims_cap: bool,
+    /// THE LANES MODEL (the (b') positive control): each lane's carts (None: off); a cart comes back to its lane's queue
+    /// LANE_CYCLE - `lane_slack` gt after its batch's release; REL needs every lane's slot-1 cart.
+    pub lane_carts: Option<[i64; 3]>,
+    pub lane_slack: i64,
+    /// THE REBALANCE (b'), model level: at the quiet point (REL waiting for a lane's slot-1 cart, no batch in flight) a
+    /// short lane X and a lane Y whose queue is at least `over_q` set a latch; the next batch's lane-Y cart is moved into
+    /// lane X (its D(X) masked, the stand-in D(Y) keyed on it).
+    pub rebalance: bool,
+    pub over_q: i64,
+    /// The release offsets' shift from train 15's 0 / 14 / 24 (per slot) and the napper's (train 16: [0, 3, 3] and + 2).
+    pub slot_shift: [i64; 3],
+    pub napper_shift: i64,
     /// The pick-dependent reset (ironspec 19:56 (4)): on a lane -1 pick the reset leaves J(-1) off and arms J(3)
     /// directly (no emulated D(-1)).
     pub pick_dep: bool,
@@ -197,7 +218,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -209,6 +230,11 @@ pub struct Defects {
     pub k3_j3_unmasked: bool,
     /// K(7) masking NONE of D(7)'s outputs (the twin of ironspec 02:43 (1)'s K(7)).
     pub k7_unmasked: bool,
+    /// G1 CHANGES 7 C5: K(7) leaving ONE output unmasked each: the credit line; SEEN3's reset; the ring form's J(-1) arm and
+    /// J(7) reset.
+    pub k7_unmasked_credit: bool,
+    pub k7_unmasked_s3rst: bool,
+    pub k7_unmasked_ring: bool,
     /// The guard opened by the D(-1) completion only (the twin of its generalization to every credit).
     pub guard_completion_only: bool,
     /// K(-1)'s mask removed from all three of D(-1)'s outputs (J(-1) off, J(3) armed, the credit input).
@@ -237,6 +263,11 @@ pub struct Defects {
     pub k_half: Option<i64>,
     /// The hopper's cooldown running through a world open (item 11's control: not saved).
     pub cooldown_unsaved: bool,
+    /// THE REBALANCE's controls: the latch set at the FIRST lane wait (no persistence, G1 (d)); no hold-off after a move
+    /// (G1 (c)); the J(Y)-first pairs' stand-in D(Y) keyed on the moved cart's D(X) instead of at the suppressed J(Y).
+    pub reb_no_persist: bool,
+    pub reb_no_holdoff: bool,
+    pub reb_standin_on_dx: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -255,6 +286,10 @@ pub struct Out {
     pub d7_blocked: Vec<i64>,
     /// Each blocked D(7)'s gap after the credit that opened the guard (the window's late edge).
     pub d7_blocked_gap: Vec<i64>,
+    /// Blocked D(7) presses that would have credited a batch not yet credited (tick, batch, gap): the guard's failures.
+    pub d7_blocked_legit: Vec<(i64, usize, i64)>,
+    /// Every blocked D(7) press classified (tick, kind, gap after the credit, a napper's press).
+    pub d7_blocked_kind: Vec<(i64, &'static str, i64, bool)>,
     /// Every D(7) credit's gap after the last D(-1) completion (G1 02:34 (2): the guard's margin to legitimate credits).
     pub d7_gap_after_completion: Vec<i64>,
     /// Every napper press's margin inside its own K window (lane, margin; negative = outside), ironspec 02:43 (1).
@@ -263,8 +298,19 @@ pub struct Out {
     pub wait_inflight: Vec<(i64, usize)>,
     /// The resync net's mints (their ticks).
     pub net_fires: Vec<i64>,
+    /// THE ITEM FORM: the in-flight item count at each credit wait's start; the quiet-point resets (tick, the count reset).
+    pub wait_flight: Vec<(i64, i64)>,
+    pub flight_resets: Vec<(i64, i64)>,
     /// Credits THE CLAIM CAP refused (their ticks).
     pub claim_refused: Vec<i64>,
+    /// THE LANES MODEL: each REL wait for a lane's slot-1 cart (the tick, every lane's queue depth); every REL's depths.
+    pub lane_waits: Vec<(i64, [i64; 3])>,
+    pub rel_depth: Vec<[i64; 3]>,
+    /// THE REBALANCE: the latch sets (tick, X, Y, depths), the moves assigned (tick, batch, X, Y), the carts moved.
+    pub reb_sets: Vec<(i64, i32, i32, [i64; 3])>,
+    pub reb_assigned: Vec<(i64, usize, i32, i32)>,
+    pub reb_moved: Vec<String>,
+    pub reb_standins: Vec<String>,
     pub items_max: i64,
     pub items_min: i64,
     pub dropper_min: i64,
@@ -390,6 +436,10 @@ pub fn four_dust(items: i64) -> i64 {
 
 pub fn run(row: &Row, def: Defects) -> Out {
     let (t_open, idle, kj) = row.open.unwrap_or((i64::MAX, 0, 0));
+    // (the slots' and the napper's J arrivals under the row's release offsets (train 16: 0 / 17 / 27 and the napper's
+    // delay after ARM3 7: slot_shift [0, 3, 3], napper_shift + 2); every design window keyed on an arrival moves with it)
+    let slot_t: [[i64; 3]; 3] = std::array::from_fn(|s| std::array::from_fn(|j| SLOT_T[s][j] + row.slot_shift[s]));
+    let napper_t: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + row.napper_shift);
     let n = (row.t_max + idle + kj + 600) as usize;
     let ballast = if def.no_ballast { 0 } else { 1 };
     let need = if def.single_latch { 1 } else { ballast + 1 };
@@ -425,9 +475,20 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut j7 = false;
     let mut rel_waiting = false;
     let mut had_wait = false;
-    let mut net_armed = false;
+    // (THE NET's ITEM FORM: the in-flight cart items, and one mint per wait; the route's last motion evidence)
+    let mut flight: i64 = 0;
+    let mut last_route_ev: i64 = 0;
+    let mut net_fired = false;
     // (THE CLAIM CAP's count: RELs issued minus credits made)
     let mut claims: i64 = 0;
+    // (THE LANES MODEL: each lane's station queue (carts at slot 1 and up the R line) and the carts on their way back)
+    let mut lane_q: [i64; 3] = row.lane_carts.unwrap_or([0; 3]);
+    let mut lane_returns: Vec<(i64, usize)> = Vec::new();
+    let mut lane_waiting = false;
+    // (THE REBALANCE (b'): the latch (X short, Y over) and the move it assigns (batch, slot Y, lane X))
+    let mut reb_latch: Option<(usize, usize)> = None;
+    let mut reb_move: Option<(usize, usize, usize)> = None;
+    let mut reb_seen: Option<(usize, usize)> = None;
     let mut last_completion: Option<i64> = None;
     let mut quiet: i64 = 0;
     let mut last_div_at: [Option<i64>; 3] = [None; 3];
@@ -652,6 +713,47 @@ pub fn run(row: &Row, def: Defects) -> Out {
         }
         let b_ok = last_rel.is_none_or(|r| t >= r + PERIOD);
         let holds = !row.holds_empty.iter().any(|&(a, b)| t >= shift(a) && t < shift(b));
+        // (THE LANES MODEL: returning carts reach their lane's station queue; REL needs every lane's slot-1 cart, dfb89499
+        // 03:40: a short lane stalls REL for the whole station)
+        if row.lane_carts.is_some() {
+            for &(when, l) in &lane_returns {
+                if when == t {
+                    lane_q[l] += 1;
+                }
+            }
+        }
+        let lanes_ok = row.lane_carts.is_none() || lane_q.iter().all(|&x| x >= 1);
+        // (the quiet point for the lanes: REL due by its clock but waiting for a lane's slot-1 cart; recorded at each such
+        // wait's start with every lane's queue depth)
+        let lane_wait = row.lane_carts.is_some() && pending && t >= pulse_at + REL_LAT && b_ok && !lanes_ok;
+        if lane_wait && !lane_waiting {
+            o.lane_waits.push((t, lane_q));
+            // (THE REBALANCE's EVIDENCE at the quiet point (ironspec 03:46 (3) / G1 03:46b (4)): REL due and waiting for a
+            // lane's slot-1 cart with NO batch in flight; "short" = a lane's slot 1 empty; "over" = another lane's queue at
+            // the threshold `over_q` (beyond the normal maximum); one latch set at a time, cleared when its move is
+            // assigned (one diversion per set))
+            let inflight = (0..o.presses.len()).filter(|&b| (0..3).any(|s| o.entered[b][s].is_none() && !left_route.contains(&(b, s)) && !row.missing.contains(&(b, s)) && row.pick.iter().find(|p| p.0 == b).map(|p| p.1) != Some(s))).count();
+            let _ = inflight;
+            // (G1 03:45 (d): a lane merely LATE empties its slot 1 once; a TRUE imbalance empties it at every cycle: the
+            // latch sets only at the SECOND consecutive lane wait naming the same (short X, over Y))
+            if row.rebalance && reb_latch.is_none() && reb_move.is_none_or(|(mb, _, _)| mb + if def.reb_no_holdoff { 1 } else { REB_HOLDOFF } <= o.presses.len()) {
+                let x = (0..3).find(|&l| lane_q[l] == 0);
+                let y = (0..3).filter(|&l| lane_q[l] >= row.over_q).max_by_key(|&l| lane_q[l]);
+                if let (Some(x), Some(y)) = (x, y) {
+                    if reb_seen == Some((x, y)) || def.reb_no_persist {
+                        reb_latch = Some((x, y));
+                        reb_seen = None;
+                        o.reb_sets.push((t, LANES[x], LANES[y], lane_q));
+                    } else {
+                        reb_seen = Some((x, y));
+                    }
+                } else {
+                    reb_seen = None;
+                }
+            }
+        }
+        lane_waiting = lane_wait;
+        let holds = holds && lanes_ok;
         let armed = read >= need || ((row.bypass || row.fast) && in_flight);
         // (item 8: the latency from a credit's press to `armed` reading it, measured on presses that found it false)
         wait_armed.retain(|&p| {
@@ -669,40 +771,52 @@ pub fn run(row: &Row, def: Defects) -> Out {
         if due && !armed && !rel_waiting {
             rel_waiting = true;
             had_wait = true;
+            // (the premise print: the batches in flight at the wait's start, a MODEL PRINT read from the model's own batch
+            // identities (no hardware reads it); the net no longer uses it (G1 CHANGES 7 C1)); beside it the ITEM COUNT the
+            // net does read (G1 04:42 (2d))
             let inflight = (0..o.presses.len()).filter(|&b| (0..3).any(|s| o.entered[b][s].is_none() && !left_route.contains(&(b, s)) && !row.missing.contains(&(b, s)) && row.pick.iter().find(|p| p.0 == b).map(|p| p.1) != Some(s))).count();
             o.wait_inflight.push((t, inflight));
-            // (THE RESYNC NET's candidate (ironspec 02:40 (4) / 02:46 (1), G1 02:44b (1)): REL waiting for a credit (no halt:
-            // `due` needs the holds) with ONE batch in flight on TWO CONSECUTIVE RELs mints one credit: a latch set by the
-            // first such wait, cleared by any REL that fires on its clock without waiting, by a halt and by a world open;
-            // no timer, no running count)
-            if row.resync_net && inflight == 1 {
-                if net_armed && (!row.claims_cap || claims > 0) {
-                    dispense.push((t + NET_LAT, NET_SRC, NET_SRC));
-                    o.net_fires.push(t);
-                    net_armed = false;
-                    claims -= 1;
-                } else {
-                    net_armed = true;
-                }
-            }
+            o.wait_flight.push((t, flight));
         }
-        if !holds {
-            net_armed = false;
+        // (THE ITEM COUNT's OWN RESYNC (ironspec 04:42 (3), the 01:28 rule): the count is an order machine: a missed press
+        // leaves an item (the net then never fires), an extra press removes one (it fires a cart early); at a QUIET POINT
+        // (no cart reached a J and no D press for ITEMS_QUIET gt: nothing can be moving on the route) the count is reset
+        // to 0 (a detector's quiet timer in hardware))
+        if flight != 0 && t - last_route_ev >= ITEMS_QUIET {
+            o.flight_resets.push((t, flight));
+            flight = 0;
+        }
+        // (THE RESYNC NET, ITS ITEM FORM (day-1 04:06, G1 04:08b / CHANGES 7 C1): the trigger is read from CART EVENTS, never
+        // from the model's plant lists: the in-flight ITEMS (REL adds 3; each lane-entry D press removes one, gated by the
+        // same K masks as every other D(l) output; a cart passing every J, the leg, removes one); REL waiting for a credit
+        // (no halt: `due` needs the holds) with NO cart in flight (items 0) can never be answered: one credit is minted per
+        // such wait (a missed press leaves an item: the net stays off, the fail-safe direction; an extra press removes one:
+        // the dangerous direction, bounded by the claim cap)
+        if row.resync_net && rel_waiting && !net_fired && flight <= 0 && (!row.claims_cap || claims > 0) {
+            dispense.push((t + NET_LAT, NET_SRC, NET_SRC));
+            o.net_fires.push(t);
+            net_fired = true;
+            claims -= 1;
         }
         if !due || armed {
             rel_waiting = false;
+            net_fired = false;
         }
         if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed {
             pending = false;
-            if !had_wait {
-                net_armed = false;
-            }
             had_wait = false;
             let last_rel_prev = last_rel;
             last_rel = Some(t);
             in_flight = false;
             o.rels.push(t);
             claims += 1;
+            flight += 3;
+            if row.lane_carts.is_some() {
+                o.rel_depth.push(lane_q);
+                for q in lane_q.iter_mut() {
+                    *q -= 1;
+                }
+            }
             // (a slip is throughput lost: the period over 100; a constant phase lag behind the golem pulse is none)
             o.slips.push(last_rel_prev.map_or(0, |p| (t - p - PERIOD).max(0)));
             o.rel_inflight.push(read < need);
@@ -730,12 +844,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
             }
             let b = o.presses.len();
             rel_of.push(t);
+            // (THE REBALANCE: the batch released after a latch set carries the move (its lane-Y cart into lane X); the latch
+            // clears here: one diversion per set)
+            if let Some((x, y)) = reb_latch.take() {
+                reb_move = Some((b, y, x));
+                o.reb_assigned.push((t, b, LANES[x], LANES[y]));
+            }
             o.presses.push(Vec::new());
             o.entered.push([None; 3]);
             o.pass.push([[0; 3]; 3]);
             let lag = if t >= t_open { kj } else { 0 };
             let pick = row.pick.iter().find(|p| p.0 == b).map(|p| p.1);
-            for (s, st) in SLOT_T.iter().enumerate() {
+            for (s, st) in slot_t.iter().enumerate() {
                 if !row.missing.contains(&(b, s)) {
                     let lt = lag + row.late.iter().filter(|l| l.0 == b && l.1 == s).map(|l| l.2).sum::<i64>();
                     carts.push(Cart { batch: b, slot: Some(s), ji: 0, arr: [t + st[0] + lt, t + st[1] + lt, t + st[2] + lt], nap: None, picked: pick == Some(s) });
@@ -743,7 +863,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
             }
             for &(nb, lane, extra) in &row.napper {
                 if nb == b {
-                    let nt = [t + NAPPER_T[0] + extra + lag, t + NAPPER_T[1] + extra + lag, t + NAPPER_T[2] + extra + lag];
+                    let nt = [t + napper_t[0] + extra + lag, t + napper_t[1] + extra + lag, t + napper_t[2] + extra + lag];
                     // (K(lane) and the OFF windows of the J's west of it ride the napper's nominal timing; its ride may be
                     // jittered past them (item 4's control))
                     k_windows.push((nt[lane] - k_half, nt[lane] + k_half, lane));
@@ -783,15 +903,15 @@ pub fn run(row: &Row, def: Defects) -> Out {
                         presses.push(Press { at: e, lane: -1, batch: b, slot: None, napper: false, emulated: true });
                         o.order_margin.push((e + RETURN) - (x + SWITCH + RESET_W));
                         // (the pick's own margin: J(-1) off against the picked slot 1's arrival at J(-1))
-                        o.pick_margin.push((t + SLOT_T[0][0] + lag) - (e + RETURN));
+                        o.pick_margin.push((t + slot_t[0][0] + lag) - (e + RETURN));
                     }
                     if !def.no_hold3 {
-                        hold3.push((t + HOLD_SET, t + SLOT_T[0][1] + lag + HOLD_K + 1));
+                        hold3.push((t + HOLD_SET, t + slot_t[0][1] + lag + HOLD_K + 1));
                     }
-                    hold7.push((t + HOLD_SET, t + SLOT_T[0][2] + lag + HOLD_K + 1));
+                    hold7.push((t + HOLD_SET, t + slot_t[0][2] + lag + HOLD_K + 1));
                 }
-                Some(1) => hold7.push((t + HOLD_SET, t + SLOT_T[1][2] + lag + HOLD_K + 1)),
-                Some(2) => hold7.push((t + HOLD_SET, t + SLOT_T[2][2] + lag + HOLD_K + 1)),
+                Some(1) => hold7.push((t + HOLD_SET, t + slot_t[1][2] + lag + HOLD_K + 1)),
+                Some(2) => hold7.push((t + HOLD_SET, t + slot_t[2][2] + lag + HOLD_K + 1)),
                 _ => {}
             }
         }
@@ -802,6 +922,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 keep.push(c);
                 continue;
             }
+            // (the route's evidence of motion, for the item count's quiet-point resync: a cart reaching a J)
+            last_route_ev = t;
             // (G1 item 4 / ironspec 22:06 (2): EVERY cart is routed by the J resolver's shapes, never by identity:
             // J(y) = (ARMED_y AND NOT HOLD_y AND NOT OFF14_y) OR K(y); a napper diverts where K(its lane) holds the J at
             // branch and passes the J's west of it under OFF; a batch cart reaching J(y) inside K(y) diverts too)
@@ -812,7 +934,22 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 1 => j3 && !active(&hold3, t),
                 _ => (!row.ring || j7) && !active(&hold7, t),
             };
-            let branch = (armed_j && !off_on) || k_on;
+            let mut branch = (armed_j && !off_on) || k_on;
+            // (THE REBALANCE (b'), model level: the moved cart (batch b's lane-Y cart) passes every J before lane X's and
+            // diverts at J(X); the ring sees it as its own lane's cart (the stand-in D(Y) keyed on its D(X) press))
+            let moved = reb_move.is_some_and(|(mb, ms, _)| c.batch == mb && c.slot == Some(ms));
+            if moved {
+                let (_, ms, mx) = reb_move.unwrap_or((0, 0, 0));
+                branch = c.ji == mx;
+                // (G1 03:45 (a) / (b): the J(Y)-FIRST pairs (Y upstream of X): the moved cart passes the SUPPRESSED J(Y),
+                // and the missing D(Y) is EMULATED right there (its natural press time: the J(Y) reset and SEEN3 / the next
+                // J's arm must land before the batch's next cart reaches J(Y)); keyed on the cart passing the suppressed
+                // J(Y) (a through-branch detector in hardware))
+                if c.ji == ms && ms < mx && !def.reb_standin_on_dx {
+                    presses.push(Press { at: t + J_TO_D, lane: LANES[ms], batch: c.batch, slot: c.slot, napper: false, emulated: false });
+                    o.reb_standins.push(format!("batch {}: the stand-in D({}) at t {} (the moved cart passing the suppressed J({}))", c.batch, LANES[ms], t + J_TO_D, LANES[ms]));
+                }
+            }
             // (the per-J follower gap: from the last diversion at this J to this cart reaching it)
             if let Some(td) = last_div_at[c.ji] {
                 let gap = t - td;
@@ -830,18 +967,48 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     o.napper_misroutes.push(format!("batch {}'s lane {} napper passed every J at t {t}", c.batch, LANES[lane]));
                 }
             }
+            // (THE NET's ITEM REMOVAL at the leg: a cart passing every J (a picked batch cart, or any cart misrouted there:
+            // the leg's detector can't tell them apart))
+            if !branch && c.ji == 2 {
+                flight -= 1;
+            }
             if let Some(s) = c.slot {
                 if c.batch < o.pass.len() {
                     o.pass[c.batch][s][c.ji] = t;
                 }
             }
             if branch {
-                presses.push(Press { at: t + J_TO_D, lane: LANES[c.ji], batch: c.batch, slot: c.slot, napper: c.nap.is_some(), emulated: false });
+                if moved {
+                    // (the moved cart's own D(X) is masked from every D(X) output. The EASY pairs (X upstream of Y): the
+                    // stand-in D(Y), KEYED ON THAT D(X) PRESS, lands at the Y cart's natural D(Y) time (the delay from J(X)
+                    // to J(Y) on its slot), carrying every D(Y) output (the ring's and the credit's))
+                    let (_, ms, mx) = reb_move.unwrap_or((0, 0, 0));
+                    if mx < ms {
+                        let at = t + J_TO_D + (slot_t[ms][ms] - slot_t[ms][mx]);
+                        presses.push(Press { at, lane: LANES[ms], batch: c.batch, slot: c.slot, napper: false, emulated: false });
+                        o.reb_standins.push(format!("batch {}: the stand-in D({}) at t {at} (keyed on the moved cart's D({}) at t {})", c.batch, LANES[ms], LANES[mx], t + J_TO_D));
+                    } else if def.reb_standin_on_dx {
+                        // (the control: a J(Y)-first pair's stand-in keyed on the moved cart's own D(X), too late)
+                        presses.push(Press { at: t + J_TO_D, lane: LANES[ms], batch: c.batch, slot: c.slot, napper: false, emulated: false });
+                    }
+                    o.reb_moved.push(format!("batch {}'s lane {} cart MOVED into lane {} at t {t}", c.batch, LANES[ms], LANES[c.ji]));
+                } else {
+                    presses.push(Press { at: t + J_TO_D, lane: LANES[c.ji], batch: c.batch, slot: c.slot, napper: c.nap.is_some(), emulated: false });
+                }
                 if let Some(s) = c.slot {
                     if c.batch < o.entered.len() {
-                        o.entered[c.batch][s] = Some(LANES[c.ji]);
+                        o.entered[c.batch][s] = Some(LANES[if moved { s } else { c.ji }]);
                     }
-                    if c.picked {
+                    // (THE LANES MODEL (the (b') positive control, ironspec 03:42 (4)): the cart joins lane ji's loop and
+                    // comes back to that lane's station queue one cycle after its batch's release)
+                    if row.lane_carts.is_some() {
+                        let rb = rel_of.get(c.batch).copied().unwrap_or(t);
+                        lane_returns.push((rb + LANE_CYCLE - row.lane_slack, c.ji));
+                    }
+                    if moved {
+                        o.lane_delta[c.ji] += 1;
+                        o.lane_delta[s] -= 1;
+                    } else if c.picked {
                         o.pick_diverted.push(format!("batch {}'s picked lane {} cart diverted into lane {} at t {t}", c.batch, LANES[s], LANES[c.ji]));
                     } else if s != c.ji {
                         o.misroutes.push(format!("batch {}'s lane {} cart into lane {} at t {t}", c.batch, LANES[s], LANES[c.ji]));
@@ -870,6 +1037,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // (it has left the lane route: no longer in flight for the resync net's occupancy evidence)
                     left_route.insert((c.batch, s));
                     o.lane_delta[s] -= 1;
+                } else if row.lane_carts.is_some() {
+                    // (THE LANES MODEL: a picked cart carries its napper to the stop and comes back to its own lane)
+                    let rb = rel_of.get(c.batch).copied().unwrap_or(t);
+                    lane_returns.push((rb + LANE_CYCLE - row.lane_slack, s));
                 }
             }
         }
@@ -896,6 +1067,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
             if p.batch < o.presses.len() {
                 o.presses[p.batch].push((t, p.lane, p.slot.map(|s| LANES[s])));
             }
+            if !p.emulated {
+                last_route_ev = t;
+            }
             // (ironspec 02:43 (1)'s condition: every napper press's margin inside its own K window (negative = outside))
             if p.napper && !p.emulated {
                 let li = match p.lane { -1 => 0, 3 => 1, _ => 2 };
@@ -913,6 +1087,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     let masked_jm1 = !(def.no_km1_mask || def.no_km1_jm1) && in_k(0);
                     let masked_j3 = !(def.no_km1_mask || def.no_km1_j3) && in_k(0);
                     let masked_credit = !(def.no_km1_mask || def.no_km1_credit) && in_k(0);
+                    // (THE NET's ITEM REMOVAL, a D(-1) output under K(-1)'s mask like the others (G1 04:08b))
+                    if !p.emulated && !(!def.no_km1_mask && in_k(0)) {
+                        flight -= 1;
+                    }
                     if !masked_jm1 {
                         if p.napper && jm1 {
                             o.napper_effects.push(format!("t {t}: the lane -1 napper's D(-1) turned J(-1) off"));
@@ -977,6 +1155,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     if def.no_k3_mask || def.k3_j3_unmasked || !in_k(1) {
                         j3_rst.push((t + RETURN, t + RETURN + PRESS_W));
                     }
+                    // (THE NET's ITEM REMOVAL, a D(3) output under K(3)'s mask)
+                    if !p.emulated && (def.no_k3_mask || !in_k(1)) {
+                        flight -= 1;
+                    }
                     // (the D-press ring: D(3) arms J(7); K(3)'s mask covers it, as it covers SEEN3's set)
                     if row.ring && (def.no_k3_mask || !in_k(1)) {
                         j7_set.push((t + SWITCH, t + SWITCH + PRESS_W));
@@ -1002,9 +1184,21 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // INSIDE the napper's window AND AFTER its batch's own D(7) credit (the latch `k7_after` set by that
                     // credit, cleared at the window's end): the napper's late D(7) can't credit or reset the next batch)
                     let masked7 = !def.k7_unmasked && k_windows.iter().zip(k_win_batch.iter()).any(|(&(a, b2, kl), &wb)| kl == 2 && t >= a && t <= b2 && credited_b.contains(&wb));
+                    // (C5: each output's own mask, so each twin leaves exactly one output unmasked)
+                    let masked7_credit = masked7 && !def.k7_unmasked_credit;
+                    let masked7_s3rst = masked7 && !def.k7_unmasked_s3rst;
+                    let masked7_ring = masked7 && !def.k7_unmasked_ring;
+                    // (THE NET's ITEM REMOVAL, a D(7) output under K(7) by order: a napper standing in for its batch's lost or
+                    // late lane-7 cart removes that cart's item, and the cart's own later D(7) is masked)
+                    if !p.emulated && !masked7 {
+                        flight -= 1;
+                    }
                     // (the D-press ring: D(7) arms J(-1) and disarms J(7): the wrap, safe by construction since D(7)
                     // fires after its cart has passed J(-1) and J(3))
-                    if row.ring && !masked7 {
+                    if row.ring && !masked7_ring {
+                        if p.napper {
+                            o.napper_effects.push(format!("t {t}: the lane-7 napper's D(7) armed J(-1) / reset J(7) (the ring)"));
+                        }
                         jm1_set.push((t + SWITCH, t + SWITCH + PRESS_W));
                         j7_rst.push((t + RETURN, t + RETURN + PRESS_W));
                     }
@@ -1019,18 +1213,35 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     let blocked = row.dm1_block7 > 0 && last_completion.is_some_and(|lc| t - lc <= row.dm1_block7);
                     if blocked {
                         o.d7_blocked.push(t);
+                        let gap = last_completion.map_or(0, |lc| t - lc);
                         if let Some(lc) = last_completion {
                             o.d7_blocked_gap.push(t - lc);
                         }
+                        // (G1 CHANGES 7 C4: a blocked press that WOULD have credited a batch not yet credited (SEEN3 set by
+                        // it, K(7) not masking) is a LEGITIMATE credit blocked: the guard's own failure, judged; every other
+                        // blocked press classified)
+                        let kind = if masked7_credit {
+                            "masked by K(7) by order (a napper's D(7) after its batch's credit)"
+                        } else if !seen3 {
+                            "no credit pending (SEEN3 reset)"
+                        } else if credited_b.contains(&seen3_by) {
+                            "a duplicate (SEEN3's batch already credited)"
+                        } else {
+                            "LEGITIMATE"
+                        };
+                        if kind == "LEGITIMATE" {
+                            o.d7_blocked_legit.push((t, seen3_by, gap));
+                        }
+                        o.d7_blocked_kind.push((t, kind, gap, p.napper));
                     }
                     // (THE CLAIM CAP (day-1 03:44, ironspec 02:06's "the store capped at its legitimate maximum given what's in
                     // flight"): every REL opens a claim, every credit answers one, and a credit with no open claim is
                     // refused: a stalled cart's late D(7) landing outside every guard window can't gain a credit)
                     let claim_ok7 = !row.claims_cap || claims > 0;
-                    if !claim_ok7 && !masked7 && seen3 && !blocked {
+                    if !claim_ok7 && !masked7_credit && seen3 && !blocked {
                         o.claim_refused.push(t);
                     }
-                    if claim_ok7 && !masked7 && seen3 && !blocked && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
+                    if claim_ok7 && !masked7_credit && seen3 && !blocked && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
                         claims -= 1;
                         // (G1 02:34 (2): every D(7) credit's gap after the last D(-1) completion (the guard's window must end
                         // before every legitimate one: the least margin printed both ways))
@@ -1071,7 +1282,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
                             jm1_set.push((t + AND + SWITCH, t + AND + SWITCH + PRESS_W));
                         }
                     }
-                    if !def.single_latch && !masked7 {
+                    if !def.single_latch && !masked7_s3rst {
+                        if p.napper && seen3 {
+                            o.napper_effects.push(format!("t {t}: the lane-7 napper's D(7) reset SEEN3"));
+                        }
                         s3_rst.push((t + RESET, t + RESET + PRESS_W));
                     }
                 }
@@ -1352,6 +1566,49 @@ fn ranges_of(xs: &[i64]) -> String {
     if out.is_empty() { "none".into() } else { out.join(", ") }
 }
 
+/// G1 CHANGES 7 C4: the guard's record over many runs: every blocked press classified (a legitimate credit blocked fails
+/// by name), the duplicates' latest gap (the window's late edge) and the least legitimate gap (its early edge).
+#[derive(Default)]
+struct GuardRec {
+    runs: usize,
+    gaps: usize,
+    least: Option<(i64, String)>,
+    blocked: usize,
+    dups: usize,
+    dup_max: Option<(i64, String)>,
+    masked: usize,
+    legit: Vec<String>,
+    classified: Vec<String>,
+}
+
+impl GuardRec {
+    fn take(&mut self, o: &Out, label: &str) {
+        self.runs += 1;
+        self.gaps += o.d7_gap_after_completion.len();
+        for &gp in &o.d7_gap_after_completion {
+            if self.least.as_ref().is_none_or(|l| gp < l.0) {
+                self.least = Some((gp, label.to_string()));
+            }
+        }
+        for &(t, kind, gap, nap) in &o.d7_blocked_kind {
+            self.blocked += 1;
+            match kind {
+                "LEGITIMATE" => self.legit.push(format!("A LEGITIMATE CREDIT BLOCKED: {label}: t {t}, {gap} gt after the last credit")),
+                "a duplicate (SEEN3's batch already credited)" | "no credit pending (SEEN3 reset)" => {
+                    self.dups += 1;
+                    if self.dup_max.as_ref().is_none_or(|d| gap > d.0) {
+                        self.dup_max = Some((gap, label.to_string()));
+                    }
+                }
+                _ => self.masked += 1,
+            }
+            if self.classified.len() < 8 {
+                self.classified.push(format!("t {t}: {}{kind}, {gap} gt after the credit", if nap { "the napper's D(7): " } else { "" }));
+            }
+        }
+    }
+}
+
 /// The credit's cause fix and its guard (ironspec 02:16 (3) / G1 02:17 (2) / 02:34 (2)): SEEN3_OLD's own tap judged under a
 /// world open at every tick (the window's edges printed), the one-credit-per-batch guard's margin to every legitimate D(7)
 /// credit, and the five gain rows without the guard (the store's level at both credits).
@@ -1370,10 +1627,20 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         rows.push((format!("lane {} missing", LANES[s]), r));
     }
     rows.push(("the normal run".to_string(), Row::normal("tap")));
+    // (ironspec 04:30 (1): the guard's window RE-DERIVED ON THE REFERENCE ROW WITH THE NAPPERS' D PRESSES IN IT: a returning
+    // napper of every lane on batch 5, on time and 10 late)
+    for lane in 0..3 {
+        for late in [0i64, 10] {
+            let mut r = Row::normal("tap");
+            r.napper = vec![(5, lane, late)];
+            rows.push((format!("a lane {} napper on batch 5, {late} late", LANES[lane]), r));
+        }
+    }
     // (THE TIMING RULE's REFERENCE ROW (ironspec 02:33 (2) / 02:40 (1), ironfarm 02:34): entities frozen 3 gt with redstone
     // running (open = (t0, 0, 3)) at every other tick of REL_6 + 0..114, plus +-2 on the pocket releases: every sign choice
-    // on batch 5's three carts and batch 6's lane -1 cart; the resync net OFF, so the tap's OWN window shows)
-    let sweep = |tap: i64, step: usize, gaps: &mut Vec<i64>| -> (usize, usize, Vec<String>) {
+    // on batch 5's three carts and batch 6's lane -1 cart; the resync net OFF, so the tap's OWN window shows; every run's
+    // guard record kept: the legitimate gaps, the blocked duplicates and ANY LEGITIMATE CREDIT BLOCKED (G1 CHANGES 7 C4))
+    let sweep = |tap: i64, step: usize, g: &mut GuardRec| -> (usize, usize, Vec<String>) {
         let (mut n, mut bad) = (0usize, 0usize);
         let mut ex = Vec::new();
         for (name, r0) in &rows {
@@ -1389,7 +1656,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                     }
                     let o = run(&r, Defects::default());
                     n += 1;
-                    gaps.extend(o.d7_gap_after_completion.iter().copied());
+                    g.take(&o, &format!("{name}, signs {vv:04b}, open REL_6 + {}", t0 - 606));
                     let lb = ledger_bars(&o);
                     if !lb.is_empty() {
                         bad += 1;
@@ -1402,11 +1669,10 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         }
         (n, bad, ex)
     };
-    let mut gaps: Vec<i64> = Vec::new();
-    let mut dup_gaps: Vec<i64> = Vec::new();
-    let (n, bad, ex) = sweep(S3OLD_TAP, 2, &mut gaps);
-    // (the guard's late edge on the reference row: the duplicates it blocks, the same rows with the net on)
-    for (_, r0) in &rows {
+    let mut g = GuardRec::default();
+    let (n, bad, ex) = sweep(S3OLD_TAP, 2, &mut g);
+    // (the same rows with the net on: the duplicates it blocks with the store kept by the net)
+    for (name, r0) in &rows {
         for vv in 0..16u32 {
             let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
             for t0 in (606..=720).step_by(6) {
@@ -1415,26 +1681,26 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
                     r.late.push((b, s, sg(i as u32)));
                 }
-                let o = run(&r, Defects::default());
-                dup_gaps.extend(o.d7_blocked_gap.iter().copied());
-                gaps.extend(o.d7_gap_after_completion.iter().copied());
+                g.take(&run(&r, Defects::default()), &format!("{name} (the net on), signs {vv:04b}, open REL_6 + {}", t0 - 606));
             }
         }
     }
     let mut edges = Vec::new();
     for tap in [S3OLD_TAP - 3, S3OLD_TAP - 2, S3OLD_TAP + 2, S3OLD_TAP + 3] {
-        let (nn, b, _) = sweep(tap, 6, &mut Vec::new());
+        let (nn, b, _) = sweep(tap, 6, &mut GuardRec::default());
         edges.push(format!("+ {tap}: {b} of {nn} runs changing the store"));
     }
     let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (the credit's cause fix, ironspec 02:16 (3)) keeps the store exact per batch (the resync net off) on every formerly-losing late row, the missing rows, the gain rows and the normal run ON THE REFERENCE TIMING ROW (entities frozen 3 gt with redstone running at every other tick of REL_6 + 0..114; +-2 on batch 5's carts and batch 6's lane -1 cart, every sign)"), n, bad == 0);
     lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP}, on the reference timing row: {n} runs, {bad} changing the store{}; the window's edges (a third of the opens): {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join(", ")));
-    // (G1 02:34 (2): THE GUARD's MARGIN both ways: every D(7) credit after a completion lands after the window's end;
-    // the lateness sweep 0..60 on every slot, the napper batches and the world-open rows above)
+    // (G1 02:34 (2) / CHANGES 7 C4: THE GUARD both ways; EVERY BLOCKED PRESS enters the judgement: a blocked press that
+    // would have credited a batch not yet credited (SEEN3 set by it, K(7) not masking) is a LEGITIMATE CREDIT BLOCKED and
+    // fails by name; the duplicates' latest gap (the window's late edge) and the least legitimate gap printed; the lateness
+    // sweep 0..60 on every slot and the napper batches beside the reference row)
     for s in 0..3 {
         for late in 0..=60 {
             let mut r = Row::normal("guard");
             r.late = vec![(5, s, late)];
-            gaps.extend(run(&r, Defects::default()).d7_gap_after_completion.iter().copied());
+            g.take(&run(&r, Defects::default()), &format!("lane {} late {late}", LANES[s]));
         }
     }
     for lane in [0usize, 1, 2] {
@@ -1442,13 +1708,39 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             let mut r = Row::normal("guard napper");
             r.late = vec![(5, 2, late)];
             r.napper = vec![(5, lane, late)];
-            gaps.extend(run(&r, Defects::default()).d7_gap_after_completion.iter().copied());
+            g.take(&run(&r, Defects::default()), &format!("the lane-7 cart and a lane {} napper both {late} late", LANES[lane]));
         }
     }
-    let least = gaps.iter().copied().min();
-    let dup_max = dup_gaps.iter().copied().max();
-    let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) covers every duplicate D(7) and ends before every legitimate D(7) credit after a credit (G1 02:34 (2) / ironspec 02:33 (5): both edges on the reference timing row, the late sweep 0..60 on every slot, the napper batches)"), least.is_none_or(|g| g > DM1_BLOCK7) && dup_max.is_none_or(|d| d <= DM1_BLOCK7) && !dup_gaps.is_empty());
-    lines.push(format!("  THE GUARD's MARGINS BOTH WAYS: {} legitimate D(7) credits after a credit, the least gap {:?} gt (margin {:?} over the window's end {DM1_BLOCK7}); {} duplicates blocked, the latest {:?} gt after its credit (margin {:?} inside the window); the passing range {:?}..{:?}: {w}", gaps.len(), least, least.map(|g| g - DM1_BLOCK7), dup_gaps.len(), dup_max, dup_max.map(|d| DM1_BLOCK7 - d), dup_max, least.map(|g| g - 1)));
+    let least = g.least.as_ref().map(|x| x.0);
+    let dup_max = g.dup_max.as_ref().map(|x| x.0);
+    let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) BLOCKS NO LEGITIMATE CREDIT (every blocked press judged: SEEN3 set by a batch not yet credited and K(7) not masking = a legitimate credit blocked, by name) and covers every duplicate (G1 CHANGES 7 C4; ironspec 04:30 (1): the reference timing row with the nappers' D presses in it, the late sweep 0..60 on every slot, the napper batches)"), g.legit.is_empty() && dup_max.is_none_or(|d| d <= DM1_BLOCK7) && g.dups > 0);
+    lines.push(format!("  THE GUARD, EVERY BLOCKED PRESS JUDGED: {} runs; {} blocked presses: {} duplicates of a batch already credited (the latest {:?} gt after its credit, {}: margin {:?} inside the window), {} napper / masked presses, {} LEGITIMATE CREDITS BLOCKED{}; {} legitimate D(7) credits after a credit, the least gap {:?} gt ({}: margin {:?} over the window's end {DM1_BLOCK7}); the passing range {:?}..{:?}: {w}", g.runs, g.blocked, g.dups, dup_max, g.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone()), dup_max.map(|d| DM1_BLOCK7 - d), g.masked, g.legit.len(), if g.legit.is_empty() { String::new() } else { format!(" ({})", g.legit.iter().take(3).cloned().collect::<Vec<_>>().join(" | ")) }, g.gaps, least, g.least.as_ref().map_or("-".to_string(), |x| x.1.clone()), least.map(|x| x - DM1_BLOCK7), dup_max, least.map(|x| x - 1)));
+    // (C4's control: the window at 90 gt blocks the next batch's own D(7) (66..80 gt after the previous credit): A
+    // LEGITIMATE CREDIT BLOCKED by name)
+    {
+        let mut gc = GuardRec::default();
+        for s in 0..3 {
+            for late in 0..=60 {
+                let mut r = Row::normal("guard 90");
+                r.late = vec![(5, s, late)];
+                r.dm1_block7 = 90;
+                gc.take(&run(&r, Defects::default()), &format!("lane {} late {late}", LANES[s]));
+            }
+        }
+        let c = v.control("ctl-credit CONTROL (G1 CHANGES 7 C4): the guard's window at 90 gt: A LEGITIMATE CREDIT BLOCKED fails by name (the next batch's own D(7))", 1, !gc.legit.is_empty()).to_string();
+        lines.push(format!("  CONTROL (the guard at 90 gt): {} legitimate credits blocked (e.g. {}): {c}", gc.legit.len(), gc.legit.iter().take(2).cloned().collect::<Vec<_>>().join(" | ")));
+    }
+    // (C5 / ironspec 04:30: THE DESIGN ROW's BLOCKED PRESSES, each classified: the on-time lane-7 napper's D(7) lands R6 = 10
+    // after its batch's own credit, inside the guard AND inside K(7) by order: blocked as intended, not a legitimate credit)
+    {
+        let mut r = Row::normal("the design row with a lane-7 napper on time");
+        r.napper = vec![(5, 2, 0)];
+        let o = run(&r, Defects::default());
+        let mut gr = GuardRec::default();
+        gr.take(&o, "the design row");
+        let w = v.bar("ctl-credit: THE DESIGN ROW (a lane-7 napper on time): every press the guard blocks is a duplicate or the napper's own D(7) (K(7) by order masks it too); no legitimate credit blocked", gr.legit.is_empty());
+        lines.push(format!("  THE DESIGN ROW's BLOCKED PRESSES (a lane-7 napper on time): {}: {w}", gr.classified.join("; ")));
+    }
     // (the five gain rows WITHOUT the guard: the store's level at both credits (a cap refuses only at full, 3 items);
     // the control: the guard removed, the rows gain by name)
     let mut levels = Vec::new();
@@ -1520,7 +1812,8 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         for (name, r, d) in &lost_rows {
             let o = run(r, *d);
             let prem: Vec<String> = o.wait_inflight.iter().take(4).map(|(t, n)| format!("t{t}:{n}")).collect();
-            fire_lines.push(format!("{name}: waits (tick: batches in flight) [{}..], the net fires at {:?}, the store [{}]", prem.join(" "), o.net_fires, store_correct_bars(&o).join("; ")));
+            let items: Vec<String> = o.wait_flight.iter().take(4).map(|(t, n)| format!("t{t}:{n}")).collect();
+            fire_lines.push(format!("{name}: credit waits (tick: batches in flight, a MODEL PRINT) [{}..], (tick: THE ITEM COUNT the net reads) [{}..], quiet resets {:?}, the net fires at {:?}, the store [{}]", prem.join(" "), items.join(" "), o.flight_resets, o.net_fires, store_correct_bars(&o).join("; ")));
             if o.net_fires.len() != 1 || !store_correct_bars(&o).is_empty() {
                 fire_bad.push(name.clone());
             }
@@ -1536,11 +1829,21 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         lines.push(format!("  CONTROL (the net off): {off_short} of {} rows one short: {c}", lost_rows.len()));
         let (mut n, mut fires) = (0usize, Vec::new());
         let mut store_bad: Vec<String> = Vec::new();
+        let mut recovered: Vec<String> = Vec::new();
         let mut false_row = |name: String, r: Row| {
             let o = run(&r, Defects::default());
             n += 1;
             if !o.net_fires.is_empty() {
-                fires.push(format!("{name} at {:?}", o.net_fires));
+                // (a fire is FALSE only if the store would have ended correct without the net (its twin off): a fault row
+                // that loses a credit for real (e.g. a stray misrouting a whole batch) is the net's TRUE recovery)
+                let mut r0 = r.clone();
+                r0.resync_net = false;
+                let short = store_correct_bars(&run(&r0, Defects::default())).iter().any(|b| b.contains("NEVER ANSWERED"));
+                if short {
+                    recovered.push(format!("{name} at {:?}", o.net_fires));
+                } else {
+                    fires.push(format!("{name} at {:?}", o.net_fires));
+                }
             }
             // (G1 03:22: each false-fire row judged on THE STORE AFTER too)
             let sb = store_correct_bars(&o);
@@ -1565,18 +1868,31 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             false_row(format!("THE STALLED-THEN-RECOVERED CART (batch 5's lane 7 cart {late} gt late)"), r);
         }
         for d in [500i64, 2000, 6000] {
-            let mut r = Row::normal("net");
-            r.holds_empty = vec![(700, 700 + d)];
-            r.t_max = 3000 + d;
-            false_row(format!("A HALT + RESTART = THE DRAINED-LANE HALT (the station holds empty {d} gt from t 700, carts in flight)"), r);
+            for h0 in [700i64, 733, 766] {
+                let mut r = Row::normal("net");
+                r.holds_empty = vec![(h0, h0 + d)];
+                r.t_max = 3000 + d;
+                false_row(format!("A HALT + RESTART = THE DRAINED-LANE HALT (the station holds empty {d} gt from t {h0}, carts in flight)"), r);
+            }
         }
-        for t0 in 500..720 {
-            let mut r = Row::normal("net");
-            r.open = Some((t0, 0, 3));
-            false_row(format!("A WORLD OPEN at t {t0} (every phase of two periods)"), r);
+        for (idle, kj) in [(0i64, 3i64), (1, 1), (2, 3)] {
+            for t0 in 500..720 {
+                let mut r = Row::normal("net");
+                r.open = Some((t0, idle, kj));
+                false_row(format!("A WORLD OPEN at t {t0} (idle {idle}, the carts {kj} behind; every phase of two periods)"), r);
+            }
         }
-        let w = v.bar_n("ctl-credit: THE RESYNC NET NEVER FIRES FALSELY AND THE STORE ENDS CORRECT (G1 03:22's rows by name: THE COLD START; A HALT + RESTART / THE DRAINED-LANE HALT of 500 / 2,000 / 6,000 gt with carts in flight; A WORLD OPEN at every phase; THE STALLED-THEN-RECOVERED CART 100..600 late; plus every late row 0..60 on every slot and the lost carts)", n, fires.is_empty() && store_bad.is_empty());
-        lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, fires {}, the store after {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.join(" | ") }, if store_bad.is_empty() { "correct on every row".to_string() } else { store_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
+        // (G1 04:42 (2b): THE EXTRA-PRESS DIRECTION: a stray D press removes an item (the dangerous under-count): a stray of
+        // every lane at every tick of REL_6 + 66..120: no false fire, the store correct)
+        for lane in [-1i32, 3, 7] {
+            for st in 672..=726 {
+                let mut r = Row::normal("net");
+                r.stray = vec![(st, lane)];
+                false_row(format!("A STRAY D({lane}) at t {st} (an extra press: the item count one short)"), r);
+            }
+        }
+        let w = v.bar_n("ctl-credit: THE RESYNC NET (THE ITEM FORM: REL adds 3; each lane-entry D press under its K mask removes one; a cart passing every J removes one at the leg's detector; a credit wait with 0 items mints one; the count reset at a 200-gt quiet point) NEVER FIRES FALSELY AND THE STORE ENDS CORRECT (G1 03:22's rows by name: THE COLD START; A HALT + RESTART / THE DRAINED-LANE HALT of 500 / 2,000 / 6,000 gt at three phases with carts in flight; A WORLD OPEN at every phase, idle 0 / 1 / 2; THE STALLED-THEN-RECOVERED CART 100..600 late; every late row 0..60 on every slot and the lost carts; G1 04:42 (2b): A STRAY D press of every lane at every tick of REL_6 + 66..120, the extra-press direction); a fire whose net-off twin loses a credit for real is a TRUE recovery, printed", n, fires.is_empty() && store_bad.is_empty());
+        lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, false fires {}, true recoveries {} ({}), the store after {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.iter().take(4).cloned().collect::<Vec<_>>().join(" | ") }, recovered.len(), recovered.iter().take(3).cloned().collect::<Vec<_>>().join(" | "), if store_bad.is_empty() { "correct on every row".to_string() } else { store_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
     }
     // (ironspec 03:04 (2) / G1 03:04 (5)(i): K(7) BY ORDER's premise and its holes: the order premise (the batch's lane-7
     // cart reaches D(7) before its lane-7 napper: SLOT_T[2] vs NAPPER_T[2], printed); A PLANTED REORDER (the batch's lane-7
@@ -1636,9 +1952,12 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         (3, "J(3)'s reset", "K(3) (day-1 02:40)", "k3_j3_unmasked (control: the late lane 3 napper turns batch 6's J(3) off, batch 6's credit lost)"),
         (3, "SEEN3's set", "K(3)", "no_k3_mask (control: the napper's D(3) sets SEEN3)"),
         (3, "J(7)'s arm (the ring form only)", "K(3)", "no_k3_mask (the ring rows)"),
-        (7, "the D(7) credit line", "K(7) (ironspec 02:43 (1))", "k7_unmasked (control below: a late lane 7 napper credits the next batch early)"),
-        (7, "SEEN3's reset", "K(7)", "k7_unmasked (control below)"),
-        (7, "J(-1)'s arm and J(7)'s reset (the ring form only)", "K(7)", "k7_unmasked (the ring rows)"),
+        (7, "the D(7) credit line", "K(7) (ironspec 02:43 (1))", "k7_unmasked_credit (control below: a late lane 7 napper's D(7) credits the next batch)"),
+        (7, "SEEN3's reset", "K(7)", "k7_unmasked_s3rst (control below: the napper's D(7) resets the next batch's SEEN3)"),
+        (7, "J(-1)'s arm and J(7)'s reset (the ring form only)", "K(7)", "k7_unmasked_ring (control below, on the ring form)"),
+        (-1, "the net's item removal", "K(-1)", "(the item form, G1 04:08b; its twin owed)"),
+        (3, "the net's item removal", "K(3)", "(the item form; its twin owed)"),
+        (7, "the net's item removal", "K(7) by order", "(the item form; its twin owed)"),
     ] {
         lines.push(format!("    D({l}) -> {out}: gated by {gate}; twin {twin}"));
     }
@@ -1671,6 +1990,28 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         lines.push(format!("  K(7)'s MATRIX ROW, a lane 7 napper released 0..120 gt late: its D(7) changes state at {}: {w}", ranges_of(&eff_d)));
         let c = v.control("ctl-credit CONTROL: K(7) masking none of D(7)'s outputs: a late lane 7 napper's D(7) credits the next batch by name (its D(7) inside that batch's SEEN3)", 1, !eff_t.is_empty()).to_string();
         lines.push(format!("  CONTROL (no K(7)): the napper's D(7) changes state at lateness {}: {c}", ranges_of(&eff_t)));
+        // (G1 CHANGES 7 C5: ONE TWIN PER OUTPUT, each control reading its own output's recorded effect)
+        for (twin, def, ring, effect, what) in [
+            ("k7_unmasked_credit", Defects { k7_unmasked_credit: true, ..Default::default() }, false, "made a credit", "the credit line: the napper's D(7) credits the next batch"),
+            ("k7_unmasked_s3rst", Defects { k7_unmasked_s3rst: true, ..Default::default() }, false, "reset SEEN3", "SEEN3's reset: the napper's D(7) resets the next batch's SEEN3"),
+            ("k7_unmasked_ring", Defects { k7_unmasked_ring: true, ..Default::default() }, true, "armed J(-1)", "the ring's J(-1) arm / J(7) reset (the ring form): the napper's D(7) re-arms J(-1)"),
+        ] {
+            let mut hits = Vec::new();
+            let mut design_hits = Vec::new();
+            for extra in (0..=120).step_by(5) {
+                let mut r = Row::normal("k7 twin");
+                r.napper = vec![(5, 2, extra)];
+                r.ring = ring;
+                if run(&r, def).napper_effects.iter().any(|e| e.contains(effect)) {
+                    hits.push(extra);
+                }
+                if run(&r, Defects::default()).napper_effects.iter().any(|e| e.contains(effect)) {
+                    design_hits.push(extra);
+                }
+            }
+            let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 C5): {twin}, K(7) leaving only {what}"), 1, !hits.is_empty() && design_hits.is_empty()).to_string();
+            lines.push(format!("  CONTROL ({twin}): the effect \"{effect}\" at release lateness {} (the design: {}): {c}", ranges_of(&hits), ranges_of(&design_hits)));
+        }
         let w = if route_bad.is_empty() {
             v.bar_n("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars (recovery within 2 batches, the store per batch)", 25, true).to_string()
         } else {
@@ -2728,6 +3069,303 @@ mod tests {
             println!("TRACE late {late}: credit presses {:?}; dm1 credits {}; misroutes {:?}; lane delta {:?}", &o.credit_press[..o.credit_press.len().min(12)], o.dm1_credits, o.misroutes, o.lane_delta);
         }
         // (the lane-7 GAIN rows: slot 3 late 23)
+        if std::env::var("CC_T16").is_ok() {
+            // (TRAIN 16's OFFSETS (ironfarm 04:18): 0 / 17 / 27 (slot_shift [0, 3, 3]) and the napper's delay after ARM3 7
+            // (its release keyed on slot 3's ARM3 press: + 3 - 1 = + 2); the tap's window, the guard's margins, the napper
+            // K margins; train 15 beside it)
+            for (tn, ss, ns) in [("train 15 (0/14/24, napper 8)", [0i64, 0, 0], 0i64), ("train 16 (0/17/27, napper 7)", [0, 3, 3], 2)] {
+                let mk = |r: &mut Row| {
+                    r.slot_shift = ss;
+                    r.napper_shift = ns;
+                };
+                // (A) the basic window, no open: every lateness 0..60 on every slot, the missing carts, the normal run
+                let mut basic = Vec::new();
+                for tap in 70..=90 {
+                    let mut bad = 0;
+                    for s in 0..3 {
+                        for late in 0..=60 {
+                            let mut r = Row::normal("t16");
+                            mk(&mut r);
+                            r.s3old_tap = Some(tap);
+                            r.resync_net = false;
+                            r.late = vec![(5, s, late)];
+                            if !ledger_bars(&run(&r, Defects::default())).is_empty() {
+                                bad += 1;
+                            }
+                        }
+                        let mut r = Row::normal("t16");
+                        mk(&mut r);
+                        r.s3old_tap = Some(tap);
+                        r.resync_net = false;
+                        r.missing = vec![(5, s)];
+                        if !ledger_bars(&run(&r, Defects::default())).is_empty() {
+                            bad += 1;
+                        }
+                    }
+                    if bad == 0 {
+                        basic.push(tap);
+                    }
+                }
+                // (B) the reference row on the bench's tap rows: open (t0, 0, 3) every 4th tick of REL_6 + 0..114, +-2 on
+                // batch 5's carts and batch 6's slot 1 (every sign), the net off
+                let mut rows: Vec<Row> = Vec::new();
+                for (s, lates) in [(0usize, vec![9i64, 12, 15, 18, 21, 24, 27, 31, 49, 53, 57, 60]), (1, vec![29, 32, 35, 38, 40, 57, 60]), (2, vec![21, 23, 25, 27])] {
+                    for late in lates {
+                        let mut r = Row::normal("t16");
+                        r.late = vec![(5, s, late)];
+                        rows.push(r);
+                    }
+                }
+                for s in 0..3 {
+                    let mut r = Row::normal("t16");
+                    r.missing = vec![(5, s)];
+                    rows.push(r);
+                }
+                rows.push(Row::normal("t16"));
+                let mut refw = Vec::new();
+                let mut gaps: Vec<i64> = Vec::new();
+                let mut dups: Vec<i64> = Vec::new();
+                for tap in 76..=86 {
+                    let mut bad = 0;
+                    for r0 in &rows {
+                        for vv in 0..16u32 {
+                            let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                            for t0 in (606..=720).step_by(4) {
+                                let mut r = r0.clone();
+                                mk(&mut r);
+                                r.s3old_tap = Some(tap);
+                                r.open = Some((t0, 0, 3));
+                                r.resync_net = false;
+                                for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
+                                    r.late.push((b, s, sg(i as u32)));
+                                }
+                                let o = run(&r, Defects::default());
+                                if tap == 80 {
+                                    gaps.extend(o.d7_gap_after_completion.iter().copied());
+                                    dups.extend(o.d7_blocked_gap.iter().copied());
+                                }
+                                if !ledger_bars(&o).is_empty() {
+                                    bad += 1;
+                                }
+                            }
+                        }
+                    }
+                    refw.push(format!("+{tap}:{bad}"));
+                }
+                // (the napper K margins: a napper of every lane on batch 5, late 0..10)
+                let mut kmin: Option<i64> = None;
+                for lane in 0..3 {
+                    for late in 0..=10 {
+                        let mut r = Row::normal("t16");
+                        mk(&mut r);
+                        r.napper = vec![(5, lane, late)];
+                        let o = run(&r, Defects::default());
+                        for &(_, m) in &o.napper_k_margin {
+                            kmin = Some(kmin.map_or(m, |k: i64| k.min(m)));
+                        }
+                    }
+                }
+                let mut rn = Row::normal("t16");
+                mk(&mut rn);
+                let on = run(&rn, Defects::default());
+                println!("T16 {tn}: the basic tap window (no open) {}; the reference row's store changes per tap [{}]; the guard: least legitimate gap {:?}, latest duplicate {:?} (window {DM1_BLOCK7}); the napper K margin least {:?}; the normal run [{}] slips {}", ranges_of(&basic), refw.join(" "), gaps.iter().min(), dups.iter().max(), kmin, ledger_bars(&on).join("; "), on.slips.iter().sum::<i64>());
+            }
+        }
+        // (the (b') debug trace)
+        if std::env::var("CC_GUARDDBG").is_ok() {
+            // (G1 C4: where did the least gap 43 go when the guard was generalized? every row of the gap sweep, both forms,
+            // the 20-gt and the 42-gt windows: the least legitimate gap and any LEGITIMATE credit blocked)
+            let mut rows: Vec<(String, Row)> = Vec::new();
+            for s in 0..3 {
+                for late in 0..=60 {
+                    let mut r = Row::normal("g");
+                    r.late = vec![(5, s, late)];
+                    rows.push((format!("lane {} late {late}", LANES[s]), r));
+                }
+            }
+            for lane in 0..3 {
+                for late in 0..=60 {
+                    let mut r = Row::normal("g");
+                    r.napper = vec![(5, lane, late)];
+                    rows.push((format!("lane {} napper late {late}", LANES[lane]), r));
+                }
+            }
+            // (c24's world-open rows: open (t0, 2, 3) at every tick of REL_6 + 0..114, no sign vectors)
+            for lane in [0usize, 1, 2] {
+                for late in 0..=30 {
+                    let mut r = Row::normal("guard napper");
+                    r.late = vec![(5, 2, late)];
+                    r.napper = vec![(5, lane, late)];
+                    rows.push((format!("napper batch: lane-7 cart + lane {} napper both {late} late", LANES[lane]), r));
+                }
+            }
+            for (s, lates) in [(0usize, vec![9i64, 12, 15, 18, 21, 24, 27, 31, 49, 53, 57, 60]), (1, vec![29, 32, 35, 38, 40, 57, 60]), (2, vec![21, 23, 25, 27])] {
+                for late in lates {
+                    for t0 in 606..=720 {
+                        let mut r = Row::normal("g");
+                        r.late = vec![(5, s, late)];
+                        r.open = Some((t0, 2, 3));
+                        rows.push((format!("open: lane {} late {late}, open REL_6 + {}", LANES[s], t0 - 606), r));
+                    }
+                }
+            }
+            for s in 0..3 {
+                for t0 in 606..=720 {
+                    let mut r = Row::normal("g");
+                    r.missing = vec![(5, s)];
+                    r.open = Some((t0, 2, 3));
+                    rows.push((format!("open: lane {} missing, open REL_6 + {}", LANES[s], t0 - 606), r));
+                }
+            }
+            for t0 in 606..=720 {
+                let mut r = Row::normal("g");
+                r.open = Some((t0, 2, 3));
+                rows.push((format!("open: normal, open REL_6 + {}", t0 - 606), r));
+            }
+            // (c24's configuration: tap 79, no net, no claim cap, the guard on the completion only, 20 gt; then one change
+            // at a time)
+            for (cname, tap, net, cap, comp_only, w) in [
+                ("c24 (tap 79, no net, no cap, completion-only, 20)", 79i64, false, false, true, 20i64),
+                ("c24 + the guard generalized", 79, false, false, false, 20),
+                ("c24 + the net (item form)", 79, true, false, true, 20),
+                ("c24 + the claim cap", 79, false, true, true, 20),
+                ("today (tap 80, net, cap, generalized, 42)", 80, true, true, false, 42),
+            ] {
+                let mut least: Option<(i64, String)> = None;
+                let mut legit = Vec::new();
+                for (name, r0) in &rows {
+                    let mut r = r0.clone();
+                    r.dm1_block7 = w;
+                    r.s3old_tap = Some(tap);
+                    r.resync_net = net;
+                    r.claims_cap = cap;
+                    let o = run(&r, Defects { guard_completion_only: comp_only, ..Default::default() });
+                    for &g in &o.d7_gap_after_completion {
+                        if least.as_ref().is_none_or(|l| g < l.0) {
+                            least = Some((g, name.clone()));
+                        }
+                    }
+                    for &(t, b, g) in &o.d7_blocked_legit {
+                        legit.push(format!("{name}: t {t} batch {b} gap {g}"));
+                    }
+                }
+                println!("GUARDDBG {cname}: least legitimate gap {:?}; legitimate credits blocked {} {:?}", least, legit.len(), legit.iter().take(6).collect::<Vec<_>>());
+            }
+        }
+        if std::env::var("CC_GUARDROW").is_ok() {
+            // (the row behind the 43: its credits with and without the generalized guard)
+            let mut r = Row::normal("g43");
+            let spec = std::env::var("CC_GUARDROW").unwrap_or_default();
+            let parts: Vec<i64> = spec.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            if parts.len() == 3 {
+                r.late = vec![(5, parts[0] as usize, parts[1])];
+                r.open = Some((606 + parts[2], 2, 3));
+            }
+            r.s3old_tap = Some(79);
+            r.dm1_block7 = 20;
+            r.resync_net = false;
+            r.claims_cap = false;
+            for comp_only in [true, false] {
+                let o = run(&r, Defects { guard_completion_only: comp_only, ..Default::default() });
+                println!("GUARDROW comp_only {comp_only}: credits (tick, batch) {:?}; credit presses {:?}; blocked {:?}; legit blocked {:?}; gaps {:?}; per batch [{}]", &o.credits[..o.credits.len().min(12)], &o.credit_press[..o.credit_press.len().min(12)], o.d7_blocked, o.d7_blocked_legit, o.d7_gap_after_completion, ledger_bars(&o).join("; "));
+            }
+        }
+        if std::env::var("CC_NETDBG").is_ok() {
+            let r = Row::normal("netdbg");
+            let o = run(&r, Defects::default());
+            println!("NETDBG normal: net fires {:?}; waits {:?}; rels {:?}; store [{}]; per batch [{}]", o.net_fires, o.wait_inflight, &o.rels[..o.rels.len().min(12)], store_correct_bars(&o).join("; "), ledger_bars(&o).join("; "));
+            for st in [676i64, 678, 680] {
+                let mut r = Row::normal("netdbg stray");
+                r.stray = vec![(st, -1)];
+                let o = run(&r, Defects::default());
+                println!("NETDBG stray D(-1) at {st}: rels {:?}; credits (t, batch) {:?}; credit src {:?}; waits (t, model) {:?}; waits (t, items) {:?}; net fires {:?}; claim refused {:?}; presses b6 {:?} b7 {:?}; store [{}]; per batch [{}]", &o.rels[5..o.rels.len().min(11)], &o.credits[3..o.credits.len().min(10)], &o.credit_src[3..o.credit_src.len().min(10)], o.wait_inflight, o.wait_flight, o.net_fires, o.claim_refused, o.presses.get(6), o.presses.get(7), store_correct_bars(&o).join("; "), ledger_bars(&o).join("; "));
+            }
+        }
+        if std::env::var("CC_REBDBG").is_ok() {
+            let mut r = Row::normal("rebdbg");
+            r.lane_carts = Some([8, 8, 8]);
+            r.t_max = 4000;
+            r.late = vec![(5, 0, 60)];
+            r.rebalance = true;
+            let o = run(&r, Defects::default());
+            println!("REBDBG sets {:?}", o.reb_sets);
+            println!("REBDBG assigned {:?}", o.reb_assigned);
+            println!("REBDBG moved {:?}", o.reb_moved);
+            println!("REBDBG delta {:?}; misroutes {:?}", o.lane_delta, o.misroutes);
+            let deps: Vec<String> = o.rels.iter().zip(o.rel_depth.iter()).skip(8).take(30).map(|(t, d)| format!("{t}:{d:?}")).collect();
+            println!("REBDBG depth at REL {}", deps.join(" "));
+            for b in 12..17.min(o.entered.len()) {
+                println!("REBDBG batch {b} entered {:?} presses {:?}", o.entered[b], o.presses[b]);
+            }
+        }
+        if std::env::var("CC_LANES").is_ok() {
+            // (THE LANES MODEL, the (b') positive control: 8 carts per lane, a cycle of 800 - slack)
+            for slack in [50i64, 20, 0] {
+                for (name, late) in [("normal", None), ("slot 1 (lane -1) 60 late (cc767b78's swap row)", Some((5usize, 0usize, 60i64))), ("slot 1 30 late", Some((5, 0, 30))), ("slot 2 60 late", Some((5, 1, 60))), ("slot 3 60 late", Some((5, 2, 60)))] {
+                    let mut r = Row::normal("lanes");
+                    r.lane_carts = Some([8, 8, 8]);
+                    r.lane_slack = slack;
+                    r.t_max = 6000;
+                    if let Some(l) = late {
+                        r.late = vec![l];
+                    }
+                    let o = run(&r, Defects::default());
+                    let per: Vec<i64> = o.rels.windows(2).map(|w| w[1] - w[0]).collect();
+                    let mean = if per.is_empty() { 0.0 } else { per.iter().sum::<i64>() as f64 / per.len() as f64 };
+                    let late_per: Vec<i64> = per.iter().rev().take(10).copied().collect();
+                    let depth_max = (0..3).map(|l| o.rel_depth.iter().map(|d| d[l]).max().unwrap_or(0)).collect::<Vec<_>>();
+                    println!("LANES slack {slack}, {name}: {} RELs, mean period {mean:.1}, the last periods {late_per:?}; lane waits {} (first {:?}); the lanes' delta {:?}; the queue depth at REL, max per lane {depth_max:?}; the store [{}]", o.rels.len(), o.lane_waits.len(), o.lane_waits.iter().take(3).collect::<Vec<_>>(), o.lane_delta, store_correct_bars(&o).join("; "));
+                    // (THE REBALANCE on the same row)
+                    let mut rr = r.clone();
+                    rr.rebalance = true;
+                    let oo = run(&rr, Defects::default());
+                    let per2: Vec<i64> = oo.rels.windows(2).map(|w| w[1] - w[0]).collect();
+                    let mean2 = if per2.is_empty() { 0.0 } else { per2.iter().sum::<i64>() as f64 / per2.len() as f64 };
+                    let depth_ss = (0..3).map(|l| oo.rel_depth.iter().skip(10).map(|d| d[l]).max().unwrap_or(0)).collect::<Vec<_>>();
+                    println!("   + REBALANCE: {} RELs, mean period {mean2:.1}, the last periods {:?}; sets {}; moves {}; the lanes' delta {:?}; leg entries {}; misroutes {:?}; lane waits {}; the steady depth at REL (from REL 10) max {depth_ss:?}; the store [{}]; per batch [{}]", oo.rels.len(), per2.iter().rev().take(10).collect::<Vec<_>>(), oo.reb_sets.len(), oo.reb_assigned.len(), oo.lane_delta, oo.leg_entries.len(), o.misroutes, oo.lane_waits.len(), store_correct_bars(&oo).join("; "), ledger_bars(&oo).join("; "));
+                }
+            }
+        }
+        // (the lane-7 GAIN rows: slot 3 late 23)
+        if std::env::var("CC_ROLLBACK").is_ok() {
+            // (ironspec 04:08 (4): THE ROLLBACK ROOT: lane 7's batch cart jammed past ARM3 rolls back and re-climbs L gt late;
+            // its napper is released at ARM3 on time; with the lanes model and the rebalance on)
+            let mut by_kind: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+            for late in (15..=400).step_by(1) {
+                let mut r = Row::normal("rollback");
+                r.late = vec![(5, 2, late)];
+                r.napper = vec![(5, 2, 0)];
+                r.lane_carts = Some([8, 8, 8]);
+                r.rebalance = true;
+                r.t_max = 7000;
+                let o = run(&r, Defects::default());
+                let mut kinds = Vec::new();
+                let sb = store_correct_bars(&o);
+                if !sb.is_empty() {
+                    kinds.push(format!("STORE {}", sb.join("; ").chars().take(60).collect::<String>()));
+                }
+                if !o.leg_entries.is_empty() {
+                    kinds.push("LEG".to_string());
+                }
+                if o.lane_delta != [0, 0, 0] {
+                    kinds.push(format!("DELTA {:?}", o.lane_delta));
+                }
+                if !o.misroutes.is_empty() {
+                    kinds.push(format!("misroutes {}", o.misroutes.len()));
+                }
+                if !o.napper_misroutes.is_empty() {
+                    kinds.push(format!("napper misroutes {}", o.napper_misroutes.len()));
+                }
+                kinds.push(format!("moves {}", o.reb_assigned.len()));
+                let per: Vec<i64> = o.rels.windows(2).map(|w| w[1] - w[0]).collect();
+                let tail_ok = per.iter().rev().take(10).all(|&p| p == PERIOD);
+                kinds.push(if tail_ok { "cadence 100 at the end".to_string() } else { "cadence NOT back".to_string() });
+                by_kind.entry(kinds.join(", ")).or_default().push(late);
+            }
+            for (k, ls) in &by_kind {
+                println!("ROLLBACK {k}: lateness {}", ranges_of(ls));
+            }
+        }
         {
             // (THE STALLED-THEN-RECOVERED CART at EVERY stall length 30..400: does its late D(7) ever gain a credit (landing
             // outside every guard window), with the net on?)
