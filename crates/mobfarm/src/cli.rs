@@ -2282,9 +2282,10 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         extra: Option<String>,
         /// (farmopt 09:06) A V owner file read whole and laid before --extra ("x,y,z state" lays, a bare "x,y,z" clears to
-        /// air); its md5 and counts are printed, so the run READS the file it cites.
+        /// air); its md5 and counts are printed, so the run READS the file it cites. Repeatable (the way-in's delta, then
+        /// the way-in controller's), laid in the order given.
         #[arg(long)]
-        delta: Option<String>,
+        delta: Vec<String>,
         /// The ride check: the stop's first rail (x,y,z) the released cart must reach.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         ride_to: Vec<i32>,
@@ -2589,6 +2590,27 @@ pub enum MobfarmCmd {
         /// (ironspec 09:50a (d)) P1 OCCUPIED = the latch AND D gt elapsed since its SET (0 = the D-less control).
         #[arg(long, default_value_t = 0)]
         leg_occupied_delay: u32,
+        /// (step (a), Nov 14) With --leg-train: the way-in controller is LAID in the design (its delta given with
+        /// --delta): the bench emulates no controller (no P1 support swap, no H2 drive, no token), it sends the nappers and
+        /// judges; every model flag refuses.
+        #[arg(long)]
+        leg_laid_controller: bool,
+        /// (step (a), the controller's wiring bench) No carts: the design with the bench's cells (--delta, --extra, R1's
+        /// built cells with --south --r1-built) laid, then these edits made at their run ticks (`T:X,Y,Z=STATE`, several
+        /// joined by `;`, repeatable): the inputs driven by declared stand-ins. Prints every --ctl-watch cell's changes.
+        #[arg(long)]
+        ctl_drive: Vec<String>,
+        /// With --ctl-drive: the cells whose state prints on each change, `x,y,z;...`.
+        #[arg(long, default_value = "")]
+        ctl_watch: String,
+        /// With --ctl-drive: settle ticks before run tick 0, and the run's ticks.
+        #[arg(long, value_delimiter = ',', default_value = "40,400")]
+        ctl_ticks: Vec<u32>,
+        /// With --ctl-drive: after the settle (the drive's tick-0 stand-ins applied BEFORE it: the rest state's inputs),
+        /// rewrite this owner file's cell lines with the settled states (its `#` lines, bare clears and order kept); the
+        /// file must be one of the --delta files.
+        #[arg(long)]
+        ctl_settle_write: Option<String>,
         /// (ironspec 03:36; cc767b78 04:50; G1 05:00 (1)(b)) With --leg-train: ridden carts planted at rest,
         /// "X,Y,Z;X,Y,Z" (the front at the game's rest, a jam on the departure path).
         #[arg(long, allow_hyphen_values = true)]
@@ -2601,6 +2623,12 @@ pub enum MobfarmCmd {
         /// judged in every run, the failing runs printed.
         #[arg(long)]
         leg_timing_row: Option<u32>,
+        /// (b8949c96, step (a)) With --leg-timing-row: judge only these phases, "A..B,C..D" (each inside 0..PERIOD).
+        #[arg(long, default_value = "")]
+        leg_timing_phases: String,
+        /// With --leg-timing-row: the runs at once (threads; each run its own world).
+        #[arg(long, default_value_t = 12)]
+        leg_timing_threads: u32,
         /// (ironspec 01:44b (1), G1 01:46) The hold's sweep: A,B,STEP start speeds (with --leg's start and
         /// heading, --leg-hold, --hold-ahead, --hold-edge; --launch-phases phases along the start cell): each
         /// run braked to rest in the hold, then the hold powered: the rest z, the relaunch time to the cell
@@ -9399,7 +9427,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, delta, ride_to, custom_post, wait, bed, leg, hold, south, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, r1_layout, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, exclude_bar, ball_head, leg_train, leg_releases, leg_release_hold, leg_gate, leg_release_after, leg_hold, leg_watch, leg_plant_landing, leg_plant_front, leg_no_token, leg_plant_empty, leg_token_at, leg_watch_powered, leg_suppress_presses, leg_coincident, leg_front_recovery, leg_recovery_villager_keyed, leg_exit_sensor, leg_recovery_by_arrival, leg_recovery_approach, leg_release_needs_front_clear, leg_token_old, leg_control, leg_late_press, leg_suppress_arrivals, leg_lose_napper, leg_front_sensor, leg_dispatch_cap, leg_recovery_unsafe, leg_recovery_without_waiter, leg_p1_pulse, leg_p1_occupied, leg_p1_band, leg_hold2, leg_hold2_drive, leg_latch_detector, leg_latch_reset_on_pulse, leg_hold2_delay, leg_hold2_ignore_detector, leg_latch_level, leg_latch_set_delay, leg_hold2_exit_term, leg_occupied_delay, leg_plant_ridden, hold_empty, leg_timing_row, hold_sweep, hold_ahead, hold_edge, hold_relaunch, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, delta, ride_to, custom_post, wait, bed, leg, hold, south, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, r1_layout, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, exclude_bar, ball_head, leg_train, leg_releases, leg_release_hold, leg_gate, leg_release_after, leg_hold, leg_watch, leg_plant_landing, leg_plant_front, leg_no_token, leg_plant_empty, leg_token_at, leg_watch_powered, leg_suppress_presses, leg_coincident, leg_front_recovery, leg_recovery_villager_keyed, leg_exit_sensor, leg_recovery_by_arrival, leg_recovery_approach, leg_release_needs_front_clear, leg_token_old, leg_control, leg_late_press, leg_suppress_arrivals, leg_lose_napper, leg_front_sensor, leg_dispatch_cap, leg_recovery_unsafe, leg_recovery_without_waiter, leg_p1_pulse, leg_p1_occupied, leg_p1_band, leg_hold2, leg_hold2_drive, leg_latch_detector, leg_latch_reset_on_pulse, leg_hold2_delay, leg_hold2_ignore_detector, leg_latch_level, leg_latch_set_delay, leg_hold2_exit_term, leg_occupied_delay, leg_laid_controller, ctl_drive, ctl_watch, ctl_ticks, ctl_settle_write, leg_plant_ridden, hold_empty, leg_timing_row, leg_timing_phases, leg_timing_threads, hold_sweep, hold_ahead, hold_edge, hold_relaunch, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens } => {
             // (G1 Nov 14 10:21 / ironspec 10:45a (i)) evidence inputs IN-TREE: the design and every positions file are
             // files of the repository the bench runs in, tracked by git (no /tmp copy), each printed with its md5
             println!("{}", crate::waycell::evidence_file(&design.to_string_lossy()).map_err(|e| anyhow::anyhow!(e))?);
@@ -9451,12 +9479,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (extra_cells, delta_n) = {
                 let mut v = crate::waycell::parse_extra(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
                 let mut n = 0usize;
-                if let Some(d) = delta.as_deref() {
+                let own: Vec<[i32; 3]> = v.iter().map(|(p, _)| *p).collect();
+                // (step (a)) several owner files (the way-in's, then its controller's): a cell two files lay differently
+                // fails by name (one owner per cell)
+                let mut from_files: std::collections::BTreeMap<[i32; 3], (String, String)> = std::collections::BTreeMap::new();
+                for d in &delta {
                     let (cells, md5, laid, cleared) = crate::waycell::parse_delta_file(d).map_err(|e| anyhow::anyhow!(e))?;
-                    let shadowed = cells.iter().filter(|(p, _)| v.iter().any(|(q, _)| q == p)).count();
+                    let shadowed = cells.iter().filter(|(p, _)| own.contains(p)).count();
                     println!("(delta) {d} (md5 {md5}): {laid} cell(s) laid, {cleared} cleared to air; {shadowed} under an --extra cell (the --extra cell wins); the cells the base already holds as declared are counted below as in the file");
-                    let own: Vec<[i32; 3]> = v.iter().map(|(p, _)| *p).collect();
                     for (p, b) in cells {
+                        if let Some((f0, b0)) = from_files.get(&p) {
+                            // the same file may clear a cell, then re-lay it (ironspec 11:52a: V's leg cells it takes
+                            // over); a LATER file takes a cell over only by clearing it first (a bare line, vcompose's rule:
+                            // the take-over printed with both states); any other differing claim fails by name
+                            if *f0 != *d && *b0 != b {
+                                anyhow::ensure!(b == "minecraft:air", "--delta: the cell {p:?} is laid as {b0} by {f0} and as {b} by {d}: one owner per cell (a later file takes a cell over by clearing it first)");
+                                println!("(delta) {d} TAKES OVER {p:?} from {f0} (was {b0}): cleared, then as {d} lays it");
+                            } else if *f0 != *d {
+                                continue;
+                            }
+                        }
+                        from_files.insert(p, (d.clone(), b.clone()));
                         if !own.contains(&p) {
                             v.push((p, b));
                             n += 1;
@@ -9465,7 +9508,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 (v, n)
             };
-            let mut o = crate::waycell::Opts {
+            let o = crate::waycell::Opts {
                 queue: [queue[0], queue[1], queue[2]],
                 post: (post.len() == 3).then(|| [post[0], post[1], post[2]]),
                 own: crate::waycell::parse_boxes(own.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
@@ -9536,6 +9579,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ball_head: (ball_head.len() == 3).then(|| [ball_head[0], ball_head[1], ball_head[2]]),
             };
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
+            // (step (a), Nov 14) the way-in controller's wiring bench: no carts, the inputs driven by declared stand-ins
+            if !ctl_drive.is_empty() {
+                let mut edits: Vec<crate::vhits::Edit> = Vec::new();
+                for s in &ctl_drive {
+                    edits.extend(crate::vhits::parse_edits(s).map_err(|e| anyhow::anyhow!(e))?);
+                }
+                let mut watch: Vec<[i32; 3]> = Vec::new();
+                for c in ctl_watch.split(';').map(str::trim).filter(|c| !c.is_empty()) {
+                    let v: Vec<i32> = c.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--ctl-watch {c:?}: {e}"))?;
+                    anyhow::ensure!(v.len() == 3, "--ctl-watch {c:?}: X,Y,Z");
+                    watch.push([v[0], v[1], v[2]]);
+                }
+                let [settle, run_ticks] = ctl_ticks[..] else { anyhow::bail!("--ctl-ticks SETTLE,TICKS") };
+                anyhow::ensure!(edits.iter().all(|e| e.at < run_ticks), "--ctl-drive: every edit's tick inside the run's {run_ticks} tick(s)");
+                println!("(ctl drive) the inputs DRIVEN by declared stand-ins (no carts); the controller's logic is the laid wiring only");
+                if let Some(f) = &ctl_settle_write {
+                    anyhow::ensure!(delta.iter().any(|d| d == f), "--ctl-settle-write {f}: not one of the --delta files");
+                }
+                for l in crate::waycell::ctl_drive_lines(&spec, &o, &edits, &watch, settle, run_ticks, ctl_settle_write.as_deref()).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             // (G1's W8 on R2) one mode a run, its companion flags present: a mis-shaped mode flag is an
             // error, never a fall-through into another mode
             let mode = crate::waycell::way_cell_mode(&crate::waycell::ModeFlags {
@@ -9730,6 +9796,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(leg_train[0] >= 1 && leg_train[1] >= 1, "--leg-train COUNT,SPACING: both at least 1");
                 let hold_p = (leg_hold.len() == 3).then(|| [leg_hold[0], leg_hold[1], leg_hold[2]]);
                 let mut leg_plants = crate::waycell::LegPlants {
+                    laid_controller: leg_laid_controller,
                     front: leg_plant_front,
                     no_token: leg_no_token,
                     empty: Vec::new(),
@@ -9812,19 +9879,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         None => vec![None],
                     };
                     let (mut runs, mut fails): (u32, Vec<String>) = (0, Vec::new());
+                    // (b8949c96, step (a)) the phases judged: 0..PERIOD, or --leg-timing-phases' windows; the runs in
+                    // parallel (each its own world), reported in the sequential order
+                    let mut phases: Vec<u32> = Vec::new();
+                    if leg_timing_phases.trim().is_empty() {
+                        phases.extend(0..period);
+                    } else {
+                        for w in leg_timing_phases.split(',').map(str::trim).filter(|w| !w.is_empty()) {
+                            let (a, b) = w.split_once("..").ok_or_else(|| anyhow::anyhow!("--leg-timing-phases {w}: A..B"))?;
+                            let (a, b): (u32, u32) = (a.trim().parse()?, b.trim().parse()?);
+                            phases.extend((a..b).filter(|t| *t < period));
+                        }
+                    }
+                    let mut jobs: Vec<(u32, Option<u32>, u32)> = Vec::new();
                     for &sp in &spacings {
                         for &af in &afters {
-                            for t0 in 0..period {
-                                runs += 1;
-                                let (lines, pass) = crate::waycell::leg_train_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], day, leg_train[0], sp, leg_gate, &leg_releases, af, leg_release_hold, ride_ticks, hold_p, watch_p, leg_plant_landing, Some((t0, 3)), &leg_plants).map_err(|e| anyhow::anyhow!(e))?;
-                                if !pass {
-                                    let failing: Vec<String> = lines.iter().filter(|l| l.contains(" BAR ") && l.ends_with("FAILS") || l.contains(" BAR ") && l.contains(": FAILS")).cloned().collect();
-                                    // the hurt napper's own line (its first-hurt tick and cell) and the releases
-                                    let hurt: Vec<String> = lines.iter().filter(|l| l.contains("first hurt") || l.contains("RESTED on the landing")).map(|l| l.replace("(leg train) ", "")).collect();
-                                    let failing: Vec<String> = failing.into_iter().chain(hurt).collect();
-                                    fails.push(format!("spacing {sp}, release after {af:?}, the world open at t {t0}..{}: {}", t0 + 3, failing.join(" | ")));
-                                }
+                            for &t0 in &phases {
+                                jobs.push((sp, af, t0));
                             }
+                        }
+                    }
+                    let next = std::sync::atomic::AtomicUsize::new(0);
+                    let results: std::sync::Mutex<Vec<Option<Result<(Vec<String>, bool), String>>>> = std::sync::Mutex::new(vec![None; jobs.len()]);
+                    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(leg_timing_threads.max(1) as usize).min(jobs.len().max(1));
+                    std::thread::scope(|s| {
+                        for _ in 0..workers {
+                            s.spawn(|| loop {
+                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(&(sp, af, t0)) = jobs.get(i) else { break };
+                                let r = crate::waycell::leg_train_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], day, leg_train[0], sp, leg_gate, &leg_releases, af, leg_release_hold, ride_ticks, hold_p, watch_p, leg_plant_landing, Some((t0, 3)), &leg_plants);
+                                results.lock().unwrap()[i] = Some(r);
+                            });
+                        }
+                    });
+                    let results = results.into_inner().unwrap();
+                    for (i, &(sp, af, t0)) in jobs.iter().enumerate() {
+                        runs += 1;
+                        let (lines, pass) = results[i].clone().expect("every job ran").map_err(|e| anyhow::anyhow!(e))?;
+                        if !pass {
+                            let failing: Vec<String> = lines.iter().filter(|l| l.contains(" BAR ") && l.ends_with("FAILS") || l.contains(" BAR ") && l.contains(": FAILS")).cloned().collect();
+                            // the hurt napper's own line (its first-hurt tick and cell) and the releases
+                            let hurt: Vec<String> = lines.iter().filter(|l| l.contains("first hurt") || l.contains("RESTED on the landing")).map(|l| l.replace("(leg train) ", "")).collect();
+                            let failing: Vec<String> = failing.into_iter().chain(hurt).collect();
+                            fails.push(format!("spacing {sp}, release after {af:?}, the world open at t {t0}..{}: {}", t0 + 3, failing.join(" | ")));
                         }
                     }
                     println!(

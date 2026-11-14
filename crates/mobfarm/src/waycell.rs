@@ -303,7 +303,16 @@ fn place_overrides(w: &mut redsim::world::World, explicit: usize, cells: &[(Bloc
     if !noop.is_empty() {
         return Err(format!("{} --extra override(s) change nothing (ironspec 04:07: a no-op override fails the run): {}", noop.len(), noop.join("; ")));
     }
+    // (ironspec 11:52a) an owner file may clear a cell, then re-lay it: only each cell's LAST state is laid and read back
+    let mut last_at: std::collections::HashMap<BlockPos, usize> = std::collections::HashMap::new();
+    for (i, (p, _)) in laid.iter().enumerate() {
+        last_at.insert(*p, i);
+    }
+    let laid: Vec<(BlockPos, Block)> = laid.iter().enumerate().filter(|(i, (p, _))| last_at.get(p) == Some(i)).map(|(_, c)| c.clone()).collect();
     place_checked(w, &laid)?;
+    // every laid cell gets its own neighbour update (the judge's placement: a comparator's output, a torch's lit state,
+    // a dust's power and shape recomputed from its neighbours, not taken from the file's written state)
+    w.place_updates(&laid);
     // (R6; ironspec 21:55's standing rule) every laid cell READ BACK: a cell the world doesn't hold as
     // laid (a rail that popped, a dust that reshaped on its neighbours' updates) fails the run by name
     let mismatched: Vec<String> = laid.iter().filter(|(p, b)| w.get(*p) != *b).map(|(p, b)| format!("{p}: laid {b:?}, read back {:?}", w.get(*p))).collect();
@@ -701,6 +710,9 @@ pub enum R1Layout {
     #[default]
     Record7,
     V,
+    /// (step (a), the way-in controller car A) V's R1 with its north input a repeater fed from (7,-10,-6): the NOT-ready
+    /// stand-in a floor lever there on glass (7,-11,-6) (day-1's stand-in part, until car B), off the FC reader's support
+    VCtl,
 }
 
 impl std::str::FromStr for R1Layout {
@@ -709,7 +721,8 @@ impl std::str::FromStr for R1Layout {
         match s {
             "record7" => Ok(R1Layout::Record7),
             "v" | "V" => Ok(R1Layout::V),
-            _ => Err(format!("--r1-layout {s}: record7 or v")),
+            "v-ctl" => Ok(R1Layout::VCtl),
+            _ => Err(format!("--r1-layout {s}: record7, v or v-ctl")),
         }
     }
 }
@@ -744,6 +757,31 @@ pub const R1_BUILT_V: [([i32; 3], &str); 19] = [
     ([4, -10, -2], "minecraft:lever[face=floor,facing=north,powered=false]"),
     ([8, -10, -5], "minecraft:lever[face=wall,facing=west,powered=true]"),
 ];
+
+/// (step (a)) V's R1 for the way-in controller car A: R1_BUILT_V's cells and REST / DAY stand-ins, the NOT-ready stand-in a
+/// floor lever ON at (7,-10,-6) on glass (7,-11,-6) (R1's north input is car A's repeater (7,-10,-5) reading that cell)
+pub const R1_BUILT_VCTL: [([i32; 3], &str); 20] = {
+    let mut v = [([0, 0, 0], ""); 20];
+    let mut i = 0;
+    while i < 18 {
+        v[i] = R1_BUILT_V[i];
+        i += 1;
+    }
+    // R1's north input: car A's repeater facing north (input the NOT-ready stand-in below), not V's latch dust
+    v[11] = ([7, -10, -5], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]");
+    v[18] = ([7, -11, -6], "minecraft:glass");
+    v[19] = ([7, -10, -6], "minecraft:lever[face=floor,facing=north,powered=true]");
+    v
+};
+
+/// The NOT-ready stand-in lever of the layout: its cell and its ON / OFF states.
+pub fn not_ready_lever(o: &Opts) -> (BlockPos, &'static str, &'static str) {
+    let q = o.queue;
+    match o.r1_layout {
+        R1Layout::VCtl => (BlockPos::new(q[0] - 2, q[1], q[2] - 2), "minecraft:lever[face=floor,facing=north,powered=true]", "minecraft:lever[face=floor,facing=north,powered=false]"),
+        _ => (not_ready_lever_of(q), "minecraft:lever[face=wall,facing=west,powered=true]", "minecraft:lever[face=wall,facing=west,powered=false]"),
+    }
+}
 
 /// Every fluid cell (water or lava, waterlogged blocks included) of the chunk box `[x0, z0, x1, z1]`
 /// (y -64..=80) given its fluid tick in 5 gt, as a placement with updates schedules it; the count.
@@ -1045,6 +1083,7 @@ pub fn r1_cells(o: &Opts) -> Result<Vec<(BlockPos, Block)>, String> {
         let (cells, home): (&[([i32; 3], &str)], P) = match o.r1_layout {
             R1Layout::Record7 => (&R1_BUILT, [9, -14, -4]),
             R1Layout::V => (&R1_BUILT_V, [9, -10, -4]),
+            R1Layout::VCtl => (&R1_BUILT_VCTL, [9, -10, -4]),
         };
         let d = [o.queue[0] - home[0], o.queue[1] - home[1], o.queue[2] - home[2]];
         return cells.iter().map(|(p, s)| Ok((BlockPos::new(p[0] + d[0], p[1] + d[1], p[2] + d[2]), Block::parse(s).map_err(|e| format!("R1 {s}: {e}"))?))).collect();
@@ -1084,8 +1123,8 @@ fn release(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
     if o.south && o.r1_built {
         // NOT-ready's fall: onechunk's wall lever (today (8,-14,-5): queue + (-1,0,-1)) flipped OFF
         // between ticks, READ BACK (G1 Nov 14 10:21, 414aab242 (4)): a lever before, the off state after
-        let p = not_ready_lever_of(q);
-        let off = Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?;
+        let (p, _, off_s) = not_ready_lever(o);
+        let off = Block::parse(off_s).map_err(|e| e.to_string())?;
         if !w.get(p).to_string().starts_with("minecraft:lever") {
             return Err(format!("the release: NOT-ready's lever {p} holds {}, not a lever (R1 not built as the bench assumes)", w.get(p)));
         }
@@ -4260,8 +4299,13 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
 /// (R6; ironspec 03:34 / 03:36, G1 03:34) The leg train's planted rows: a ridden cart at rest on the
 /// front (the drop must never land on it: the falling rider dies), the token's evidence removed (the hold
 /// always powered: two nappers back to back), empty carts at rest where the riderless fault parks them.
+/// (ironspec Nov 14 11:20a: fault injection, self-recovery, riderless or empty carts and jams are OUT of scope: those
+/// plants leave this struct with the controller model when the way-in controller is LAID, `laid_controller`)
 #[derive(Clone, Debug, Default)]
 pub struct LegPlants {
+    /// (b8949c96 Nov 14, step (a)) the way-in controller is LAID in the design (its own wiring powers P1 and H2): the
+    /// bench emulates no controller (no support swap, no H2 drive, no token), it only sends the nappers and judges
+    pub laid_controller: bool,
     pub front: bool,
     pub no_token: bool,
     pub empty: Vec<[f64; 3]>,
@@ -4276,8 +4320,8 @@ pub struct LegPlants {
     pub front_recovery: Option<u32>,
     /// (ironspec 05:57) the recovery's sensor VILLAGER-keyed (a rider's box only) instead of cart-keyed
     pub recovery_villager_keyed: bool,
-    /// (day-1 / G1 05:23, ironspec 05:59 (2)) P1's exit detector laid at this cell (by --extra): its rising edge, read
-    /// from the world, CLEARS the token (otherwise the bench clears by the cart's position, an instant emulation)
+    /// (day-1 / G1 05:23, ironspec 05:59 (2)) P1's exit detector at this cell: its rising edge, read from the world,
+    /// CLEARS the token (required with a hold)
     pub exit_sensor: Option<P>,
     /// (day-1 06:08) the recovery's front sensor = the ARRIVAL DETECTOR read from the world (any cart, its 20-gt hold)
     pub recovery_by_arrival: bool,
@@ -4285,15 +4329,16 @@ pub struct LegPlants {
     /// --extra) and RESET by the token's CLEAR
     pub recovery_approach: Option<P>,
     /// (G1 06:18 (2)) the release gated on the front read clear too (P1 powered = the token AND the front clear, by the
-    /// recovery's sensor)
+    /// front sensor)
     pub release_needs_front_clear: bool,
     /// (ironspec 06:28 (2)) the token SETs only on a departure press that follows an arrival press since the last CLEAR
     /// (this napper's own landing): a perching napper that presses no new arrival leaves the token unset
     pub token_sequence: bool,
-    /// (tick-exact 06:28, ironspec 06:31) the front-clear sensor as a named block read from the world (e.g. the high
-    /// string's tripwire at (9,-9,-4), laid with its hooks by --extra): "occupied" while its state reads powered=true
+    /// (tick-exact 06:28, ironspec 06:31) the front-clear sensor, a named block read from the world (the arrival detector
+    /// (9,-9,-5) at V): "occupied" while its state reads powered=true
     pub front_sensor: Option<P>,
-    /// (ironspec 06:31 (1)) day-1's dispatch, EMULATED: no new napper enters the way-in while this many are in flight
+    /// (ironspec 06:31 (1)) day-1's room term: no new napper enters the way-in while this many are in flight (sent down
+    /// the leg minus the departure presses)
     pub dispatch_cap: Option<u32>,
     /// the recovery WITHOUT its arrival condition (the unsafe form ruled at 05:52, kept to reproduce its death)
     pub recovery_unsafe: bool,
@@ -4303,7 +4348,7 @@ pub struct LegPlants {
     pub p1_pulse: Option<u32>,
     /// (ironspec 09:18a) P1 OCCUPIED as a laid cell's `powered` (a tripwire string or hook, a detector), read from the world
     pub p1_occupied: Option<P>,
-    /// (ironspec 09:18a) P1 OCCUPIED EMULATED: a tripwire band (x0,y0,z0,x1,y1,z1): any entity's box in it
+    /// (ironspec 09:18a) P1 OCCUPIED EMULATED: a tripwire band (x0,y0,z0,x1,y1,z1): any entity's box in it (refused)
     pub p1_band: Option<[f64; 6]>,
     /// (day-1 09:46, form B) the upstream hold H2's rail cell (rests and arrivals printed)
     pub hold2: Option<P>,
@@ -4364,9 +4409,127 @@ fn xz_overlap(a: &[f64; 6], b: &[f64; 6]) -> (f64, f64) {
 /// arrival and its departure; every rider unhurt; the departures in the arrivals' order (FIFO); every
 /// stamp under 1,200 gt; with releases, every cart departs. Returns the lines and the verdict.
 #[allow(clippy::too_many_arguments)]
+/// (b8949c96 Nov 14, step (a): the way-in controller's wiring bench) The design with the bench's cells (the --delta owner
+/// files, --extra, R1's built cells with its declared stand-ins) laid as the leg train lays them, NO carts sent: the
+/// `drive` edits made at their run ticks (the inputs driven by declared stand-ins: a detector's reader cell set to a
+/// redstone block and back, a lever flipped), and every `watch` cell's state printed each time it changes, with the
+/// start state after `settle` ticks. Read-only of the controller's logic: nothing here models it.
+pub fn ctl_drive_lines(spec: &FarmSpec, o: &Opts, drive: &[crate::vhits::Edit], watch: &[P], settle: u32, ticks: u32, settled_out: Option<&str>) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: false, ..RunOpts::steady(1, settle + ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o)?);
+    let mut out = place_overrides(&mut run.world, o.extra.len() - o.delta_n, &cells)?;
+    let to_block = |e: &crate::vhits::Edit| -> Result<Block, String> {
+        match &e.to {
+            crate::vhits::EditTo::State(s) => Block::parse(s).map_err(|er| format!("--ctl-drive {s}: {er}")),
+            crate::vhits::EditTo::Prop(..) => Err("--ctl-drive takes whole states (T:X,Y,Z=STATE)".to_string()),
+        }
+    };
+    // the tick-0 stand-ins are the rest state's inputs: applied before the settle
+    for e in drive.iter().filter(|e| e.at == 0) {
+        let b = to_block(e)?;
+        run.world.set_block(e.cell, b.clone(), redsim::world::flags::ALL);
+        out.push(format!("(ctl drive) before the settle: the stand-in {} set to {b}", e.cell));
+    }
+    for _ in 0..settle {
+        run.tick();
+    }
+    if let Some(path) = settled_out {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let mut changed = 0;
+        let mut lines_out = Vec::new();
+        for line in text.lines() {
+            let t = line.trim();
+            let mut parts = t.splitn(2, char::is_whitespace);
+            let (Some(c), Some(st)) = (parts.next(), parts.next()) else {
+                lines_out.push(line.to_string());
+                continue;
+            };
+            if t.starts_with('#') {
+                lines_out.push(line.to_string());
+                continue;
+            }
+            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("{path}: {c}: {e}"))?;
+            let now = run.world.get(BlockPos::new(v[0], v[1], v[2])).to_string();
+            if now != st.trim() {
+                changed += 1;
+                out.push(format!("(ctl settle) {c}: {} -> {now}", st.trim()));
+            }
+            lines_out.push(format!("{c} {now}"));
+        }
+        std::fs::write(path, lines_out.join("\n") + "\n").map_err(|e| format!("{path}: {e}"))?;
+        out.push(format!("(ctl settle) {path}: {changed} cell line(s) rewritten with the settled state (after {settle} settle tick(s))"));
+    }
+    let state = |w: &redsim::world::World, p: P| w.get(BlockPos::new(p[0], p[1], p[2])).to_string().trim_start_matches("minecraft:").to_string();
+    let mut last: Vec<String> = watch.iter().map(|p| state(&run.world, *p)).collect();
+    out.push(format!("(ctl drive) after {settle} settle tick(s) (run tick 0 follows): {}", watch.iter().zip(&last).map(|(p, s)| format!("({},{},{}) {s}", p[0], p[1], p[2])).collect::<Vec<_>>().join("; ")));
+    for k in 0..ticks {
+        for e in drive.iter().filter(|e| e.at == k && k > 0) {
+            let b = to_block(e)?;
+            run.world.set_block(e.cell, b.clone(), redsim::world::flags::ALL);
+            if run.world.get(e.cell) != b {
+                return Err(format!("--ctl-drive {k}:{}: set {b}, read back {}", e.cell, run.world.get(e.cell)));
+            }
+            out.push(format!("(ctl drive) run tick {k}: the stand-in {} set to {b}", e.cell));
+        }
+        run.tick();
+        for (i, p) in watch.iter().enumerate() {
+            let s = state(&run.world, *p);
+            if s != last[i] {
+                out.push(format!("(ctl drive) t {k}: ({},{},{}) {} -> {s}", p[0], p[1], p[2], last[i]));
+                last[i] = s;
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, count: u32, spacing: u32, gate: Option<u32>, releases: &[u32], release_after: Option<u32>, hold_gt: u32, ticks: u32, hold: Option<P>, watch_cell: Option<P>, plant_landing: bool, freeze: Option<(u32, u32)>, plants: &LegPlants) -> Result<(Vec<String>, bool), String> {
     if !(o.south && o.r1_built) {
         return Err("--leg-train needs the south staircase with the built R1 (--south --r1-built): its release is NOT-ready's lever, re-armed after each release".to_string());
+    }
+    // (G1 Nov 14 10:21 / ironspec 10:45a (ii)) the controller reads DECLARED detector signals only: the token's CLEAR is the
+    // exit detector's edge (no position-emulated CLEAR) and the front-clear gate's sensor a laid block
+    if hold.is_some() && plants.exit_sensor.is_none() && !plants.laid_controller {
+        return Err("the token's CLEAR needs the declared exit detector (--leg-exit-sensor X,Y,Z): the position-emulated CLEAR is gone (G1 Nov 14 10:21: controller models read declared signals only)".to_string());
+    }
+    if plants.release_needs_front_clear && plants.front_sensor.is_none() && !plants.recovery_by_arrival {
+        return Err("--leg-release-needs-front-clear reads the front sensor: give --leg-front-sensor X,Y,Z (a laid block read from the world)".to_string());
+    }
+    if plants.front_recovery.is_some() && plants.front_sensor.is_none() && !plants.recovery_by_arrival {
+        return Err("the recovery's front sensor must be a laid block (--leg-front-sensor X,Y,Z, or --leg-recovery-by-arrival: the arrival detector itself): presence by entity boxes is gone".to_string());
+    }
+    if plants.recovery_villager_keyed {
+        return Err("--leg-recovery-villager-keyed reads riders' boxes (an emulated sensor): gone".to_string());
+    }
+    if plants.front_recovery.is_some() && !plants.recovery_without_waiter && plants.recovery_approach.is_none() {
+        return Err("the recovery's \"a napper waits at P1\" by position is gone: --leg-recovery-without-waiter (the ruled form) or an approach detector (--leg-recovery-approach X,Y,Z)".to_string());
+    }
+    if plants.p1_band.is_some() {
+        return Err("--leg-p1-band (P1 OCCUPIED by entity boxes, an emulated tripwire) is gone: a laid sensor (--leg-p1-occupied X,Y,Z) or form B's latch (--leg-latch-detector)".to_string());
+    }
+    // (step (a)) with the controller LAID, the bench's controller model is off: no flag of the model may be given
+    if plants.laid_controller {
+        let model: Vec<&str> = [
+            (hold.is_some(), "--leg-hold"),
+            (plants.p1_pulse.is_some(), "--leg-p1-pulse"),
+            (plants.front_recovery.is_some(), "--leg-front-recovery"),
+            (plants.latch_detector.is_some(), "--leg-latch-detector"),
+            (plants.hold2_drive.is_some(), "--leg-hold2-drive"),
+            (plants.release_needs_front_clear, "--leg-release-needs-front-clear"),
+            (plants.token_at.is_some(), "--leg-token-at"),
+            (plants.no_token, "--leg-no-token"),
+        ]
+        .into_iter()
+        .filter_map(|(on, f)| on.then_some(f))
+        .collect();
+        if !model.is_empty() {
+            return Err(format!("--leg-laid-controller: the bench's controller model is off, so {} cannot be given (the laid wiring powers P1 and H2)", model.join(", ")));
+        }
     }
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
@@ -4390,8 +4553,8 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
     let arrival = [q[0], q[1] + 1, q[2] - 1];
     let departure = [q[0], q[1] - 1, q[2] + 1];
     let rend = rail_end_of(q);
-    let lever = not_ready_lever_of(q);
-    let lever_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
+    let (lever, lever_on_s, _) = not_ready_lever(o);
+    let lever_on = Block::parse(lever_on_s).map_err(|e| e.to_string())?;
     // per cart: (cart id, rider id, spawned at, arrival t, departure t, fell t, waits-in cell, least health,
     // first health, largest stamp age, off-rail ticks, first off-rail (t, cell))
     struct C {
@@ -4420,6 +4583,11 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
         wait_ticks: u32,
         contacts: Vec<String>,
         returned: Option<u32>,
+        // (G1 Nov 14 10:21) the arrival / departure detector's rising edge attributed to this napper (its declared events)
+        arr_edge: Option<u32>,
+        dep_edge: Option<u32>,
+        // the napper's HOME (its own bed) at its departure, and at the run's end if it never departed (HOME LOST)
+        home_at_departure: Option<bool>,
         clear_t: Option<(u32, u32)>,
         // (ironspec 09:18a / G1 09:22) P1's sense geometry: the cart's centre range at rest in P1 and in the
         // second-in-queue cell (P1 + (0,1,1)); with a band: the rider's box against it at the P1 rests (the least
@@ -4728,7 +4896,7 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
         if next_spawn == Some(t) && (cs.len() as u32) < count {
             let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
             let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id);
-            cs.push(C { cart, rider, at: t, arrival: None, departure: None, fell: None, rest: None, hmin: f32::INFINITY, hurt_at: None, hmin_stop: f32::INFINITY, entry_t: None, v_col: None, v_shaft: None, seat_min: f64::INFINITY, seat_rest_min: f64::INFINITY, seat_rest_max: f64::NEG_INFINITY, front_z: None, ball_in: None, stamp_now: 0, stamp_arrival: None, seat_first: None, seat_last: f64::NAN, wait_ticks: 0, contacts: Vec::new(), returned: None, clear_t: None, p1_rest: None, q2_rest: None, p1_band_ov: f64::INFINITY, p1_cart_ov: f64::NEG_INFINITY, q2_band_ov: f64::NEG_INFINITY, p1_det_on: 0, p1_enter: None, q2_enter: None, p1_rest_first: None, other_rests: Vec::new(), h2_first: None, h2_rest: 0, h0: None, stamp: 0, off: 0, first_off: None, gone: None, released: false, held_at_hold: 0, passed_hold: false, watch: None, col_check: false, shaft_check: false });
+            cs.push(C { cart, rider, at: t, arrival: None, departure: None, fell: None, rest: None, hmin: f32::INFINITY, hurt_at: None, hmin_stop: f32::INFINITY, entry_t: None, v_col: None, v_shaft: None, seat_min: f64::INFINITY, seat_rest_min: f64::INFINITY, seat_rest_max: f64::NEG_INFINITY, front_z: None, ball_in: None, stamp_now: 0, stamp_arrival: None, seat_first: None, seat_last: f64::NAN, wait_ticks: 0, contacts: Vec::new(), returned: None, arr_edge: None, dep_edge: None, home_at_departure: None, clear_t: None, p1_rest: None, q2_rest: None, p1_band_ov: f64::INFINITY, p1_cart_ov: f64::NEG_INFINITY, q2_band_ov: f64::NEG_INFINITY, p1_det_on: 0, p1_enter: None, q2_enter: None, p1_rest_first: None, other_rests: Vec::new(), h2_first: None, h2_rest: 0, h0: None, stamp: 0, off: 0, first_off: None, gone: None, released: false, held_at_hold: 0, passed_hold: false, watch: None, col_check: false, shaft_check: false });
             next_spawn = if (cs.len() as u32) < count && gate.is_none() { Some(t + spacing.max(1)) } else { None };
         }
         if releases.contains(&t) || release_at == Some(t) {
@@ -4756,13 +4924,6 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
             armed = true;
             events.push(format!("t {t}: a SET and a CLEAR forced into the same tick (planted: --leg-coincident)"));
         }
-        // every cart's cell this tick (the train's and the planted ones), for the drop checks
-        let occ: Vec<(u32, [i32; 3])> = cs
-            .iter()
-            .map(|c| c.cart)
-            .chain(planted.iter().copied())
-            .filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32])))
-            .collect();
         // (ironspec 03:36 (3)) every cart's box and its rider's box this tick (the drop's footprint judged on
         // boxes, never on cells: a cart resting on the front reaches 0.377 into the column's cell)
         let occ_boxes: Vec<(u32, [f64; 6], Option<[f64; 6]>)> = cs
@@ -4824,6 +4985,21 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
         // (G1 03:34 (1)) the detectors' presses, read from the world
         let pressed = |p: P| run.world.get(BlockPos::new(p[0], p[1], p[2])).to_string().contains("powered=true");
         let (arr_now, dep_now) = (pressed(arrival), pressed(departure));
+        // (G1 Nov 14 10:21 / ironspec 10:45a (iii)) a napper's arrival and departure are its detector's RISING EDGE (the
+        // declared signal), attributed to the napper whose cart's box is inside that detector's search box (the game's
+        // DetectorRailBlock.getSearchBB: the cell inset 0.2 at the sides, its top 0.2 down) at the edge
+        let in_search_box = |d: P, id: u32| {
+            let b = [d[0] as f64 + 0.2, d[1] as f64, d[2] as f64 + 0.2, d[0] as f64 + 0.8, d[1] as f64 + 0.8, d[2] as f64 + 0.8];
+            run.world.entities.list.iter().find(|e| e.id == id && !e.removed).is_some_and(|e| e.bb.min_x < b[3] && e.bb.max_x > b[0] && e.bb.min_y < b[4] && e.bb.max_y > b[1] && e.bb.min_z < b[5] && e.bb.max_z > b[2])
+        };
+        let arr_by: Option<usize> = (arr_now && !arr_was).then(|| cs.iter().position(|c| c.arrival.is_none() && in_search_box(arrival, c.cart))).flatten();
+        let dep_by: Option<usize> = (dep_now && !dep_was).then(|| cs.iter().position(|c| c.departure.is_none() && c.arrival.is_some() && in_search_box(departure, c.cart))).flatten();
+        if let Some(k) = arr_by {
+            cs[k].arr_edge = Some(t);
+        }
+        if let Some(k) = dep_by {
+            cs[k].dep_edge = Some(t);
+        }
         if arr_now && !arr_was {
             arr_presses.push(t);
             // (ironspec 07:38r) the ARRIVED latch: the arrival detector's rising edge after the release (when armed);
@@ -4993,12 +5169,14 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
                     c.entry_t = Some(t);
                 }
             }
-            if c.arrival.is_none() && cell == arrival {
-                c.arrival = Some(t);
+            if c.arrival.is_none() && c.arr_edge.is_some() {
+                c.arrival = c.arr_edge;
                 c.stamp_arrival = Some(c.stamp_now);
             }
-            if c.departure.is_none() && cell == departure && c.arrival.is_some() {
-                c.departure = Some(t);
+            if c.departure.is_none() && c.dep_edge.is_some() && c.arrival.is_some() {
+                c.departure = c.dep_edge;
+                // (G1 Nov 14 10:21: HOME LOST counted) the napper's HOME (its own bed) at its departure
+                c.home_at_departure = c.rider.and_then(|rid| run.world.entities.list.iter().position(|r| r.id == rid && !r.removed)).map(|ri| redsim::entity::mob::ai::brain::brain(&run.world, ri).home == Some(BlockPos::new(bed[0], bed[1], bed[2])));
                 // (G1 03:39b) the departing cart's box (and its rider's) at the departure press, against the
                 // column's footprint: past it by construction
                 let me_box = occ_boxes.iter().find(|(id, _, _)| *id == c.cart).map(|(_, b, r)| (*b, *r));
@@ -5398,7 +5576,7 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
     let stamp_max = cs.iter().map(|c| c.stamp).max().unwrap_or(0);
     let gone = cs.iter().filter(|c| c.gone.is_some() && c.fell.is_none()).count();
     let all_depart = (releases.is_empty() && release_after.is_none()) || departed.len() == cs.len();
-    let bars = [
+    let mut bars = vec![
         (format!("every napper arrives ({arrived} of {})", cs.len()), arrived == cs.len() && cs.len() as u32 == count),
         (format!("none off a rail between its arrival and its departure ({off_total} tick(s))"), off_total == 0),
         (format!("no cart lost before its fall ({gone})"), gone == 0),
@@ -5507,6 +5685,63 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
             cs.iter().all(|c| c.returned.is_none()) && dep_presses.len() <= cs.iter().filter(|c| c.departure.is_some()).count() + planted_departed.len(),
         ),
     ];
+    // (G1 Nov 14 10:21 / ironspec 10:45a (iii)) the cover edge JUDGED: every napper that ARRIVED rested on the front with
+    // its cart's centre z below the edge where its box still meets the arrival detector's search box (the detector's
+    // cell + 0.8 (the search box's far side) + 0.49 (the cart's half width): -3.71 at V's front); 0 arrivals: NOT JUDGED
+    {
+        let edge = arrival[2] as f64 + 0.8 + 0.49;
+        let judged: Vec<(usize, Option<f64>)> = cs.iter().enumerate().filter(|(_, c)| c.arrival.is_some()).map(|(k, c)| (k, c.front_z.map(|(_, b)| b))).collect();
+        let bad: Vec<String> = judged.iter().filter(|(_, z)| z.is_none_or(|z| z >= edge)).map(|(k, z)| z.map_or(format!("napper {k} never rested on the front"), |z| format!("napper {k} rested at z {z:.4}"))).collect();
+        let worst = judged.iter().filter_map(|(_, z)| *z).fold(f64::NEG_INFINITY, f64::max);
+        bars.push((
+            format!(
+                "the cover edge: every arrived napper rests on the front inside the arrival detector's reach (its centre z < {edge:.4}, the detector's search box + the cart's half width) over {} arrival(s){}{}",
+                judged.len(),
+                if worst.is_finite() { format!(", the greatest rest z {worst:.4} (margin {:.4})", edge - worst) } else { String::new() },
+                if judged.is_empty() { ": NOT JUDGED (no arrival)".to_string() } else if bad.is_empty() { String::new() } else { format!(": OUTSIDE {}", bad.join("; ")) }
+            ),
+            !judged.is_empty() && bad.is_empty(),
+        ));
+    }
+    // (G1 Nov 14 10:21: HOME LOST counted) every napper holds its own bed as HOME at its departure (or at the run's end when
+    // it never departed)
+    {
+        let bed_bp = BlockPos::new(bed[0], bed[1], bed[2]);
+        let lost: Vec<String> = cs
+            .iter()
+            .enumerate()
+            .filter_map(|(k, c)| {
+                let home = c.home_at_departure.or_else(|| c.rider.and_then(|rid| run.world.entities.list.iter().position(|r| r.id == rid && !r.removed)).map(|ri| redsim::entity::mob::ai::brain::brain(&run.world, ri).home == Some(bed_bp)));
+                match home {
+                    Some(true) => None,
+                    Some(false) => Some(format!("napper {k} {}", if c.departure.is_some() { "at its departure" } else { "at the run's end" })),
+                    None => Some(format!("napper {k}: its rider gone (NOT JUDGED)")),
+                }
+            })
+            .collect();
+        bars.push((format!("HOME kept: every napper's HOME is its own bed {bed:?} at its departure or the run's end{}", if lost.is_empty() { String::new() } else { format!(": HOME LOST {}", lost.join("; ")) }), lost.is_empty()));
+    }
+    // (G1 Nov 14 10:21: never-arriving rows) a planted jam NOT MET by any napper leaves its row NOT JUDGED (it fails); and
+    // every departure the no-return bar counts is a napper that ARRIVED (the edge attribution above) or a planted cart
+    {
+        let unmet: Vec<String> = planted.iter().chain(ridden_planted.iter()).filter(|id| !planted_met.contains_key(id)).map(|id| format!("cart {id}")).collect();
+        if !planted.is_empty() || !ridden_planted.is_empty() {
+            bars.push((format!("every planted jam is MET by a napper (else the row is NOT JUDGED){}", if unmet.is_empty() { String::new() } else { format!(": NOT MET {}", unmet.join(", ")) }), unmet.is_empty()));
+        }
+    }
+    // (ironspec 10:45a (iv)) geometry: cells laid by --extra over the design are a geometry no record holds (printed;
+    // the delta's cells come from the owner file read whole)
+    let extra_n = o.extra.len() - o.delta_n;
+    out.push(format!(
+        "(leg train) geometry: the design{} + {extra_n} --extra override cell(s){}; {}",
+        if o.delta_n > 0 { format!(" + the owner file's {} cell(s) (--delta)", o.delta_n) } else { String::new() },
+        if extra_n > 0 { ": rows with --extra cells judge a geometry NO RECORD HOLDS (not citable)" } else { "" },
+        if plants.laid_controller {
+            "the way-in controller LAID in the owner files (its own wiring drives P1 and H2): the bench emulates no controller (no support swap, no H2 drive, no token), it sends the nappers and throws the R1 stand-in lever only"
+        } else {
+            "the controller EMULATED by the bench (P1's support swapped to a redstone block while its output is on), its inputs the DECLARED detectors only"
+        }
+    ));
     let pass = bars.iter().all(|(_, ok)| *ok);
     // (day-1 05:07, G1 05:03) the token's spans: each SET to its CLEAR, P1 powered for that long; the presses
     // suppressed (the stall row) and ignored as disarmed
@@ -5550,19 +5785,6 @@ pub fn leg_train_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64;
                     String::new()
                 })
         ));
-    }
-    // (ironspec 08:16a / G1 06:54 (a)) the cover edge, per row: the greatest z any napper's cart rested at on the front
-    // against the arrival detector's search-box edge z -3.71 (the game's own, DetectorRailBlock.getSearchBB's 0.2 inset)
-    {
-        let rests: Vec<(usize, f64)> = cs.iter().enumerate().filter_map(|(k, c)| c.front_z.map(|(_, b)| (k, b))).collect();
-        if let Some((k, z)) = rests.iter().copied().max_by(|a, b| a.1.total_cmp(&b.1)) {
-            out.push(format!(
-                "(leg train) the cover edge: the greatest rest z on the front over {} napper(s) {z:.4} (napper {k}) vs the arrival detector's edge -3.71: margin {:.4}{}",
-                rests.len(),
-                -3.71 - z,
-                if z < -3.71 { "" } else { " OUTSIDE THE COVER" }
-            ));
-        }
     }
     // (ironspec 06:31 (1)) the way-in's occupancy: the most nappers in flight at once (spawned, not yet departed from
     // the front), against its 3 dry waiting places, and the dispatch held by the cap
