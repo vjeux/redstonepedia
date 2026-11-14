@@ -2295,6 +2295,86 @@ pub enum MobfarmCmd {
         /// in the design frame.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         offset: Vec<i32>,
+        /// (ironfarm, the battery's harness; ironspec 12:05p (1), G1 12:11: the first rev 3.1 rehearsal's FALLBACK
+        /// ROLE CELLS, labelled) `FX,FY,FZ=TX,TY,TZ`: a drive write at the cell F throws the declared lever at T
+        /// instead (e.g. a lane's hold trapdoor (x,16,0) -> day-1's `hold:<lane>` line end (x,16,-3)). Repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        throw_map: Vec<String>,
+        /// (ironfarm, ironspec 12:05p (1)) The way-in queue's seat X,Y,Z (V's (9,-10,-4)): the queue tier's cells
+        /// follow its y (the tool assumed the bed y + 13).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        queue_seat: Vec<i32>,
+        /// (ironfarm, the battery: weather and lightning, ironspec 11:20a) The world's weather: `off` (none), `cycle`
+        /// (the natural cycle from its stationary state), `rain` or `thunder` (forced from the start for the run;
+        /// natural lightning in thunder).
+        #[arg(long, default_value = "off")]
+        weather: String,
+        /// (ironfarm, the battery: partial unloads, G1 12:18) A level-32 dwell `START:LEN` (ticks from the start):
+        /// the farm's chunks at ticking level 32, blocks ticking, entities frozen (`liveness::freeze32` / `thaw32`).
+        /// Repeatable.
+        #[arg(long)]
+        freeze32: Vec<String>,
+        /// (ironfarm, G1 12:10 (3)) The row claims WIRED (every part on its own wiring): any lever the harness throws
+        /// fails it by name (a planted bench-driven part in a wired row is the control).
+        #[arg(long)]
+        wired: bool,
+        /// (ironfarm, 58f770cc 12:58) Drive the RE-LAID stop (V rev 3.1's latch file) by its emulated controller,
+        /// exactly as bedtier-bench's adopted controller: its four tagged levers (stop-rls, stop-arm, stop-k, stop-f)
+        /// thrown from ARM / PULSE / P / PRESS read off the world (bench-driven).
+        #[arg(long)]
+        relaid_stop: bool,
+        /// (ironfarm, G1 13:22 (b): the planted portal control) Remove this portal-frame obsidian cell X,Y,Z after the
+        /// paste (with its neighbour updates): the portal read-back must then fail the row by name.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        plant_frame_gap: Vec<i32>,
+        /// (ironfarm, G1 13:24 (2): natural spawns are in scope) The natural spawner ON (Hard, around the AFK spot): the
+        /// battery's spawner-on axis; off by default (the row's header then says "natural spawns NOT EXERCISED").
+        #[arg(long)]
+        spawner_on: bool,
+        /// (ironfarm, ironspec 13:38p (2): 26.3 spawns mobs only near a player) The player's AFK spot X,Y,Z (design
+        /// frame) for `--spawner-on`; default the run's own spot.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        afk: Vec<i32>,
+        /// (ironfarm, ironspec 13:47p (2)) The record's expected portal planes OVERWORLD,NETHER (V: 2,1; the loader part
+        /// adds 1 + 1) for the `portal-frames` precondition: a missing plane fails by count.
+        #[arg(long, value_delimiter = ',')]
+        expect_planes: Vec<usize>,
+        /// (ironfarm, G1 13:58 (b): the harness validated on the record of record) The record's split row isn't the
+        /// in-chunk one at y 26: the J / K lever writes (x,26,9) are skipped (counted), the run judged up to the lift top.
+        #[arg(long)]
+        no_split: bool,
+        /// (ironfarm, ironspec 14:37c (1): NO UNDECLARED THROWS) Run a throw whose lever isn't a declared `emulated:`
+        /// stand-in with a `drive=` role (or one reached through `--throw-map`), each labelled UNDECLARED and the row
+        /// labelled "fallback throws: undeclared" (no such row cites); without it such a throw fails the run by name.
+        #[arg(long)]
+        allow_undeclared_throws: bool,
+        /// (ironfarm, b8949c96 14:26) Drive P1's stand-in lever (9,20,5) by its evidence-gated rule: ON for 12 gt on the
+        /// rising edge of TOKEN ∧ FRONT CLEAR ∧ P1 OCCUPIED, each throw printed with its inputs.
+        #[arg(long)]
+        p1_release: bool,
+        /// (ironfarm, loaderlay 14:26: LINE E's swept margin) Lane 7's slope release tick after REL (default 96); its
+        /// lever is the file's `slope-release:7` cell (default (-4,12,6)).
+        #[arg(long, allow_hyphen_values = true)]
+        lane7_rel: Option<i64>,
+        /// (ironfarm, loaderlay 14:26) Lane 7's slope release width in gt (default 18).
+        #[arg(long)]
+        lane7_width: Option<i64>,
+        /// (ironfarm, day-1 14:37) Drive the R-hold release levers `r-hold:<lane>`: D(x) (x,24,8)'s rise + 34 gt for
+        /// 20 gt, only while lane x's returning napper is seated at its R hold (x-2,24,7).
+        #[arg(long)]
+        r_hold: bool,
+        /// (ironfarm, dfb89499 14:46) Drive R1's inputs by role: `day` / `rest` from the day time, `not-ready` = NOT
+        /// RS_ready (set on (7,-3,4)'s rise, reset on (9,-11,-3)'s).
+        #[arg(long)]
+        r1_inputs: bool,
+        /// (ironfarm, ironspec 14:41c (2): the player sleeping through a night) Skip the night at these ticks
+        /// (comma-separated): the day time jumps to the next morning, the game clock doesn't.
+        #[arg(long, value_delimiter = ',')]
+        night_skip: Vec<i64>,
+        /// (ironfarm, ironspec 14:53r (1)) The Nether kill emulated (game-equivalent per a/1751284275942532): each golem
+        /// in the modeled Nether killed this many gt after it lands (the battery uses 160).
+        #[arg(long)]
+        nether_kill_after: Option<i64>,
         /// (day-1's Delta, ironspec 12:41 (4)) Shift the napper hold's pulse (ARM3 + 10..22) and every
         /// tap keyed off it (the K windows, PRESENT, J(-1)'s block) by this many gt.
         #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
@@ -8157,7 +8237,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at, integrity_from, force_hostile_phase, open_on_a70, park_delay } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at, integrity_from, force_hostile_phase, open_on_a70, park_delay, throw_map, queue_seat, weather, freeze32, wired, relaid_stop, plant_frame_gap, spawner_on, afk, expect_planes, no_split, allow_undeclared_throws, p1_release, lane7_rel, lane7_width, r_hold, r1_inputs, night_skip, nether_kill_after } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
@@ -8245,6 +8325,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             restarts.sort();
+            // (ironfarm, the battery) the weather plan and the level-32 dwells
+            let weather = match weather.as_str() {
+                "off" => redsim::weather::Plan::Off,
+                "cycle" => redsim::weather::Plan::Cycle,
+                "rain" => redsim::weather::Plan::Force { at: 0, cmd: redsim::weather::Command::Rain((ticks + 400) as i32) },
+                "thunder" => redsim::weather::Plan::Force { at: 0, cmd: redsim::weather::Command::Thunder((ticks + 400) as i32) },
+                w => anyhow::bail!("--weather {w}: off, cycle, rain or thunder"),
+            };
+            let freeze32: Vec<(i64, i64)> = freeze32
+                .iter()
+                .map(|s| -> anyhow::Result<(i64, i64)> {
+                    let (a, b) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--freeze32 takes START:LEN, got {s}"))?;
+                    let (a, b) = (a.trim().parse::<i64>()?, b.trim().parse::<i64>()?);
+                    anyhow::ensure!(a > 0 && b > 0 && a + b < ticks, "--freeze32 {s}: inside the run (1..{ticks})");
+                    Ok((a, b))
+                })
+                .collect::<anyhow::Result<_>>()?;
             anyhow::ensure!(nap_trace.is_empty() || nap_trace.len() == 2, "--nap-trace FROM,TO");
             let nap_trace = (nap_trace.len() == 2).then(|| (nap_trace[0], nap_trace[1]));
             anyhow::ensure!(neighbour_golems.is_empty() || neighbour_golems.len() == 3, "--neighbour-golems dx,dy,dz");
@@ -8261,10 +8358,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if held_at_divert { " --held-at-divert" } else { "" }
             ));
             // (G1's guard: the module's `emulated:` cells; 7b90c3f1 18:06: its placement-order Ts)
+            // (ironfarm, ironspec 15:16r (4) / vcompose 15:05: through the ONE reader `declkeys::emulated_entries`, which
+            // splits entries only outside parentheses: a reason's prose "(x,y,z)" is never a cell)
             let text = std::fs::read_to_string(&design)?;
-            let emulated = crate::column::header_cells(&text, "emulated:");
-            let emulated_states = crate::column::header_cell_states(&text, "emulated:");
-            anyhow::ensure!(emulated_states.len() == emulated.len(), "{}: every `emulated:` cell names its stand-in state (CELL=STATE (why); G1's note (c))", design.display());
+            let (emu_entries, _) = crate::declkeys::emulated_entries(&text).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+            let emulated: Vec<[i32; 3]> = emu_entries.iter().flat_map(|e| e.cells.iter().copied()).collect();
+            let emulated_states: Vec<([i32; 3], String)> = emu_entries.iter().flat_map(|e| e.cells.iter().map(|c| (*c, e.state.clone()))).collect();
+            println!("the `emulated:` line read through `declkeys::emulated_entries` (the ONE reader): {} entr(ies), {} cell(s), 0 refusals", emu_entries.len(), emulated.len());
             // (day-1 05:45 PT, ironspec 06:24 real) the line ends declared redstone-block stand-ins
             let block_standins = crate::column::block_standins(&text).map_err(|e| anyhow::anyhow!("{}: # stand-in: {e}", design.display()))?;
             let ts = crate::column::header_cells(&text, "placement-order-ts:");
@@ -8399,6 +8499,43 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 [x, y, z] => [*x, *y, *z],
                 _ => anyhow::bail!("--offset takes DX,DY,DZ"),
             };
+            // (ironfarm, the battery's harness) the fallback role cells and the queue seat
+            let cell3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a cell is X,Y,Z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let throw_map: Vec<([i32; 3], [i32; 3])> = throw_map
+                .iter()
+                .map(|e| -> anyhow::Result<([i32; 3], [i32; 3])> {
+                    let (f, t) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--throw-map takes FX,FY,FZ=TX,TY,TZ, got {e}"))?;
+                    Ok((cell3(f)?, cell3(t)?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let queue_seat: Option<[i32; 3]> = match queue_seat.as_slice() {
+                [] => None,
+                [x, y, z] => Some([*x, *y, *z]),
+                _ => anyhow::bail!("--queue-seat takes X,Y,Z"),
+            };
+            // (the tool's queue tier sits at x 9, z -4: a seat elsewhere is refused by name; its y sets the tier's
+            // shift against the bed y + 13 the tool assumed)
+            if let Some(s) = queue_seat {
+                anyhow::ensure!(s[0] == 9 && s[2] == -4, "--queue-seat {},{},{}: the tool's queue tier is at x 9, z -4", s[0], s[1], s[2]);
+            }
+            let queue_dy: i32 = queue_seat.map_or(0, |s| s[1] - (bed[1] + 13));
+            let plant_frame_gap: Option<[i32; 3]> = match plant_frame_gap.as_slice() {
+                [] => None,
+                [x, y, z] => Some([*x, *y, *z]),
+                _ => anyhow::bail!("--plant-frame-gap takes X,Y,Z"),
+            };
+            let afk: Option<[i32; 3]> = match afk.as_slice() {
+                [] => None,
+                [x, y, z] => Some([*x, *y, *z]),
+                _ => anyhow::bail!("--afk takes X,Y,Z"),
+            };
+            // (ironspec 14:37c (1)) the composed file's declared `emulated:` cells and their `drive=` roles, read through the
+            // ONE reader (one role per cell, in the entry's cell order)
+            let declared_roles: Vec<([i32; 3], Option<String>)> = emu_entries.iter().flat_map(|e| e.cells.iter().enumerate().map(|(i, c)| (*c, e.drive.as_ref().and_then(|d| d.get(i).cloned())))).collect();
             // (G1 16:18 (2)) --integrity-from FILE@dx,dy,dz
             let integrity_from: Option<(PathBuf, [i32; 3])> = match &integrity_from {
                 None => None,
@@ -8409,7 +8546,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Some((PathBuf::from(f), [d[0], d[1], d[2]]))
                 }
             };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at, integrity_from, force_hostile_phase, open_on_a70, park_delay };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at, integrity_from, force_hostile_phase, open_on_a70, park_delay, throw_map, queue_dy, weather, freeze32, wired, relaid_stop, plant_frame_gap, spawner_on, afk, no_split, declared_roles, allow_undeclared_throws, p1_release, lane7_rel, lane7_width, r_hold, r1_inputs, night_skip, nether_kill_after };
+            // (ironfarm, the battery's precondition, ironspec 13:47p (2): 9fc3155f's part 88 `portal-frames` FIRST:
+            // every portal plane of the input record complete, and the expected plane count when `--expect-planes
+            // OW,NETHER` names it; the run refuses by name otherwise; redsim has no portal SHAPE logic)
+            let frames_line = {
+                let dd = mctas::design::Design::load(&design).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                let r = match expect_planes.as_slice() {
+                    [] => crate::portalframe::check(&dd),
+                    [ow, ne] => crate::portalframe::check_expect(&dd, *ow, *ne),
+                    _ => anyhow::bail!("--expect-planes takes OVERWORLD,NETHER"),
+                };
+                match r {
+                    Ok(n) => format!("the portal frames (precondition, 9fc3155f's part 88 `portal-frames`; portal shape updates are not modeled in redsim, so the frames are checked statically): {n} plane(s), every one complete{} (PASS)", if expect_planes.is_empty() { ", no expected count given".to_string() } else { format!(", the expected {:?}", expect_planes) }),
+                    Err(bad) => anyhow::bail!("REFUSED: the portal frames (9fc3155f's part 88) fail on {}: {}", design.display(), bad.join("; ")),
+                }
+            };
+            println!("{frames_line}");
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");

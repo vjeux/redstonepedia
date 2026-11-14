@@ -18,6 +18,8 @@ pub mod f1q2run;
 pub mod ticketcheck;
 pub mod holdcheck;
 pub mod portallinks;
+/// (9fc3155f's part 88, `portal-frames`, byte for byte: the battery's precondition, ironspec 13:47p (2))
+pub mod portalframe;
 pub mod comb;
 pub mod components;
 pub mod headperm;

@@ -144,6 +144,11 @@ pub struct Opts {
     pub vholds_control: Option<String>,
     /// (cc767b78 11:15) The build's offset from the design frame (x / z whole chunks).
     pub offset: [i32; 3],
+    /// (ironfarm, the battery's harness) `--throw-map FROM=TO` entries (the first rehearsal's fallback role cells).
+    pub throw_map: Vec<([i32; 3], [i32; 3])>,
+    /// (ironfarm) the queue seat's y against the bed y + 13 the tool assumed (`--queue-seat`, else the design's
+    /// `run-cells:` queue-seat entry; 0 when neither names it).
+    pub queue_dy: i32,
     /// (day-1's Delta, ironspec 12:41 (4)) the hold pulse's shift (gt).
     pub hold_pulse_delta: i64,
     /// (ironspec 13:04 (1), cc767b78's switch) a seated rider's doPush onto carts off: a counterfactual.
@@ -204,6 +209,42 @@ pub struct Opts {
     pub compare_official: Option<String>,
     /// Restarts (liveness::restart, between two ticks) at these ticks from the start.
     pub restarts: Vec<i64>,
+    /// (ironfarm, the battery: weather, ironspec 11:20a) the world's weather plan (`--weather`): off, the natural
+    /// cycle, or forced rain / thunder from the start (natural lightning in thunder).
+    pub weather: redsim::weather::Plan,
+    /// (ironfarm, the battery: partial unloads, G1 12:18) level-32 dwells `(start, length)` in ticks from the start:
+    /// the farm's chunks at ticking level 32 (blocks tick, entities frozen: `liveness::freeze32` / `thaw32`).
+    pub freeze32: Vec<(i64, i64)>,
+    /// (ironfarm, G1 12:10 (3)) the row claims every part on its own wiring: any lever throw fails it by name.
+    pub wired: bool,
+    /// (ironfarm, 58f770cc 12:58) drive the RE-LAID stop's four levers by its emulated controller (`RelaidStop`).
+    pub relaid_stop: bool,
+    /// (ironfarm, G1 13:22 (b)) the planted portal control: this frame cell's obsidian removed after the paste.
+    pub plant_frame_gap: Option<[i32; 3]>,
+    /// (ironfarm, G1 13:24 (2)) the natural spawner on (a spawner-on battery axis); off by default.
+    pub spawner_on: bool,
+    /// (ironfarm, ironspec 13:38p (2)) the player's AFK spot for the spawner-on axis (design frame).
+    pub afk: Option<[i32; 3]>,
+    /// (ironfarm, G1 13:58 (b)) validate on a record whose split row isn't the in-chunk one: its J / K writes skipped.
+    pub no_split: bool,
+    /// (ironfarm, ironspec 14:37c (1)) the composed file's `emulated:` cells with their `drive=` roles (the throws' licence).
+    pub declared_roles: Vec<([i32; 3], Option<String>)>,
+    /// (ironfarm, ironspec 14:37c (1)) run undeclared throws, each labelled "fallback throws: undeclared" (no citing row).
+    pub allow_undeclared_throws: bool,
+    /// (ironfarm, b8949c96 14:26) drive P1's stand-in lever (9,20,5) by its evidence-gated rule (`P1Release`).
+    pub p1_release: bool,
+    /// (ironfarm, loaderlay 14:26) lane 7's slope release: its tick after REL (default 96) and its width (default 18).
+    pub lane7_rel: Option<i64>,
+    pub lane7_width: Option<i64>,
+    /// (ironfarm, day-1 14:37) drive the R-hold release levers `r-hold:<lane>` (the D-keyed form).
+    pub r_hold: bool,
+    /// (ironfarm, dfb89499 14:46) drive R1's inputs `day` / `rest` / `not-ready` by role (`R1Inputs`).
+    pub r1_inputs: bool,
+    /// (ironfarm, ironspec 14:41c (2)) the ticks at which the night is skipped (the day time jumps to the next morning).
+    pub night_skip: Vec<i64>,
+    /// (ironfarm, ironspec 14:53r (1)) the Nether kill emulated: each golem in the modeled Nether killed this many gt
+    /// after it lands.
+    pub nether_kill_after: Option<i64>,
     pub restart: crate::liveness::Restart,
     /// The positive control: this villager (its index among the villagers at the start) has every
     /// clear of its stamp undone.
@@ -901,6 +942,11 @@ struct Ctl {
     /// (path (a)) the module holds lane 7's braked slope (-4,12,7): it is released at REL + 96
     /// (queued at each start: REL + 96 comes after the next start), its lever off 18 gt later.
     l7_slope: bool,
+    /// (ironfarm, loaderlay 14:26: LINE E's swept margin) lane 7's slope release: its tick after REL (default 96), its
+    /// width (default 18), and the lever the file declares with the role `slope-release:7` (default (-4,12,6))
+    l7_rel: i64,
+    l7_width: i64,
+    l7_cell: [i32; 3],
     /// (G1's [3]) path (a): (5,0,7) a plain rail (exactly), checked against lane 7's braked slope.
     path_a: bool,
     l7_on: Vec<i64>,
@@ -1098,6 +1144,337 @@ thread_local! {
     static NOOP_WRITES: std::cell::RefCell<i64> = const { std::cell::RefCell::new(0) };
     /// (G1 X16) the no-op emulated writes' rows (tick, cell, state), the first 40.
     static NOOP_ROWS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, the battery's harness) `--throw-map FROM=TO`: a drive write at FROM throws the lever at TO.
+    static THROW_MAP: std::cell::RefCell<Vec<([i32; 3], [i32; 3])>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, G1 12:11 (3)) every lever throw: its tick, cell, and the state before and after (read back).
+    static THROWS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, ironspec 12:05p (1): the queue seat read from the design, never hard-coded) the queue's y against
+    /// the tool's old bed y + 13 (V's seat (9,-10,-4): -3).
+    static QUEUE_DY: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+    /// (ironfarm, G1 13:58 (b): validating the harness on the record of record, whose split row isn't the in-chunk
+    /// one) the split row's J / K lever writes (x,26,9) skipped, counted
+    static NO_SPLIT: std::cell::Cell<(bool, u64)> = const { std::cell::Cell::new((false, 0)) };
+    /// (ironfarm, ironspec 14:37c (1)) the composed file's declared `emulated:` cells with their `drive=` roles, whether
+    /// an undeclared throw may run (labelled), and the undeclared throws counted
+    static DECLARED: std::cell::RefCell<Vec<([i32; 3], Option<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, ironspec 15:10c) the world opens' game times, and each nap's sleeper stamp (tick, sleeper, its
+    /// CANT_REACH age, the opens inside the stamp's lifetime)
+    static OPENS: std::cell::RefCell<Vec<i64>> = const { std::cell::RefCell::new(Vec::new()) };
+    static NAP_STAMPS: std::cell::RefCell<Vec<(i64, u32, Option<i64>, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static UNDECLARED: std::cell::Cell<(bool, u64, u64)> = const { std::cell::Cell::new((false, 0, 0)) };
+    /// (ironfarm) the level-32 dwells in force: (dwell index, the frozen chunk box `freeze32` returned).
+    static FREEZE32: std::cell::RefCell<Vec<(usize, [i32; 4])>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, the battery) per lie-down: its tick, and the oldest give-up timer (age, villager) then.
+    static GIVEUP_AT_LIE: std::cell::RefCell<Vec<(i64, Option<(i64, u32)>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (ironfarm, ironspec 12:44p (1)) the throws whose target is watched: (lever, target, the throw's tick, the
+    /// target's state then).
+    static THROW_WATCH: std::cell::RefCell<Vec<([i32; 3], [i32; 3], i64, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The queue tier's base y: the bed's y plus the design's queue shift (`QUEUE_DY`).
+fn qy(by: i32) -> i32 {
+    by + QUEUE_DY.with(|q| q.get())
+}
+
+/// (ironfarm, ironspec 14:37c (1): NO UNDECLARED THROWS) Every `emulated:` entry's cells with its `drive=` role (None when
+/// the entry names none), read from the design text: entries split by `;` outside parentheses, `CELLS=STATE (note)`,
+/// the cells joined by `+`, the role the note's `drive=` value (up to its `;` or `)`).
+pub fn declared_roles(text: &str) -> Result<Vec<([i32; 3], Option<String>)>, String> {
+    let mut out = Vec::new();
+    for line in text.lines().filter_map(|l| l.strip_prefix("emulated:")) {
+        let (mut depth, mut cur, mut parts) = (0i32, String::new(), Vec::new());
+        for ch in line.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if ch == ';' && depth == 0 {
+                parts.push(std::mem::take(&mut cur));
+            } else {
+                cur.push(ch);
+            }
+        }
+        parts.push(cur);
+        for e in parts.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            let Some((cells, rest)) = e.split_once('=') else {
+                continue;
+            };
+            let role = rest.find("drive=").map(|i| rest[i + 6..].split(|c| c == ';' || c == ')').next().unwrap_or("").trim().to_string()).filter(|r| !r.is_empty());
+            for c in cells.split('+') {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|x| format!("emulated entry {e:?}: {c}: {x}"))?;
+                if v.len() != 3 {
+                    return Err(format!("emulated entry {e:?}: {c}: x,y,z"));
+                }
+                out.push(([v[0], v[1], v[2]], role.clone()));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// (ironfarm; b8949c96 14:26 via G1 14:23 (3)(d)) P1's release, EVIDENCE-gated (never a timer): its stand-in lever
+/// (9,20,5) (`drive=p1-release`, owner WAYIN) thrown ON for exactly 12 gt on the RISING edge of TOKEN ∧ FRONT CLEAR ∧
+/// P1 OCCUPIED, read from the run's own sensors each tick. TOKEN: a latch SET at start-up and on each rising edge of the
+/// departure detector (9,-11,-3), CLEARED by the throw (the clear wins a same-tick set); FRONT CLEAR: the front detector
+/// (9,-9,-5) unpowered (the plain state; car A's torch tower lags it ~31 gt); P1 OCCUPIED: (B)'s latch, SET on the rising
+/// edge of the arrival detector (9,23,6), RESET while P1's exit detector (9,22,3) is powered (the reset wins), OCCUPIED =
+/// the latch AND >= 16 gt since its SET.
+#[derive(Default)]
+pub struct P1Release {
+    started: bool,
+    token: bool,
+    dep_prev: bool,
+    arr_prev: bool,
+    latch: bool,
+    latch_set_at: Option<i64>,
+    and_prev: bool,
+    off_at: Option<i64>,
+    /// every throw with its inputs, for the report
+    pub log: Vec<String>,
+}
+
+impl P1Release {
+    pub fn step(&mut self, w: &mut redsim::world::World, t: i64) -> Result<(), String> {
+        let (dep, front, arr, exit) = (powered(w, [9, -11, -3]), powered(w, [9, -9, -5]), powered(w, [9, 23, 6]), powered(w, [9, 22, 3]));
+        if !self.started {
+            self.started = true;
+            self.token = true;
+        } else if dep && !self.dep_prev {
+            self.token = true;
+        }
+        if arr && !self.arr_prev && !exit {
+            self.latch = true;
+            self.latch_set_at = Some(t);
+        }
+        if exit {
+            self.latch = false;
+            self.latch_set_at = None;
+        }
+        let occupied = self.latch && self.latch_set_at.is_some_and(|s| t - s >= 16);
+        let and = self.token && !front && occupied;
+        if and && !self.and_prev && self.off_at.is_none() {
+            set(w, [9, 20, 5], "minecraft:lever[powered=true]", redsim::world::flags::ALL)?;
+            self.token = false;
+            self.off_at = Some(t + 12);
+            self.log.push(format!("t {t}: THROWN for 12 gt (TOKEN on, FRONT CLEAR (9,-9,-5) {}, P1 OCCUPIED: the latch set at t {} (+{}), exit (9,22,3) {})", if front { "occupied" } else { "clear" }, self.latch_set_at.map_or("-".to_string(), |s| s.to_string()), self.latch_set_at.map_or(0, |s| t - s), if exit { "on" } else { "off" }));
+        }
+        if self.off_at == Some(t) {
+            set(w, [9, 20, 5], "minecraft:lever[powered=false]", redsim::world::flags::ALL)?;
+            self.off_at = None;
+        }
+        self.and_prev = and;
+        self.dep_prev = dep;
+        self.arr_prev = arr;
+        Ok(())
+    }
+}
+
+/// (ironfarm; dfb89499 14:46: R1's inputs, owner dfb89499, thrown by role) `day` ON while DAY (day time mod 24,000 below
+/// 12,000 until day-1 confirms DAY's window), `rest` ON while REST (day time mod 24,000 in 12,000..24,009, so its last 9 gt
+/// fall past midnight), `not-ready` powered = NOT RS_ready (RS_ready SET on the ball-exit detector (7,-3,4)'s rise, RESET on
+/// the queue departure detector (9,-11,-3)'s rise; it starts 0, so `not-ready` starts powered). Each lever is the file's
+/// declared role (`day` / `rest` / `not-ready`, or `r1-day` / `r1-rest` / `r1-not-ready`); a missing role refuses by name.
+#[derive(Default)]
+pub struct R1Inputs {
+    started: bool,
+    rs_ready: bool,
+    exit_prev: bool,
+    dep_prev: bool,
+    state: [Option<bool>; 3],
+    /// every change, for the report
+    pub log: Vec<String>,
+}
+
+impl R1Inputs {
+    fn cell(role: &str) -> Result<[i32; 3], String> {
+        let alt = format!("r1-{role}");
+        DECLARED.with(|d| d.borrow().iter().find(|(_, r)| r.as_deref() == Some(role) || r.as_deref() == Some(alt.as_str())).map(|(c, _)| *c)).ok_or_else(|| format!("R1's `{role}` input is driven but the composed file declares no `emulated:` lever with that role (dfb89499 14:46; ironspec 14:37c (1))"))
+    }
+
+    pub fn step(&mut self, w: &mut redsim::world::World, t: i64) -> Result<(), String> {
+        let (exit, dep) = (powered(w, [7, -3, 4]), powered(w, [9, -11, -3]));
+        if !self.started {
+            self.started = true;
+        } else {
+            if exit && !self.exit_prev {
+                self.rs_ready = true;
+            }
+            if dep && !self.dep_prev {
+                self.rs_ready = false;
+            }
+        }
+        self.exit_prev = exit;
+        self.dep_prev = dep;
+        let dt = w.day_time().rem_euclid(24_000);
+        let want = [dt < 12_000, dt >= 12_000 || dt < 9, !self.rs_ready];
+        for (i, role) in ["day", "rest", "not-ready"].iter().enumerate() {
+            if self.state[i] != Some(want[i]) {
+                let c = Self::cell(role)?;
+                set(w, c, if want[i] { "minecraft:lever[powered=true]" } else { "minecraft:lever[powered=false]" }, redsim::world::flags::ALL)?;
+                self.log.push(format!("t {t}: `{role}` {} (day time {dt})", if want[i] { "ON" } else { "OFF" }));
+                self.state[i] = Some(want[i]);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// (ironfarm, the battery; 58f770cc 12:58: "copy it; don't reinvent it") The RE-LAID stop's emulated controller, exactly
+/// as `bedtier-bench`'s adopted controller runs it (`--adopted-terms 52,0,12,54,6,6,2,6,2,10,1`, bedtier.rs at c0662d566),
+/// in V's frame (local + (0,-20,-1)). Inputs read from the world every tick (post-tick): ARM the detector rail
+/// (-2,-20,0); PULSE the bed-head observer (-3,-21,3); P the tripwire P_STRING (-2,-19,3); PRESS the park string
+/// (1,-19,2). Outputs, the four ruled roles thrown: `stop-rls` (-1,-22,-3) ON at RLS for 6 gt; `stop-arm` (6,-22,-6)
+/// mirrors ARM; `stop-f` (-5,-21,6) ON = shut, OFF from OPEN's set + 8 until its reset + 8; `stop-k` (-2,-22,2) ON until
+/// SENSED_AT, ON again at RLS + 30 (the RLS-keyed SET under measurement, day-1 12:33).
+#[derive(Default)]
+pub struct RelaidStop {
+    arm_prev: bool,
+    pulse_prev: bool,
+    p_prev: bool,
+    press_prev: bool,
+    arm_at: Option<i64>,
+    released: bool,
+    consumed: bool,
+    r_latest: Option<i64>,
+    so: bool,
+    since: bool,
+    p_press: Option<i64>,
+    sensed_at: Option<i64>,
+    open: bool,
+    f_open_at: Option<i64>,
+    f_shut_at: Option<i64>,
+    rls_due: Option<i64>,
+    rls_at: Option<i64>,
+    /// every event, for the report
+    pub log: Vec<String>,
+}
+
+impl RelaidStop {
+    const ARM: [i32; 3] = [-2, -20, 0];
+    const PULSE: [i32; 3] = [-3, -21, 3];
+    const P: [i32; 3] = [-2, -19, 3];
+    const PRESS: [i32; 3] = [1, -19, 2];
+    const RLS_IN: [i32; 3] = [-1, -22, -3];
+    const ARM_IN: [i32; 3] = [6, -22, -6];
+    const F: [i32; 3] = [-5, -21, 6];
+    const K: [i32; 3] = [-2, -22, 2];
+
+    fn throw(w: &mut redsim::world::World, c: [i32; 3], on: bool) -> Result<(), String> {
+        let cur = w.get(dbp(c[0], c[1], c[2])).to_string();
+        if !cur.starts_with("minecraft:lever[") {
+            return Err(format!("the re-laid stop's lever at ({},{},{}) isn't a lever (it holds {cur}): the design declares its four stand-ins as levers", c[0], c[1], c[2]));
+        }
+        set(w, c, if on { "minecraft:lever[powered=true]" } else { "minecraft:lever[powered=false]" }, redsim::world::flags::ALL)
+    }
+
+    pub fn step(&mut self, w: &mut redsim::world::World, t: i64) -> Result<(), String> {
+        let (arm, pulse, p, press) = (powered(w, Self::ARM), powered(w, Self::PULSE), powered(w, Self::P), powered(w, Self::PRESS));
+        if arm != self.arm_prev {
+            Self::throw(w, Self::ARM_IN, arm)?;
+            if arm {
+                self.arm_at = Some(t);
+                self.released = false;
+                self.consumed = false;
+                self.sensed_at = None;
+                self.log.push(format!("t {t}: ARM (a visit starts)"));
+            }
+        }
+        if p && !self.p_prev {
+            self.p_press = Some(t);
+        }
+        if !p && self.p_prev {
+            self.since = false;
+        }
+        if pulse && !self.pulse_prev {
+            self.so = true;
+            self.r_latest = Some(t);
+            self.since = p && self.p_press.is_some_and(|pp| (pp - (t - 2)).abs() <= 1);
+            self.log.push(format!("t {t}: PULSE (SO set; SINCE {})", self.since));
+        }
+        if press && !self.press_prev && self.arm_at.is_some() && self.rls_at.is_none_or(|r| self.arm_at.is_some_and(|a| r < a)) && self.sensed_at.is_none() {
+            self.sensed_at = Some(t);
+            Self::throw(w, Self::K, false)?;
+            self.log.push(format!("t {t}: SENSED_AT (the park string's first press): K OFF"));
+        }
+        let win = self.r_latest.is_some_and(|r| t >= r + 12 && t < r + 54);
+        let parked = !self.consumed && self.arm_at.is_some_and(|a| t >= a + 52) && self.sensed_at.is_some_and(|s| t >= s + 28);
+        if p {
+            if self.open {
+                self.open = false;
+                self.f_shut_at = Some(t + 8);
+                self.log.push(format!("t {t}: OPEN reset (P)"));
+            }
+        } else if !self.open && !self.consumed && parked && self.so {
+            self.open = true;
+            self.f_open_at = Some(t + 8);
+            self.log.push(format!("t {t}: OPEN set"));
+        }
+        if self.f_open_at == Some(t) {
+            Self::throw(w, Self::F, false)?;
+        }
+        if self.f_shut_at == Some(t) {
+            Self::throw(w, Self::F, true)?;
+        }
+        if !self.released && self.rls_due.is_none() && p && self.since && win && parked {
+            self.rls_due = Some(t + 6);
+        }
+        if self.rls_due == Some(t) {
+            self.rls_due = None;
+            self.released = true;
+            if self.open {
+                self.open = false;
+                self.f_shut_at = Some(t + 8);
+            }
+            self.rls_at = Some(t);
+            Self::throw(w, Self::RLS_IN, true)?;
+            self.log.push(format!("t {t}: RLS"));
+        }
+        if let Some(r) = self.rls_at {
+            if t == r + 6 {
+                Self::throw(w, Self::RLS_IN, false)?;
+                self.consumed = true;
+                self.so = false;
+            }
+            if t == r + 30 {
+                Self::throw(w, Self::K, true)?;
+                self.log.push(format!("t {t}: K ON again (RLS + 30)"));
+            }
+        }
+        self.arm_prev = arm;
+        self.pulse_prev = pulse;
+        self.p_prev = p;
+        self.press_prev = press;
+        Ok(())
+    }
+}
+
+/// (ironfarm, the battery: "the oldest give-up timer at lie-down", the parent's print list) at a lie-down, the
+/// oldest CANT_REACH_WALK_TARGET_SINCE among the villagers (the brain gives the bed up at 1,200 gt): its age and
+/// the villager, logged per lie-down.
+fn log_giveup_at_lie(w: &redsim::world::World, now: i64) {
+    let mut best: Option<(i64, u32)> = None;
+    for j in 0..w.entities.list.len() {
+        let e = &w.entities.list[j];
+        if e.removed || !matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager)) {
+            continue;
+        }
+        let b = redsim::entity::mob::ai::brain::brain(w, j);
+        if let Some(s) = b.ex.as_deref().and_then(|x| x.mem.cant_reach_since) {
+            let age = w.time - s;
+            if best.is_none_or(|(a, _)| age > a) {
+                best = Some((age, e.id));
+            }
+        }
+        // (ironspec 15:10c: the JUDGED print) the sleeper's own CANT_REACH stamp at its nap, and the world opens inside
+        // that stamp's lifetime
+        if matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some()) {
+            let since = b.ex.as_deref().and_then(|x| x.mem.cant_reach_since);
+            let opens = since.map_or(0, |s| OPENS.with(|o| o.borrow().iter().filter(|t| **t > s).count()));
+            NAP_STAMPS.with(|n| n.borrow_mut().push((now, e.id, since.map(|s| w.time - s), opens)));
+        }
+    }
+    GIVEUP_AT_LIE.with(|g| g.borrow_mut().push((now, best)));
 }
 
 /// (G1 / tick-exact, Nov 13: the replay's divergence check) redsim's recorded state at a drive act,
@@ -1130,7 +1507,93 @@ fn drive_push(line: String) {
     });
 }
 
+/// (ironfarm, the battery's harness; tick-exact 12:06's form, ironspec 12:09p (1)) a world open in the drive: `act
+/// <t> reload <order>[/idle:<N>]`, `<t>` the drive tick before which the world is saved, quit and reopened.
+fn drive_reload(time: i64, label: &str) {
+    DRIVE_LOG.with(|d| {
+        if let Some((t0, acts)) = d.borrow_mut().as_mut() {
+            acts.push(format!("act {} reload {label}", time - *t0));
+        }
+    });
+}
+
 fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Result<(), String> {
+    // (ironfarm, the battery's harness, ironspec 12:05p (1): a controller drive is a declared `emulated:` LEVER
+    // THROWN by the harness, never a block written into its cell) a write over a lever in the world throws it
+    // instead: on for a powering state (a redstone block, an open trapdoor, a powered state), off otherwise; the
+    // throw is printed (its tick, cell, and the lever's state before and after, read back: G1 12:11 (3)); and a
+    // `--throw-map FROM=TO` entry sends a write at FROM to the lever at TO (the first rehearsal's fallback role
+    // cells, labelled)
+    let to = THROW_MAP.with(|m| m.borrow().iter().find(|(f, _)| *f == p).map(|(_, t)| *t));
+    // (ironspec 14:37c (1)) a station hold's trapdoor write (x,16,0) goes to the lever the file declares with the role
+    // `hold:<x>` (the role's own cell, read from its `emulated:` entry; no fallback map)
+    let role_to = if to.is_none() && p[1] == 16 && p[2] == 0 {
+        DECLARED.with(|d| d.borrow().iter().find(|(_, r)| r.as_deref() == Some(format!("hold:{}", p[0]).as_str())).map(|(c, _)| *c))
+    } else {
+        None
+    };
+    let to = to.or(role_to);
+    let fallback = to.is_some() && role_to.is_none();
+    // (G1 13:58 (b), `--no-split`: the split row's J / K writes skipped on a record whose split row isn't the in-chunk
+    // one, counted and printed)
+    if to.is_none() && p[1] == 26 && p[2] == 9 && NO_SPLIT.with(|c| c.get().0) {
+        NO_SPLIT.with(|c| {
+            let (on, n) = c.get();
+            c.set((on, n + 1));
+        });
+        return Ok(());
+    }
+    let target = to.unwrap_or(p);
+    let cur = w.get(dbp(target[0], target[1], target[2])).to_string();
+    if cur.starts_with("minecraft:lever[") {
+        // (ironspec 14:37c (1): NO UNDECLARED THROWS) the lever must be a declared `emulated:` stand-in with a `drive=`
+        // role; any other throw is refused by name, or with `--allow-undeclared-throws` run and labelled
+        let role = DECLARED.with(|d| d.borrow().iter().find(|(c, _)| *c == target).map(|(_, r)| r.clone()));
+        let label = match (&role, fallback) {
+            (Some(Some(r)), false) => format!(" [{r}]"),
+            (Some(Some(r)), true) => format!(" [{r}, through the fallback map: UNDECLARED]"),
+            (Some(None), _) => " [declared but UNTAGGED: UNDECLARED]".to_string(),
+            (None, _) => " [no `emulated:` entry: UNDECLARED]".to_string(),
+        };
+        let declared = matches!(role, Some(Some(_))) && !fallback;
+        UNDECLARED.with(|u| {
+            let (ok, d, n) = u.get();
+            u.set(if declared { (ok, d + 1, n) } else { (ok, d, n + 1) });
+        });
+        if !declared && !UNDECLARED.with(|u| u.get().0) {
+            return Err(format!("an undeclared throw at ({},{},{}){label}: the composed file declares no `emulated:` stand-in with a `drive=` role there (ironspec 14:37c (1)); `--allow-undeclared-throws` runs it labelled \"fallback throws: undeclared\"", target[0], target[1], target[2]));
+        }
+        // (a lever's own face and facing are kept: only `powered` changes)
+        let on = state.contains("redstone_block") || state.contains("open=true") || state.contains("powered=true");
+        let thrown = if on { cur.replace("powered=false", "powered=true") } else { cur.replace("powered=true", "powered=false") };
+        if thrown != cur {
+            let bb = redsim::block::Block::parse(&thrown).map_err(|e| format!("{thrown}: {e}"))?;
+            w.set_block(dbp(target[0], target[1], target[2]), bb, flags);
+        }
+        let after = w.get(dbp(target[0], target[1], target[2])).to_string();
+        if !after.starts_with("minecraft:lever[") {
+            return Err(format!("the harness lever at ({},{},{}) didn't survive its throw: the cell holds {after}", target[0], target[1], target[2]));
+        }
+        THROWS.with(|t| t.borrow_mut().push(format!("t {} throw ({},{},{}){}{} {} -> {}", w.time, target[0], target[1], target[2], label, if to.is_some() { format!(" for the write at ({},{},{})", p[0], p[1], p[2]) } else { String::new() }, cur.trim_start_matches("minecraft:"), after.trim_start_matches("minecraft:"))));
+        // (ironspec 12:44p (1)) the role's target, watched for its state change: a hold lever's line end (x,16,-3)
+        // opens the iron trapdoor (x,16,0); the H2 lever (8,25,5) powers H2 (9,24,7); the napper-hold lever (2,-1,8)
+        // the hold rail (9,0,8); a J / K lever (x,26,9) its T (x,25,9)
+        let watch: Option<[i32; 3]> = match target {
+            [x, 16, -3] => Some([x, 16, 0]),
+            [8, 25, 5] => Some([9, 24, 7]),
+            [2, -1, 8] => Some([9, 0, 8]),
+            [x, 26, 9] => Some([x, 25, 9]),
+            _ => None,
+        };
+        if let Some(tc) = watch {
+            let before = w.get(dbp(tc[0], tc[1], tc[2])).to_string();
+            THROW_WATCH.with(|t| t.borrow_mut().push((target, tc, w.time, before)));
+        }
+        return Ok(());
+    }
+    if to.is_some() {
+        return Err(format!("--throw-map ({},{},{})=({},{},{}): no lever at the target (it holds {cur})", p[0], p[1], p[2], target[0], target[1], target[2]));
+    }
     let b = redsim::block::Block::parse(state).map_err(|e| format!("{state}: {e}"))?;
     // (tick-exact / ironspec, the override rule on the drive: a write of the cell's existing state
     // changes nothing in the game (setBlock returns early with no update), so it's no write and no
@@ -1444,7 +1907,9 @@ impl Ctl {
         // latch with --rel-gate-armed
         let holds_full = LANES.iter().all(|&x| w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [x, 17, 1]));
         let j_armed = if self.a_stop { holds_full && self.re_armed } else { w.get(dbp(-1, 26, 9)).to_string().contains("powered=true") };
-        let rel_gated = self.rel_gate_armed || self.a_stop;
+        // (ironfarm, G1 13:58 (b): `--no-split` validates on a record whose split row isn't the in-chunk one, with REL
+        // ungated (the record-of-record M rows start REL on their own clock))
+        let rel_gated = (self.rel_gate_armed || self.a_stop) && !NO_SPLIT.with(|c| c.get().0);
         if rel_gated
             && let Some(since) = self.gated_since
             && j_armed
@@ -1539,12 +2004,14 @@ impl Ctl {
         if self.l7_slope {
             if let Some(k) = self.l7_on.iter().position(|t| *t == now) {
                 self.l7_on.remove(k);
-                self.level(w, [-4, 12, 6], [-4, 12, 7], true)?;
-                self.l7_off = Some(now + 18);
-                self.note(now, "lane 7's slope released (REL + 96, 18 gt)".to_string());
+                let c = self.l7_cell;
+                self.level(w, c, [-4, 12, 7], true)?;
+                self.l7_off = Some(now + self.l7_width);
+                self.note(now, format!("lane 7's slope released (REL + {}, {} gt, the lever ({},{},{}))", self.l7_rel, self.l7_width, c[0], c[1], c[2]));
             }
             if self.l7_off == Some(now) {
-                self.level(w, [-4, 12, 6], [-4, 12, 7], false)?;
+                let c = self.l7_cell;
+                self.level(w, c, [-4, 12, 7], false)?;
                 self.l7_off = None;
             }
         }
@@ -1580,6 +2047,8 @@ impl Ctl {
                         Some(c) => input_on(w, c, [x - 1, 0, 0])?,
                         None => set(w, [x, -1, 0], "minecraft:redstone_block", flags::ALL)?,
                     }
+                    // (ironspec 14:18p (a): every release lever's tick against REL, printed)
+                    self.note(now, format!("lane x {x}: the pocket release (the riser drive {}) at REL + {}", self.drive_cell[k].map_or(format!("({x},-1,0)"), |c| format!("({},{},{})", c[0], c[1], c[2])), now - r));
                     self.support_off[k] = Some(now + 16);
                     self.armed[k] = true;
                     // (the cold start: no cart on the pocket's string, the trapdoor opens anyway)
@@ -1600,6 +2069,8 @@ impl Ctl {
                 if self.armed[k] && d && !self.d_prev[k] && now >= r + self.offs[k] {
                     self.trap_open[k] = Some(now + 4);
                     self.armed[k] = false;
+                    // (G1 14:06 (2): the refill is EVIDENCE-GATED: each `hold:l` throw printed against its D_k rise)
+                    self.note(now, format!("lane x {x}: D ({x},0,2) rose at REL + {}: the hold refill thrown at t {} (the rise + 4)", now - r, now + 4));
                 }
                 self.d_prev[k] = d;
                 if self.trap_open[k] == Some(now) {
@@ -2108,6 +2579,7 @@ impl Ctl {
         if !self.a_stop && bed && !self.bed_prev {
             self.f_at = Some(now + 10);
             self.nap_events.push(format!("t {now}: lie-down (the bed occupied)"));
+            log_giveup_at_lie(w, now);
         }
         if !self.a_stop && a6 && !bed && self.bed_prev {
             // (58f770cc 00:39 PT, ironspec 01:08 PT: today's A6 releases at the wake edge, the
@@ -2212,7 +2684,7 @@ impl Ctl {
             self.nap_events.push(format!("t {now}: RS_ready reset (the queue release + 2)"));
         }
         if self.wayin {
-            let (q, rel_cell, arr, dep) = ([9, by + 13, -4], [8, by + 13, -4], [9, by + 14, -5], [9, by + 12, -3]);
+            let (q, rel_cell, arr, dep) = ([9, qy(by) + 13, -4], [8, qy(by) + 13, -4], [9, qy(by) + 14, -5], [9, qy(by) + 12, -3]);
             let a = powered(w, arr);
             if a && !self.q_arr_prev {
                 self.q_hold_since = Some(now);
@@ -2223,7 +2695,7 @@ impl Ctl {
                 self.held_by = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == arr || cell(e.pos) == q)).and_then(|e| e.passengers.first().copied());
                 self.held_log.push(format!("t {now}: HELD set by the queue's arrival"));
                 self.q_arrivals.push(now);
-                self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now; the hatch (6,{},-5) {}", arr[0], arr[1], arr[2], by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
+                self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now; the hatch (6,{},-5) {}", arr[0], arr[1], arr[2], qy(by) + 15, if w.get(dbp(6, qy(by) + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
             }
             self.q_arr_prev = a;
             // (the napper's rest at the seat, for HELD's bound)
@@ -2353,9 +2825,9 @@ impl Ctl {
                 // (8,y+13,-5), hung on the glass (9,y+13,-5): a comparator reads a side dust's own
                 // power, but a lever standing in the dust's cell only by its direct signal, which a
                 // floor lever sends down, not sideways (the gate bench shows it))
-                self.level(w, [8, by + 13, -5], [7, by + 13, -5], !self.q_rs_ready)?;
-                self.level(w, [6, by + 15, -1], [6, by + 15, -2], rest)?;
-                self.level(w, [4, by + 15, -2], [5, by + 15, -2], !not_day)?;
+                self.level(w, [8, qy(by) + 13, -5], [7, qy(by) + 13, -5], !self.q_rs_ready)?;
+                self.level(w, [6, qy(by) + 15, -1], [6, qy(by) + 15, -2], rest)?;
+                self.level(w, [4, qy(by) + 15, -2], [5, qy(by) + 15, -2], !not_day)?;
                 // (day-1 01:10 PT, the per-pick trace) the night's REST_l and DAY edges
                 if self.rest_prev != Some(rest) {
                     self.edge_log.push(format!("t {now}: REST_l {}", if rest { "on" } else { "off" }));
@@ -2387,7 +2859,7 @@ impl Ctl {
                     // queue rail's boost after 2 gt and the napper's cart crawled off the way-in's rail end
                     // and stopped short of the shaft (t22's smoke, #51 at (9.5,-15,-0.59)): with the built
                     // gate RS_ready resets at the queue's departure, as the built line holds it; onechunk 17:24)
-                    self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
+                    self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", qy(by) + 15, if w.get(dbp(6, qy(by) + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
                 }
                 self.q_rail_prev = live;
             } else {
@@ -2781,6 +3253,7 @@ impl Ctl {
             }
             if bed {
                 self.a_lie_at = Some(now);
+                log_giveup_at_lie(w, now);
                 self.nap_events.push(format!("t {now}: lie-down (the bed occupied; the observer's pulse at t {}: SLEPT toggles at t {}, SLEPT_ONCE at t {})", now + 2, now + 6, now + 4));
             } else {
                 self.nap_events.push(format!("t {now}: the wake edge (the bed freed; the observer's pulse at t {}: SLEPT toggles at t {})", now + 2, now + 6));
@@ -3031,9 +3504,9 @@ impl Ctl {
         self.rt_batches.push((rel, None));
         self.busy = true;
         self.rel = Some(rel);
-        // (path (a): lane 7's slope at L7 = REL + 96, queued: it falls after the next start)
+        // (path (a): lane 7's slope at L7 = REL + `l7_rel` (default 96), queued: it falls after the next start)
         if self.l7_slope {
-            self.l7_on.push(rel + 96);
+            self.l7_on.push(rel + self.l7_rel);
         }
         self.armed = [false; 3];
         self.arm3 = None;
@@ -3106,6 +3579,8 @@ impl Ctl {
         use redsim::world::flags;
         let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
         self.l7_slope = w.get(dbp(-4, 12, 7)).to_string().contains("powered_rail");
+        // (loaderlay 14:26) the slope's release lever: the declared `slope-release:7` cell, else (-4,12,6)
+        self.l7_cell = DECLARED.with(|d| d.borrow().iter().find(|(_, r)| r.as_deref() == Some("slope-release:7")).map(|(c, _)| *c)).unwrap_or([-4, 12, 6]);
         // (G1's [3]) path (a) exactly: a plain rail at (5,0,7), and lane 7's braked slope laid; the
         // old path: the detector rail at (5,0,7) and no slope; anything else stops the run
         let m = w.get(dbp(5, 0, 7)).to_string();
@@ -3155,7 +3630,12 @@ impl Ctl {
             // floor lever in the riser's cell on its glass (x-2,-1,0) for 16 gt, the dust restored
             // after: the repeater's own line side, with the built cell's golem and path properties)
             let at = |c: [i32; 3]| w.get(dbp(c[0], c[1], c[2])).to_string();
-            self.drive_cell[k] = if at([x - 1, 0, 0]).contains("repeater") && at([x - 3, -1, 0]).contains("redstone_wire") {
+            // (ironfarm, vcompose 14:44 / ironspec 14:37c (1): the pocket drive is the file's declared `pick:<lane>` lever,
+            // thrown by its role; the riser search below only when the file declares none)
+            let declared_pick = DECLARED.with(|d| d.borrow().iter().find(|(_, r)| r.as_deref() == Some(format!("pick:{x}").as_str())).map(|(c, _)| *c));
+            self.drive_cell[k] = if let Some(c) = declared_pick {
+                Some(c)
+            } else if at([x - 1, 0, 0]).contains("repeater") && at([x - 3, -1, 0]).contains("redstone_wire") {
                 if !at([x - 2, 0, 0]).contains("redstone_wire") {
                     return Err(format!("M16bw's side drive at lane x {x}: no riser dust at ({},0,0)", x - 2));
                 }
@@ -3167,6 +3647,9 @@ impl Ctl {
             self.support_base[k] = Some(at(c));
         }
         for (x, on) in [(-1, true), (3, false), (7, true)] {
+            if NO_SPLIT.with(|c| c.get().0) {
+                break;
+            }
             if !w.get(dbp(x, 26, 9)).to_string().contains("lever") {
                 return Err(format!("no junction lever at ({x},26,9): the drive takes c85331aaf's in-chunk split"));
             }
@@ -3434,7 +3917,7 @@ fn line_bench(run: &mut Run, by: i32) -> Result<String, String> {
             lines.push((format!("lane x {x}'s R line"), [x + 2, 17, 1], [x + 1, 17, 1], [x, 17, 1], None));
         }
     }
-    lines.push(("R1's gate, REST_l with DAY off and RS_ready".to_string(), [6, by + 15, -1], [6, by + 15, -2], [9, by + 13, -4], None));
+    lines.push(("R1's gate, REST_l with DAY off and RS_ready".to_string(), [6, qy(by) + 15, -1], [6, qy(by) + 15, -2], [9, qy(by) + 13, -4], None));
     for (name, cell, target, meas, lat) in lines {
         let base = run.world.get(dbp(cell[0], cell[1], cell[2])).to_string();
         input_on(&mut run.world, cell, target)?;
@@ -3486,17 +3969,17 @@ fn gate_bench(run: &mut Run, by: i32) -> Result<String, String> {
     let mut rows = Vec::new();
     let mut bad = 0;
     let cells: [([i32; 3], &str); 8] = [
-        ([6, by + 15, -2], "N's comparator"),
-        ([6, by + 15, -3], "N's dust"),
-        ([5, by + 14, -3], "the line's dust"),
-        ([5, by + 13, -4], "the line's lower dust"),
-        ([6, by + 13, -4], "the line's repeater"),
-        ([7, by + 13, -4], "R1's comparator"),
-        ([8, by + 13, -4], "R1's repeater"),
-        ([9, by + 13, -4], "the queue rail"),
+        ([6, qy(by) + 15, -2], "N's comparator"),
+        ([6, qy(by) + 15, -3], "N's dust"),
+        ([5, qy(by) + 14, -3], "the line's dust"),
+        ([5, qy(by) + 13, -4], "the line's lower dust"),
+        ([6, qy(by) + 13, -4], "the line's repeater"),
+        ([7, qy(by) + 13, -4], "R1's comparator"),
+        ([8, qy(by) + 13, -4], "R1's repeater"),
+        ([9, qy(by) + 13, -4], "the queue rail"),
     ];
     for (rest, day, notready) in [(true, false, false), (true, true, false), (true, false, true), (false, false, false)] {
-        let ends = [([6, by + 15, -1], [6, by + 15, -2], rest), ([4, by + 15, -2], [5, by + 15, -2], day), ([8, by + 13, -5], [7, by + 13, -5], notready)];
+        let ends = [([6, qy(by) + 15, -1], [6, qy(by) + 15, -2], rest), ([4, qy(by) + 15, -2], [5, qy(by) + 15, -2], day), ([8, qy(by) + 13, -5], [7, qy(by) + 13, -5], notready)];
         let mut bases = Vec::new();
         for (c, t, on) in ends {
             let base = run.world.get(dbp(c[0], c[1], c[2])).to_string();
@@ -3509,7 +3992,7 @@ fn gate_bench(run: &mut Run, by: i32) -> Result<String, String> {
             run.tick();
         }
         let states: Vec<String> = cells.iter().map(|(c, n)| format!("{n} {}", run.world.get(dbp(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"))).collect();
-        let powered = run.world.get(dbp(9, by + 13, -4)).to_string().contains("powered=true");
+        let powered = run.world.get(dbp(9, qy(by) + 13, -4)).to_string().contains("powered=true");
         let want = rest && !day && !notready;
         if powered != want {
             bad += 1;
@@ -3730,6 +4213,16 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
     SUPPRESSED.with(|s| s.borrow_mut().clear());
     BLOCK_TOGGLES.with(|t| t.borrow_mut().clear());
     NOOP_WRITES.with(|n| *n.borrow_mut() = 0);
+    // (ironfarm, the battery's harness) the throw map, the throws' log and the queue shift, per run
+    THROW_MAP.with(|m| *m.borrow_mut() = o.throw_map.clone());
+    THROWS.with(|t| t.borrow_mut().clear());
+    GIVEUP_AT_LIE.with(|g| g.borrow_mut().clear());
+    THROW_WATCH.with(|t| t.borrow_mut().clear());
+    FREEZE32.with(|f| f.borrow_mut().clear());
+    QUEUE_DY.with(|q| q.set(o.queue_dy));
+    NO_SPLIT.with(|c| c.set((o.no_split, 0)));
+    DECLARED.with(|d| *d.borrow_mut() = o.declared_roles.clone());
+    UNDECLARED.with(|u| u.set((o.allow_undeclared_throws, 0, 0)));
     NOOP_ROWS.with(|r| r.borrow_mut().clear());
     let r = run_inner(spec, o);
     BUILT.with(|g| *g.borrow_mut() = None);
@@ -3754,6 +4247,18 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
 
 fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>, String), String> {
     let mut sp = spec.clone();
+    // (ironfarm, G1 13:22 (b) / 13:24 (1): the planted portal control) one portal frame cell's obsidian taken out of
+    // the paste: the placement's shape updates must break that plane and `Run::start` fail by name (its survival check
+    // covering portals), or the portal read-back after it fail the row; never a row proceeding on a dead portal
+    if let Some(g) = o.plant_frame_gap {
+        let at = sp.blocks.iter().position(|(p, _)| p.x == g[0] && p.y == g[1] && p.z == g[2]);
+        match at.map(|i| sp.blocks[i].1.to_string()) {
+            Some(s) if s.contains("obsidian") => {
+                sp.blocks.retain(|(p, _)| !(p.x == g[0] && p.y == g[1] && p.z == g[2]));
+            }
+            other => return Err(format!("--plant-frame-gap ({},{},{}): the record holds {} there, not a portal frame's obsidian", g[0], g[1], g[2], other.unwrap_or_else(|| "nothing".to_string()))),
+        }
+    }
     // (ironspec 08:05 / 08:14 / 08:16 platform, tick-exact's farm-c7 t0 state) the c7 reconciliation's
     // stored riders are HOME-less as tick-exact's game summons them: the CLI loads the record with
     // spec_of's PortHome::Skip in c7 mode (no `port home` memory in any of the record's villagers);
@@ -3793,13 +4298,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let drive_on = o.drive_rec.is_some();
     let by = o.bed[1];
     if drive_on {
-        if o.official_lane3 || o.neighbour.is_some() || o.control_rider.is_some() || !o.restarts.is_empty() {
-            return Err("--drive-out: not with --official-lane3, --neighbour-golems, --control-rider or restarts (their writes are no drive acts)".to_string());
+        if o.official_lane3 || o.neighbour.is_some() || o.control_rider.is_some() {
+            return Err("--drive-out: not with --official-lane3, --neighbour-golems or --control-rider (their writes are no drive acts)".to_string());
+        }
+        // (ironfarm, ironspec 12:05p (1): `--drive-out` works with restarts, each one a drive act `act <t> reload
+        // <order>[/idle:<N>]` (tick-exact's replay form); a STRESS restart has no game form: refused by name)
+        if !o.restarts.is_empty() && o.restart.label().contains("/stress:") {
+            return Err(format!("--drive-out: the restart order {} has no drive form (the drive's reload is `save`, `reverse` or `seed:K`, with `/idle:N`)", o.restart.label()));
         }
         // (the drive teleports only at rest, and a cart at rest on A6's entry booster doesn't
         // start: the napper comes from b8949c96's queue, released by its gate)
-        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == redsim::pos::BlockPos::new(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
-            return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", by + 13));
+        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == redsim::pos::BlockPos::new(9, qy(by) + 13, -4) && b.to_string().contains("powered_rail")) {
+            return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", qy(by) + 13));
         }
     }
     // (tick-exact 07:12 PT: the scene's entity lines are exactly the run's spawn list, each named as
@@ -3809,7 +4319,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     anyhow_free(sp.has_bed(), "the module holds no bed: no villager gets a HOME")?;
     // (cc767b78 09:38 / ironspec 09:33: no bench moves the day after its villagers' brains are built)
     // --official-lane3 builds at 18,000 and holds it; the c7 placement builds at tick-exact's 13,800
-    let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else if o.c7_placement.is_some() { 13_800 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) };
+    let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else if o.c7_placement.is_some() { 13_800 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) }.with_weather(o.weather);
     // (the shared bed, as the station bench sets it: the farm built homeless, the bed's POI taken,
     // every villager's HOME the bed and LAST_SLEPT 100 gt back; with the drive, the world started
     // as every bench's drive starts it, `Run::start` with the drive's options, the settle run out
@@ -3855,6 +4365,40 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // default; the report's first line says so
     let natural_was = run.world.mob.natural.is_some();
     run.world.mob.natural = None;
+    // (ironfarm, G1 13:24 (2): natural spawns are in scope; a SPAWNER-ON axis, ironspec deciding) `--spawner-on`: the
+    // natural spawner on (Hard, the void's level biome plains, around the AFK spot), so natural mobs spawn on the
+    // composed record's own surfaces; off by default (ironspec 14:57's rule for f1q2-run's bars)
+    if o.spawner_on {
+        // (ironspec 13:38p (2): 26.3 spawns mobs only near a player: the player anchored at the guide's AFK spot,
+        // `--afk X,Y,Z` in the design frame; until the guide names it, the run's default spot)
+        let afk = match o.afk {
+            Some(a) => {
+                let p = dbp(a[0], a[1], a[2]);
+                redsim::entity::Vec3::new(p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5)
+            }
+            None => run.world.afk.unwrap_or_else(|| redsim::entity::Vec3::new(0.5, -60.0, 0.5)),
+        };
+        run.world.afk = Some(afk);
+        run.world.mob.natural = Some(redsim::entity::mob::natural::Natural { void_biome: Some("minecraft:plains"), ..redsim::entity::mob::natural::Natural::new(vec![afk], redsim::entity::mob::natural::Difficulty::Hard) });
+    }
+    // (the planted portal control, G1 13:22 (b) / 13:24 (1), acts at the paste: see `sp` above)
+    // (ironfarm, the battery; G1 13:20: the scene's paste order must not break a portal) redsim's Run::start places
+    // every block of the record raw in ONE pass (obsidian and portal cells all present before any update), then
+    // runs every cell's shape update, failing the run by name on any design cell popped; the portal cells read back
+    // here at t 0 (V's pads), a missing one failing the row by name
+    let portal_cells: Vec<[i32; 3]> = sp.blocks.iter().filter(|(_, b)| b.to_string().contains("nether_portal")).map(|(p, _)| [p.x, p.y, p.z]).collect();
+    let portal_missing: Vec<String> = portal_cells
+        .iter()
+        .filter(|c| !run.world.get(dbp(c[0], c[1], c[2])).to_string().contains("nether_portal"))
+        .map(|c| format!("({},{},{}) holds {}", c[0], c[1], c[2], run.world.get(dbp(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:")))
+        .collect();
+    let portal_line = format!(
+        "the portal cells at t 0 (G1 13:20: the paste places every block in one raw pass, then the shape updates; each portal cell read back): {} of {} present ({}){}\n",
+        portal_cells.len() - portal_missing.len(),
+        portal_cells.len(),
+        if portal_missing.is_empty() { "PASS" } else { "FAIL" },
+        if portal_missing.is_empty() { String::new() } else { format!(": {}", portal_missing.join("; ")) }
+    );
     let bed = dbp(o.bed[0], o.bed[1], o.bed[2]);
     // (ironspec 08:05 platform (2), cc767b78's check 2) with --c7-placement, the HOME holders after
     // each setup phase, to find the setter of the stored riders' HOME
@@ -4046,6 +4590,46 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (the stop's cells move with it: its bed head's y against rev 3's -18)
     let sy = o.bed[1] + 18;
     let mut ctl = Ctl { napper: o.napper, stop_dy: sy, watchdog: o.watchdog, held_at_divert: o.held_at_divert, queue_hold: o.queue_hold, day_threshold: o.day_threshold, ..Ctl::default() };
+    // (ironfarm, the battery) the re-laid stop's emulated controller (58f770cc 12:58), when asked
+    let mut relaid: Option<RelaidStop> = o.relaid_stop.then(RelaidStop::default);
+    // (ironfarm; b8949c96 14:26) P1's evidence-gated release (`--p1-release`)
+    let mut p1_release: Option<P1Release> = o.p1_release.then(P1Release::default);
+    // (ironfarm; dfb89499 14:46) R1's inputs (`--r1-inputs`), and the night skips' log
+    let mut r1_inputs: Option<R1Inputs> = o.r1_inputs.then(R1Inputs::default);
+    let mut skips: Vec<String> = Vec::new();
+    // (ironfarm, the battery) the weather's events over the run (strikes, hits, conversions, destroyed vehicles, fires)
+    let mut weather_tally: Vec<String> = Vec::new();
+    let mut weather_seen: usize = 0;
+    // (ironfarm, the battery: day-1's H2 gap) the napper carts inside H2's cell, and each arrival (tick, napper)
+    let mut h2_inside: Vec<u32> = Vec::new();
+    let mut h2_arrivals: Vec<(i64, u32)> = Vec::new();
+    // (ironfarm, the battery: the natural-spawns axis) the mobs known at the start, the natural spawns since, and the
+    // contacts (natural mob, villager or cart, tick)
+    let mut nat_known: Vec<u32> = Vec::new();
+    let mut nat_ids: Vec<u32> = Vec::new();
+    let mut nat_spawns: Vec<String> = Vec::new();
+    let mut nat_contacts: Vec<(u32, u32, i64)> = Vec::new();
+    // (ironfarm, the battery: the occupied-bed rule) the villager-ticks it flags (the first 60 listed) and their count
+    let mut occupied_bed_moments: Vec<String> = Vec::new();
+    let mut occupied_bed_n: i64 = 0;
+    // (ironfarm, the battery: REL's phase at each world open: (the open's tick, the cycle's REL, gameTime % 100, cycles))
+    let mut rel_phase: Vec<(i64, Option<i64>, i64, i64)> = Vec::new();
+    // (ironfarm, day-1 14:37: the R-hold releases, `--r-hold`) per lane: D's last state, the due throw, its off tick; the log
+    let mut rh_dprev = [false; 3];
+    let mut rh_on: [Option<i64>; 3] = [None; 3];
+    let mut rh_off: [Option<i64>; 3] = [None; 3];
+    let mut rh_log: Vec<String> = Vec::new();
+    // (ironfarm, ironspec 14:53r (1): the Nether kill) each Nether golem's landing tick, and each kill (golem, landed, killed)
+    let mut nether_seen: std::collections::BTreeMap<u32, i64> = std::collections::BTreeMap::new();
+    let mut nether_kills: Vec<(u32, i64, i64)> = Vec::new();
+    // (ironfarm, the battery: the lanes' pocket offsets after REL apply to every driven row, nappers or not; rev 3.1's
+    // record releases at REL + 0 / 17 / 27, dfb89499 13:57: `--lane-offsets 0,17,27`)
+    if o.drive {
+        ctl.offs = o.lane_offsets.unwrap_or(OFFS);
+    }
+    // (ironfarm, loaderlay 14:26: LINE E's swept margin) lane 7's slope release tick after REL and its width
+    ctl.l7_rel = o.lane7_rel.unwrap_or(96);
+    ctl.l7_width = o.lane7_width.unwrap_or(18);
     if o.napper && o.drive {
         ctl.k_lock = Some(o.k_lock.ok_or("the module declares no `k-lock: N (why)` line (the hold gate's delayed Q, ironspec 22:09)")?);
         ctl.k_sw = Some(o.k_sw.ok_or("the module declares no `k-sw: N (why)` line (the siding's repeater after D, ironspec 22:03)")?);
@@ -4984,7 +5568,178 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 lift_rows.push(format!("t {rel}: {}", if carts.is_empty() { "none".to_string() } else { carts.join(", ") }));
             }
         }
+        // (ironfarm, the battery: day-1's H2 gap, 12:57) each napper cart's ARRIVAL at the second hold H2: the first
+        // tick its box enters the hold rail's cell (9,24,7); re-armed when the cart leaves the cell
+        {
+            let c = dbp(9, 24, 7);
+            for e in run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                let inside = e.bb.min_x < (c.x + 1) as f64 && e.bb.max_x > c.x as f64 && e.bb.min_y < (c.y + 1) as f64 && e.bb.max_y > c.y as f64 && e.bb.min_z < (c.z + 1) as f64 && e.bb.max_z > c.z as f64;
+                let napper = e.passengers.first().copied().filter(|r| nappers.iter().any(|(v, _, _)| v == r));
+                if inside && napper.is_some() && !h2_inside.contains(&e.id) {
+                    h2_inside.push(e.id);
+                    h2_arrivals.push((run.world.time - t0, napper.unwrap_or(0)));
+                } else if !inside {
+                    h2_inside.retain(|i| *i != e.id);
+                }
+            }
+        }
+        // (ironfarm, the battery: the natural-spawns axis, ironspec 13:32p (2)) every mob that appears after the start
+        // and isn't a golem (a villager's summon) is a natural spawn: listed (mob, cell, tick); any natural mob whose
+        // box meets a villager's or a cart's box is a CONTACT (FAIL); path checks and the statics' spawnable-cell
+        // comparison are NOT RUN yet (labelled); listed with the spawner off too (cc767b78 13:43: the portals' random
+        // ticks spawn zombified piglins in any row)
+        {
+            let list = &run.world.entities.list;
+            for e in list.iter().filter(|e| !e.removed) {
+                if let EntityKind::Mob(m) = &e.kind {
+                    if matches!(m.ty, redsim::entity::mob::types::MobType::IronGolem | redsim::entity::mob::types::MobType::Villager) {
+                        continue;
+                    }
+                    if !nat_known.contains(&e.id) {
+                        nat_known.push(e.id);
+                        if run.world.time > t0 {
+                            nat_spawns.push(format!("t {} {:?} #{} at {:?}", run.world.time - t0, m.ty, e.id, cell(e.pos)));
+                            nat_ids.push(e.id);
+                        }
+                    }
+                    if nat_ids.contains(&e.id) {
+                        for o2 in list.iter().filter(|o2| !o2.removed && o2.id != e.id) {
+                            let touches = matches!(&o2.kind, EntityKind::Minecart(_)) || matches!(&o2.kind, EntityKind::Mob(m2) if matches!(m2.ty, redsim::entity::mob::types::MobType::Villager));
+                            if touches && e.bb.intersects(o2.bb) && !nat_contacts.iter().any(|(a, b, _)| *a == e.id && *b == o2.id) {
+                                nat_contacts.push((e.id, o2.id, run.world.time - t0));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // (ironfarm, the battery: the OCCUPIED-BED rule, ironspec 13:38p (1), tick-exact 13:33's quote of 26.3
+        // `ValidateNearbyPoi` for HOME: REST only, every tick, the bed's block centre within 16 of the villager's feet,
+        // the bed OCCUPIED, the villager itself not sleeping: HOME is erased then) every such villager-tick, FAILING by name
+        {
+            let bedc = dbp(o.bed[0], o.bed[1], o.bed[2]);
+            let occupied = run.world.get(bedc).to_string().contains("occupied=true");
+            if occupied {
+                for j in 0..run.world.entities.list.len() {
+                    let e = &run.world.entities.list[j];
+                    let EntityKind::Mob(m) = &e.kind else { continue };
+                    if e.removed || !matches!(m.ty, redsim::entity::mob::types::MobType::Villager) || m.sleeping_pos.is_some() {
+                        continue;
+                    }
+                    let b = redsim::entity::mob::ai::brain::brain(&run.world, j);
+                    let rest = b.ex.as_deref().is_some_and(|x| matches!(x.active, redsim::entity::mob::ai::brain::Act::Rest));
+                    let home_is_bed = b.home.is_some_and(|h| h.x == bedc.x && h.y == bedc.y && h.z == bedc.z);
+                    let (dx, dy, dz) = (bedc.x as f64 + 0.5 - e.pos.x, bedc.y as f64 + 0.5 - e.pos.y, bedc.z as f64 + 0.5 - e.pos.z);
+                    if rest && home_is_bed && dx * dx + dy * dy + dz * dz < 256.0 {
+                        if occupied_bed_moments.len() < 60 {
+                            occupied_bed_moments.push(format!("t {} #{} at {:?} ({:.1} from the bed)", run.world.time - t0, e.id, cell(e.pos), (dx * dx + dy * dy + dz * dz).sqrt()));
+                        }
+                        occupied_bed_n += 1;
+                    }
+                }
+            }
+        }
+        // (ironfarm; day-1 14:37 for `r-hold:<lane>`: the R-hold release, the D-keyed form until ironfarm's travel trace
+        // lands) when lane x's returning napper is SEATED at its R hold R(x) = (x-2,24,7) and D(x) (x,24,8) rises for its
+        // predecessor, the declared `r-hold:<x>` lever is thrown at that rise + 34 gt for 20 gt; only then (conditional)
+        if o.r_hold {
+            for (k, x) in LANES.iter().enumerate() {
+                let d = powered(&run.world, [*x, 24, 8]);
+                let seated = run.world.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [*x - 2, 24, 7] && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)));
+                if d && !rh_dprev[k] && seated && rh_on[k].is_none() && rh_off[k].is_none() {
+                    rh_on[k] = Some(rel + 34);
+                    rh_log.push(format!("t {rel}: lane x {x}: D ({x},24,8) rose with the napper seated at R ({},24,7): `r-hold:{x}` due at t {}", x - 2, rel + 34));
+                }
+                rh_dprev[k] = d;
+                let role = format!("r-hold:{x}");
+                let lever = DECLARED.with(|dd| dd.borrow().iter().find(|(_, r)| r.as_deref() == Some(role.as_str())).map(|(c, _)| *c));
+                if rh_on[k] == Some(rel) {
+                    let c = lever.ok_or_else(|| format!("t {rel}: `{role}` is due but the composed file declares no `emulated:` lever with that role (ironspec 14:37c (1))"))?;
+                    set(&mut run.world, c, "minecraft:lever[powered=true]", redsim::world::flags::ALL)?;
+                    rh_on[k] = None;
+                    rh_off[k] = Some(rel + 20);
+                    rh_log.push(format!("t {rel}: `{role}` ({},{},{}) thrown ON for 20 gt", c[0], c[1], c[2]));
+                }
+                if rh_off[k] == Some(rel) {
+                    if let Some(c) = lever {
+                        set(&mut run.world, c, "minecraft:lever[powered=false]", redsim::world::flags::ALL)?;
+                    }
+                    rh_off[k] = None;
+                }
+            }
+        }
+        // (ironfarm, ironspec 14:53r (1): the Nether KILL emulated, game-equivalent per a/1751284275942532, a harness
+        // stand-in like a thrown lever) each golem in the modeled Nether killed `--nether-kill-after` gt after it lands
+        if let Some(k) = o.nether_kill_after
+            && let Some(n) = run.world.nether.as_mut()
+        {
+            let landed: Vec<u32> = n.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::IronGolem))).map(|e| e.id).collect();
+            for id in landed {
+                let at = *nether_seen.entry(id).or_insert(rel);
+                if rel - at >= k {
+                    redsim::entity::kill(n, id).map_err(|e| format!("t {rel}: the Nether kill of golem #{id}: {e}"))?;
+                    nether_kills.push((id, at, rel));
+                }
+            }
+        }
+        // (ironfarm, the battery: weather and lightning, every event the world's weather recorded this tick,
+        // read without draining it)
+        {
+            let evs = &run.world.weather.events;
+            if evs.len() < weather_seen {
+                weather_seen = 0;
+            }
+            for ev in &evs[weather_seen..] {
+                use redsim::weather::WeatherEvent as WE;
+                match ev {
+                    WE::Strike { visual, at, .. } => weather_tally.push(format!("t {} a {}bolt at ({},{},{})", run.world.time - t0, if *visual { "visual " } else { "" }, at[0], at[1], at[2])),
+                    WE::Hit { what, .. } => weather_tally.push(format!("t {} a bolt hit a {what}", run.world.time - t0)),
+                    WE::Converted { entity, .. } => weather_tally.push(format!("t {} VILLAGER #{entity} STRUCK (a witch)", run.world.time - t0)),
+                    WE::VehicleDestroyed { entity, .. } => weather_tally.push(format!("t {} VEHICLE #{entity} DESTROYED by a bolt", run.world.time - t0)),
+                    WE::Fire { at, .. } => weather_tally.push(format!("t {} a fire at ({},{},{})", run.world.time - t0, at[0], at[1], at[2])),
+                    _ => {}
+                }
+            }
+            weather_seen = evs.len();
+        }
+        // (ironfarm, the battery's harness as the stand-in part's functional read-back, ironspec 12:44p (1)): each
+        // throw's TARGET watched until its state changes, the latency printed
+        {
+            let pending = THROW_WATCH.with(|t| t.borrow().clone());
+            let mut keep = Vec::new();
+            for (lever, target, t_throw, before) in pending {
+                let now_s = run.world.get(dbp(target[0], target[1], target[2])).to_string();
+                if now_s != before {
+                    THROWS.with(|t| t.borrow_mut().push(format!("  -> the throw at ({},{},{}) t {t_throw}: its target ({},{},{}) {} -> {} at t {} (latency {} gt)", lever[0], lever[1], lever[2], target[0], target[1], target[2], before.trim_start_matches("minecraft:"), now_s.trim_start_matches("minecraft:"), run.world.time, run.world.time - t_throw)));
+                } else if run.world.time - t_throw < 40 {
+                    keep.push((lever, target, t_throw, before));
+                } else {
+                    THROWS.with(|t| t.borrow_mut().push(format!("  -> the throw at ({},{},{}) t {t_throw}: its target ({},{},{}) UNCHANGED after 40 gt ({})", lever[0], lever[1], lever[2], target[0], target[1], target[2], before.trim_start_matches("minecraft:"))));
+                }
+            }
+            THROW_WATCH.with(|t| *t.borrow_mut() = keep);
+        }
+        // (ironfarm, the battery: a level-32 dwell, G1 12:18: blocks tick, entities frozen)
+        for (k, (start, len)) in o.freeze32.iter().enumerate() {
+            if rel == *start {
+                let pb = crate::liveness::freeze32(&mut run.world);
+                FREEZE32.with(|f| f.borrow_mut().push((k, pb)));
+                log.push(format!("t {rel}: a level-32 dwell starts (entities frozen, blocks ticking) for {len} gt"));
+            }
+            if rel == start + len {
+                if let Some(pb) = FREEZE32.with(|f| f.borrow().iter().find(|(i, _)| *i == k).map(|(_, pb)| *pb)) {
+                    crate::liveness::thaw32(&mut run.world, pb);
+                    log.push(format!("t {rel}: the level-32 dwell ends (entities thawed)"));
+                }
+            }
+        }
         if o.restarts.contains(&rel) {
+            // (ironfarm: the world open as a drive act, before tick `rel`'s acts)
+            drive_reload(run.world.time, &o.restart.label());
+            // (ironfarm, G1 14:19 (2) / ironspec 14:41c (3): REL's re-phase across world opens) the current cycle's
+            // REL against the game clock at each open, and the cycles completed so far
+            rel_phase.push((rel, ctl.rel, run.world.time.rem_euclid(100), ctl.cycles));
+            OPENS.with(|op| op.borrow_mut().push(run.world.time));
             // (G1 10:47 blocking 1) the ids live before the open: one of them the open doesn't renew
             // is an error, never kept silently
             let pre_live: std::collections::BTreeSet<u32> = run.world.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
@@ -5491,7 +6246,27 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
             ctl.step(&mut run.world, rel)?;
-            // (ironspec 15:17) each new K window's napper: the napper's ridden cart on the hold (9,0,8)
+            // (ironfarm, the battery: the RE-LAID stop's emulated controller, 58f770cc 12:58's driver table, as
+            // bedtier-bench's adopted controller runs it; bench-driven, its four levers thrown)
+            if let Some(rs) = relaid.as_mut() {
+                rs.step(&mut run.world, rel)?;
+            }
+            // (ironfarm; b8949c96 14:26) P1's evidence-gated release, when asked
+            if let Some(p1) = p1_release.as_mut() {
+                p1.step(&mut run.world, rel)?;
+            }
+            // (ironfarm; dfb89499 14:46) R1's inputs by role, when asked
+            if let Some(r1) = r1_inputs.as_mut() {
+                r1.step(&mut run.world, rel)?;
+            }
+            // (ironfarm; ironspec 14:41c (2): the PLAYER SLEEPING THROUGH A NIGHT) at each `--night-skip` tick the day
+            // time jumps to the next morning (the game clock doesn't)
+            if o.night_skip.contains(&rel) {
+                let dt = run.world.day_time();
+                let next = (dt.div_euclid(24_000) + 1) * 24_000;
+                run.world.mob.day_offset += next - dt;
+                skips.push(format!("t {rel}: the night skipped (day time {dt} -> {next})"));
+            }
             // at the H2 sample that keyed it (ctl.k_windows' twin)
             while kwin_napper.len() < ctl.k_windows.len() {
                 let napper = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [9, 0, 8]).find_map(|e| e.passengers.first().copied().filter(|r| nappers.iter().any(|(v, _, _)| v == r)));
@@ -9220,6 +9995,102 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         cs.sort_by_key(|x| -x.1);
         s.push_str(&format!("  the cells (villager-ticks): {}\n", cs.iter().take(40).map(|(c, n)| format!("{c:?} {n}")).collect::<Vec<_>>().join(", ")));
     }
+    // (ironfarm, the battery's per-row prints, the parent's list (0e7eb68a 11:24) and G1 12:10 (3)): golem births
+    // per in-game hour (tick-exact's buckets, so the game's compare line for line) and per day, the lost beds as a
+    // failing bar (0), and the oldest give-up timer at each lie-down
+    {
+        let mut by_hour: BTreeMap<i64, i64> = BTreeMap::new();
+        let mut by_day: BTreeMap<i64, i64> = BTreeMap::new();
+        for b in golem_born.values() {
+            *by_hour.entry((day_start + b - t0).div_euclid(1000)).or_insert(0) += 1;
+            *by_day.entry((day_start + b - t0).div_euclid(24_000)).or_insert(0) += 1;
+        }
+        let g = GIVEUP_AT_LIE.with(|g| g.borrow().clone());
+        let worst = g.iter().filter_map(|(_, b)| *b).max_by_key(|(a, _)| *a);
+        s.push_str(&format!(
+            "the battery row (ironfarm; tool unreviewed, bench-driven: the lever throws above name the bench-driven inputs): {portal_line}  golem births per in-game hour (tick-exact's buckets, (day start + t - t0) / 1,000; REDSIM GOLEM SENSING UNVALIDATED: the game control night made 1 against redsim's 40, tick-exact 13:07, cc767b78 investigating): {}\n  golems per day (the run's day index; unvalidated as above): {}\n  lost beds (HOME lost by any mechanism; the battery's PRIMARY bar 0; HOME matched the game on the control night): {} ({})\n  the oldest give-up timer at each lie-down (the oldest CANT_REACH_WALK_TARGET_SINCE among the villagers; the bed is given up at 1,200 gt): {}; the largest {}\n",
+            if by_hour.is_empty() { "none".to_string() } else { by_hour.iter().map(|(h, n)| format!("h{h}: {n}")).collect::<Vec<_>>().join(", ") },
+            if by_day.is_empty() { "none".to_string() } else { by_day.iter().map(|(d, n)| format!("day {d}: {n}")).collect::<Vec<_>>().join(", ") },
+            home_lost_total,
+            if home_lost_total == 0 { "PASS" } else { "FAIL" },
+            if g.is_empty() { "no lie-down".to_string() } else { g.iter().map(|(t, b)| format!("t {}: {}", t - t0, b.map_or("none set".to_string(), |(a, v)| format!("{a} gt (#{v})")))).collect::<Vec<_>>().join("; ") },
+            worst.map_or("-".to_string(), |(a, v)| format!("{a} gt (#{v})"))
+        ));
+        s.push_str(&format!(
+            "  the weather (`--weather`): rain {:.2}, thunder {:.2} at the end; its events: {}{}\n",
+            run.world.weather.rain_level,
+            run.world.weather.thunder_level,
+            weather_tally.len(),
+            if weather_tally.is_empty() { String::new() } else { format!(": {}", weather_tally.join("; ")) }
+        ));
+        if o.no_split {
+            s.push_str(&format!("  `--no-split` (G1 13:58 (b), the harness validated on a record whose split row isn't the in-chunk one): {} J / K lever write(s) at (x,26,9) skipped; judged up to the lift top\n", NO_SPLIT.with(|c| c.get().1)));
+        }
+        if !rel_phase.is_empty() {
+            let phases: Vec<String> = rel_phase.iter().map(|(t, r, g, c)| format!("t {t}: REL {} gameTime%100 {g} cycles {c}", r.map_or("-".to_string(), |r| format!("{r} (mod 100: {})", r.rem_euclid(100))))).collect();
+            s.push_str(&format!("  REL's phase at each world open (G1 14:19 (2), ironspec 14:41c (3): the cycle's REL against the game clock; a drift shows as a moving REL mod 100): {} open(s): {}\n", rel_phase.len(), phases.join("; ")));
+        }
+        if o.r_hold {
+            s.push_str(&format!("  the R-hold releases (day-1 14:37, the D-keyed form: D(x)'s rise + 34 gt for 20 gt, only with lane x's napper seated at R(x); bench-driven): {} event(s){}\n", rh_log.len(), if rh_log.is_empty() { String::new() } else { format!(": {}", rh_log.join("; ")) }));
+        }
+        if let Some(k) = o.nether_kill_after {
+            s.push_str(&format!(
+                "  the Nether kill emulated, game-equivalent per a/1751284275942532 (`--nether-kill-after {k}`: each golem in the modeled Nether killed {k} gt after it lands; a harness stand-in): {} landed, {} killed{}\n",
+                nether_seen.len(),
+                nether_kills.len(),
+                if nether_kills.is_empty() { String::new() } else { format!(": {}", nether_kills.iter().map(|(id, a, t)| format!("#{id} landed t {a}, killed t {t}")).collect::<Vec<_>>().join("; ")) }
+            ));
+        }
+        // (ironspec 15:10c: JUDGED) each nap's sleeper CANT_REACH stamp age and its margin to 1,200, the world opens inside
+        // the stamp's lifetime counted; a HOME loss in a row with <= 1 open inside the lifetime is class (iii)
+        let naps = NAP_STAMPS.with(|n| n.borrow().clone());
+        if !naps.is_empty() {
+            let least = naps.iter().filter_map(|(_, _, a, _)| a.map(|a| 1200 - a)).min();
+            s.push_str(&format!(
+                "  each nap's sleeper CANT_REACH stamp (ironspec 15:10c, JUDGED: its age at the nap, the margin to 1,200, the world opens inside the stamp's lifetime): {} nap(s): {}; the least margin {} ({})\n",
+                naps.len(),
+                naps.iter().map(|(t, v, a, n)| format!("t {}: #{v} {}", t, a.map_or("no stamp".to_string(), |a| format!("age {a} gt, margin {} gt, {n} open(s) inside", 1200 - a)))).collect::<Vec<_>>().join("; "),
+                least.map_or("- (no stamp at any nap)".to_string(), |m| format!("{m} gt")),
+                if least.is_none_or(|m| m > 0) { "PASS" } else { "FAIL" }
+            ));
+        }
+        // (day-1 12:57: the H2 gap = arrival(k+1) - arrival(k) at H2 (9,24,7), consecutive nappers in arrival order,
+        // judged > 41 gt (the second hold's cycle); rider AI on (G1 / ironspec 12:48p (2)); printed per napper with
+        // its pair, and the night's minimum)
+        let gaps: Vec<(i64, (i64, u32), (i64, u32))> = h2_arrivals.windows(2).map(|p| (p[1].0 - p[0].0, p[0], p[1])).collect();
+        let lane_of = |v: u32| nappers.iter().find(|(n, _, _)| *n == v).map_or("?".to_string(), |(_, k, _)| LANES.get(*k).map_or("?".to_string(), |x| x.to_string()));
+        let min = gaps.iter().min_by_key(|g| g.0);
+        s.push_str(&format!(
+            "  the H2 gap (day-1 12:57: napper k+1's arrival at H2 (9,24,7) less napper k's, bar > 41 gt; rider AI on): {} arrival(s){}; the night's minimum {} ({})\n",
+            h2_arrivals.len(),
+            if gaps.is_empty() { String::new() } else { format!(": {}", gaps.iter().map(|(g, a, b)| format!("{g} gt (#{} lane {} at t {} -> #{} lane {} at t {})", a.1, lane_of(a.1), a.0, b.1, lane_of(b.1), b.0)).collect::<Vec<_>>().join("; ")) },
+            min.map_or("-".to_string(), |(g, a, b)| format!("{g} gt, #{} -> #{}", a.1, b.1)),
+            if gaps.is_empty() { "NOT JUDGED (fewer than two arrivals)" } else if gaps.iter().all(|g| g.0 > 41) { "PASS" } else { "FAIL" }
+        ));
+        // (ironspec 13:32p (2), G1 13:24 (2)) the natural-spawns axis
+        s.push_str(&format!(
+            "  the occupied-bed rule (ironspec 13:38p (1); 26.3 ValidateNearbyPoi for HOME: REST, HOME = the bed, awake, the bed occupied, its centre within 16; HOME is erased then; bar 0, beside lost beds): {} villager-tick(s) ({}){}\n",
+            occupied_bed_n,
+            if occupied_bed_n == 0 { "PASS" } else { "FAIL" },
+            if occupied_bed_moments.is_empty() { String::new() } else { format!(": {}", occupied_bed_moments.join("; ")) }
+        ));
+        if o.spawner_on {
+            s.push_str("  natural spawns EXERCISED (`--spawner-on`, Hard, around the AFK spot; the void's surfaces only; the statics' spawnable-cell comparison, mob caps and path checks NOT RUN yet)\n");
+        } else {
+            s.push_str("  natural spawns NOT EXERCISED (void, spawner off; `--spawner-on` is the axis)\n");
+        }
+        // (cc767b78 13:43: the portals' random ticks spawn zombified piglins in any row) every spawn after the start
+        // listed in every row, not judged (the portals' light and piglin spawns: a labelled gap, brief line 32);
+        // a spawned mob meeting a villager or a cart FAILS
+        s.push_str(&format!(
+            "  spawns after the start (every mob not a golem or a villager: the natural spawner's or a portal's random tick (zombified piglins, cc767b78 13:43); listed per row; portal shape updates are not modeled, the frames checked by portal-frames): {}{}\n  spawned mobs meeting a villager or a cart (contact, bar 0): {} ({}){}\n",
+            nat_spawns.len(),
+            if nat_spawns.is_empty() { String::new() } else { format!(": {}", nat_spawns.join("; ")) },
+            nat_contacts.len(),
+            if nat_contacts.is_empty() { "PASS" } else { "FAIL" },
+            if nat_contacts.is_empty() { String::new() } else { format!(": {}", nat_contacts.iter().map(|(a, b, t)| format!("t {t} #{a} met #{b}")).collect::<Vec<_>>().join("; ")) }
+        ));
+    }
     // (tick-exact 06:09 PT, the reconciliation row) the c7 placement prints the rider-state section
     // too, its napper rows empty
     if o.napper || o.c7_placement.is_some() {
@@ -11624,6 +12495,45 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if bad.is_empty() { String::new() } else { format!("; UNJUSTIFIED: {}", bad.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("; ")) }
         )
     };
+    // (ironfarm, the battery's harness, G1 12:11 (3) / (4)) every lever the harness threw (each a bench-driven
+    // input: a run that threw any is bench-driven in those parts), with its state read back; a row run as WIRED
+    // (`--wired`: every part on its own wiring) that threw any lever FAILS by name (G1 12:10 (3)'s planted control)
+    let s = {
+        let t = THROWS.with(|t| t.borrow().clone());
+        let thrown = t.iter().filter(|l| l.contains(" throw (")).count();
+        let (_, declared_n, undeclared_n) = UNDECLARED.with(|u| u.get());
+        let s = format!(
+            "{s}the throws' licence (ironspec 14:37c (1): only declared `emulated:` stand-ins with a `drive=` role): {declared_n} through declared roles, {undeclared_n} UNDECLARED{}\n",
+            if undeclared_n > 0 { " (fallback throws: undeclared; no row with one cites)" } else { "" }
+        );
+        format!(
+            "{s}the harness's lever throws (G1 12:11: each a bench-driven input; the state read back): {thrown}{}\n  the row's wiring: {}\n",
+            if t.is_empty() { String::new() } else { format!(": {}", t.join("; ")) },
+            if !o.wired {
+                format!("bench-driven ({thrown} lever throw(s) above; a wired row is `--wired`)")
+            } else if thrown == 0 {
+                "WIRED: no lever thrown (PASS)".to_string()
+            } else {
+                format!("WIRED row, but {thrown} lever throw(s): the thrown parts are bench-driven (FAIL)")
+            }
+        )
+    };
+    // (ironfarm, the battery: the re-laid stop's emulated controller's events, 58f770cc 12:58's table)
+    let s = match relaid.as_ref() {
+        Some(rs) => format!("{s}the re-laid stop's emulated controller (58f770cc's adopted table, bench-driven): {} event(s){}\n", rs.log.len(), if rs.log.is_empty() { String::new() } else { format!(": {}", rs.log.join("; ")) }),
+        None => s,
+    };
+    // (ironfarm; b8949c96 14:26) P1's evidence-gated release: each throw with its three inputs
+    let s = match p1_release.as_ref() {
+        Some(p1) => format!("{s}P1's release (b8949c96's rule, evidence-gated: TOKEN ∧ FRONT CLEAR ∧ P1 OCCUPIED, the lever (9,20,5) 12 gt; bench-driven): {} throw(s){}\n", p1.log.len(), if p1.log.is_empty() { String::new() } else { format!(": {}", p1.log.join("; ")) }),
+        None => s,
+    };
+    // (ironfarm; dfb89499 14:46) R1's inputs' changes; the night skips
+    let s = match r1_inputs.as_ref() {
+        Some(r1) => format!("{s}R1's inputs (dfb89499 14:46, by role: `day` / `rest` from the day time, `not-ready` = NOT RS_ready; bench-driven): {} change(s){}\n", r1.log.len(), if r1.log.is_empty() { String::new() } else { format!(": {}", r1.log.join("; ")) }),
+        None => s,
+    };
+    let s = if skips.is_empty() { s } else { format!("{s}the nights skipped (`--night-skip`, ironspec 14:41c (2): the day time jumps, the game clock doesn't): {}\n", skips.join("; ")) };
     // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check
     let s = format!(
         "{s}the cart-conservation check (ironspec 08:13 / 08:14 platform, G1 08:12: 8 carts a lane, the napper's included, so a stopped cart on the exit row needs a ninth or a fault): each lane's most carts on H, R_1 and the slopes: {}; the farthest-back tail per lane: {}; carts standing still (two ticks running) on the exit booster, the exit row or the split / merge row (z 8..9, y 23..26, x -5..9): {} cart-ticks{} (bar 0: {})\n",

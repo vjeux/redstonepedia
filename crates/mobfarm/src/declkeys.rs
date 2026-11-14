@@ -70,6 +70,125 @@ fn key_of(body: &str) -> Option<String> {
 ///   known key of five letters or more errors.
 /// - A header line (no `#`) whose key is a header or either-form key in another form errors; one whose key
 ///   is a comment-only key errors (its reader never takes the header line).
+/// One `emulated:` entry (ironspec 07:26 PT C4; ironspec Nov 14 12:12p / 12:13p / 12:16p with G1's amendments, the role
+/// tags): its cells, the state it declares (with its `minecraft:` prefix), and its reason, the reason's leading role
+/// tags read apart: `support=X,Y,Z` (the block the emulated cell stands on or hangs from) and `drive=ROLE[,ROLE...]`
+/// (what drives it in the built farm: ONE role per cell, in the entry's cell order; the raw role strings, the closed
+/// role enum checked in the harness).
+/// (ironfarm: main's `declkeys::emulated_entries` (the parsers car), carried here byte for byte as the ONE reader the
+/// battery's f1q2-run uses, ironspec 15:16r (4))
+#[derive(Clone, Debug, PartialEq)]
+pub struct Emulated {
+    pub cells: Vec<[i32; 3]>,
+    pub state: String,
+    pub why: String,
+    pub support: Option<[i32; 3]>,
+    pub drive: Option<Vec<String>>,
+}
+
+/// (ironspec 07:26 PT C4; ironspec Nov 14 10:37a (2), part 72: the one reader every tool shares; 12:16p: the role
+/// tags) Every `emulated:` header line's entries, each strict: `CELLS=STATE (why)`, the cells `x,y,z` joined by `+`,
+/// the entries split by `;` outside parentheses; a note wholly in parentheses (no `=`: a record's prose) is counted, not
+/// read; a malformed entry is an error naming it. A reason `(support=…; drive=…; why)` gives the entry's `support` and
+/// `drive` (each at most once, never empty; either may be absent), the rest of the reason its `why`. Returns the
+/// entries and the notes' count.
+pub fn emulated_entries(text: &str) -> Result<(Vec<Emulated>, usize), String> {
+    let split_top = |s: &str| -> Vec<String> {
+        let (mut parts, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
+        for ch in s.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if ch == ';' && depth == 0 {
+                parts.push(std::mem::take(&mut cur));
+            } else {
+                cur.push(ch);
+            }
+        }
+        parts.push(cur);
+        parts
+    };
+    let mut out = Vec::new();
+    let mut notes = 0usize;
+    for l in text.lines().filter_map(|l| l.strip_prefix("emulated:")) {
+        for e in split_top(l) {
+            let e = e.trim();
+            if e.is_empty() {
+                continue;
+            }
+            if e.starts_with('(') && e.ends_with(')') && !e.contains('=') {
+                notes += 1;
+                continue;
+            }
+            let bad = || format!("emulated entry {e:?}: CELLS=STATE (why)");
+            let (cs, rest) = e.split_once('=').ok_or_else(bad)?;
+            let state = rest.split(" (").next().unwrap_or("").trim();
+            // (ironspec Nov 14 12:47p (1) / 12:50p (1)) the OLD form, `x,y,z=STATE support=… (why)` (a tag outside the
+            // parentheses), refused by name: the state alone stands before " ("
+            if let Some((st, extra)) = state.split_once(char::is_whitespace) {
+                return Err(format!("emulated entry {e:?}: the state {st:?} is followed by {:?} outside the parentheses (the old form: the ruled form is `x,y,z=STATE (support=X,Y,Z; drive=ROLE; why)`)", extra.trim()));
+            }
+            if state.is_empty() || cs.trim().is_empty() || cs.chars().any(|c| !(c.is_ascii_digit() || c == ',' || c == '-' || c == '+' || c == ' ')) {
+                return Err(bad());
+            }
+            let reason = rest.find(" (").map(|i| rest[i + 2..].trim_end().trim_end_matches(')').trim().to_string()).unwrap_or_default();
+            // (the role tags, in order: `support=X,Y,Z` first, then `drive=ROLE[,ROLE...]`, then the free reason; each at
+            // most once and never empty; a tag after the free reason, or `drive=` before `support=`, is refused)
+            let (mut support, mut drive, mut why): (Option<[i32; 3]>, Option<Vec<String>>, Vec<String>) = (None, None, Vec::new());
+            for seg in split_top(&reason) {
+                let seg = seg.trim();
+                if let Some(v) = seg.strip_prefix("support=") {
+                    let v = v.trim();
+                    if support.is_some() {
+                        return Err(format!("emulated entry {e:?}: a second `support=` tag"));
+                    }
+                    if drive.is_some() || !why.is_empty() {
+                        return Err(format!("emulated entry {e:?}: `support=` comes first, before `drive=` and the reason"));
+                    }
+                    let c: Vec<i32> = v.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|_| format!("emulated entry {e:?}: `support={v}` is no x,y,z"))?;
+                    if c.len() != 3 {
+                        return Err(format!("emulated entry {e:?}: `support={v}` is no x,y,z"));
+                    }
+                    support = Some([c[0], c[1], c[2]]);
+                } else if let Some(v) = seg.strip_prefix("drive=") {
+                    let v = v.trim();
+                    if drive.is_some() {
+                        return Err(format!("emulated entry {e:?}: a second `drive=` tag"));
+                    }
+                    if !why.is_empty() {
+                        return Err(format!("emulated entry {e:?}: `drive=` comes before the reason"));
+                    }
+                    let roles: Vec<String> = v.split(',').map(|r| r.trim().to_string()).collect();
+                    if v.is_empty() || roles.iter().any(|r| r.is_empty()) {
+                        return Err(format!("emulated entry {e:?}: an empty `drive=` role"));
+                    }
+                    drive = Some(roles);
+                } else if !seg.is_empty() {
+                    why.push(seg.to_string());
+                }
+            }
+            let state = if state.starts_with("minecraft:") { state.to_string() } else { format!("minecraft:{state}") };
+            let mut cells = Vec::new();
+            for c in cs.split('+') {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>().map_err(|err| format!("emulated cell {c:?}: {err}"))).collect::<Result<_, _>>()?;
+                if v.len() != 3 {
+                    return Err(format!("emulated cell {c:?}: x,y,z"));
+                }
+                cells.push([v[0], v[1], v[2]]);
+            }
+            if let Some(d) = &drive
+                && d.len() != cells.len()
+            {
+                return Err(format!("emulated entry {e:?}: {} `drive=` role(s) for {} cell(s) (one role per cell, in the entry's cell order)", d.len(), cells.len()));
+            }
+            out.push(Emulated { cells, state, why: why.join("; "), support, drive });
+        }
+    }
+    Ok((out, notes))
+}
+
 pub fn check(text: &str) -> Result<(), String> {
     let all = || COMMENT_KEYS.iter().chain(EITHER_KEYS).chain(META_KEYS);
     for line in text.lines() {
@@ -113,6 +232,22 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (ironfarm, ironspec 15:16r (4) / vcompose 15:05) the ONE reader on a WIP″-shaped `emulated:` line: entries split
+    /// only outside parentheses, so a reason's prose holding "(x,y,z)" or "a,b,c" triples is never read as a cell, while
+    /// the old per-`;` split (`column::header_cells`) reads the planted triple as a false cell
+    #[test]
+    fn a_reasons_coordinates_are_never_cells() {
+        let text = "emulated: 9,20,5=minecraft:lever[face=ceiling,facing=north,powered=false] (support=9,21,5; drive=p1-release; 21,21,22; a ceiling lever under the glass (9,21,5)); -5,22,9=minecraft:lever[face=ceiling,facing=north,powered=false] (support=-5,23,9; drive=r-hold:-1; behind the repeater (-4,22,9))\n";
+        let (e, notes) = emulated_entries(text).expect("the ruled line reads with 0 refusals");
+        assert_eq!((e.len(), notes), (2, 0), "two entries: {e:?}");
+        let cells: Vec<[i32; 3]> = e.iter().flat_map(|x| x.cells.clone()).collect();
+        assert_eq!(cells, vec![[9, 20, 5], [-5, 22, 9]], "only the entries' own cells");
+        assert_eq!(e[0].drive.as_deref(), Some(&["p1-release".to_string()][..]));
+        assert_eq!(e[1].support, Some([-5, 23, 9]));
+        let old = crate::column::header_cells(text, "emulated:");
+        assert!(old.contains(&[21, 21, 22]), "the planted prose triple is a false cell for the old split (the defect this reader fixes): {old:?}");
+    }
 
     /// A known key in another form, a header-only key as a comment, a comment-only key as a header line,
     /// and a key one letter off a known one are errors; the exact forms, short unknown keys and prose
