@@ -16034,6 +16034,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for l in &why {
                         println!("{l}");
                     }
+                    // (ironspec Nov 13 19:32: a side entry NOT JUDGED (its settle failed) fails the run by
+                    // name, never read as a pass)
+                    crate::fleecheck::auto_columns_judged(&why).map_err(|e| anyhow::anyhow!(e))?;
                     cols.extend(auto);
                 }
                 let mut rests = Vec::new();
