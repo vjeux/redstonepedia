@@ -28,6 +28,7 @@ pub const COMMENT_KEYS: &[&str] = &[
     "speeds",
     "bridged-pairs",
     "string-class",
+    "allow-powered",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
