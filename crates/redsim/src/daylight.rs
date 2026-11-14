@@ -158,6 +158,9 @@ pub struct SkyCache {
     /// The light reads that failed where their caller couldn't return the error (`World::light_or`),
     /// until the next tick moves them into `World::errors` or a judge takes them.
     pub(crate) read_errors: std::sync::Mutex<Vec<String>>,
+    /// (ironspec 16:22) The ones a tick moved into `World::errors`, kept here too until a judge takes
+    /// them ([`crate::world::World::take_light_errors`] returns these and the pending ones together).
+    pub(crate) drained: std::sync::Mutex<Vec<String>>,
 }
 
 /// A land-less world's light sources (cc767b78, ironspec 12:54: land-less worlds model block light
@@ -227,11 +230,13 @@ pub fn block_light_landless(w: &World, p: BlockPos) -> Result<i32, String> {
 
 impl Clone for SkyCache {
     /// A copy of a world starts with no answers and no light-source list (they are recomputed on
-    /// demand from its own cells), and carries the light read errors still pending (ironspec 14:27
-    /// (b): a copy made between a failed read and the next tick would otherwise lose them).
+    /// demand from its own cells), and carries the light read errors no judge has taken, pending or
+    /// drained by a tick (ironspec 14:27 (b): a copy made between a failed read and the next tick would
+    /// otherwise lose them).
     fn clone(&self) -> Self {
         let pending = self.read_errors.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        SkyCache { read_errors: std::sync::Mutex::new(pending), ..SkyCache::default() }
+        let drained = self.drained.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        SkyCache { read_errors: std::sync::Mutex::new(pending), drained: std::sync::Mutex::new(drained), ..SkyCache::default() }
     }
 }
 
@@ -809,9 +814,10 @@ mod tests {
         assert_eq!(w.take_light_errors(), vec!["pending".to_string()], "the original keeps its own");
     }
 
-    /// (cc767b78, ironspec 12:54) A light read whose caller can't return the error surfaces:
+    /// (cc767b78, ironspec 12:54 / 16:22) A light read whose caller can't return the error surfaces:
     /// `World::light_or` / `sees_or` give the fallback and record the error (once); the next tick moves
-    /// it into the world's errors; a judge that takes them first gets them, and the tick then has none.
+    /// it into the world's errors and a judge's take still gets it (ONE helper returns both: a judge that
+    /// ticks before it takes misses none); taken, it's gone from the take, not from the world's errors.
     #[test]
     fn a_failed_light_read_surfaces() {
         let mut w = World::new(BlockPos::new(0, 0, 0), [4, 4, 4]);
@@ -821,11 +827,17 @@ mod tests {
         w.tick();
         assert_eq!(w.errors, vec!["unreadable here".to_string()], "the tick moved it, once");
         assert_eq!(w.light_or(Err("again".to_string()), 0), 0);
-        assert_eq!(w.take_light_errors(), vec!["again".to_string()], "a judge takes it");
+        assert_eq!(w.take_light_errors(), vec!["unreadable here".to_string(), "again".to_string()], "a judge takes both: the drained one and the pending one");
+        assert!(w.take_light_errors().is_empty(), "taken: none left to take");
         w.tick();
-        assert_eq!(w.errors, vec!["unreadable here".to_string()], "taken: the tick has none to move");
+        assert_eq!(w.errors, vec!["unreadable here".to_string()], "the world's errors keep theirs; the taken pending one isn't moved");
         assert_eq!(w.light_or(Ok(12), 0), 12, "a read that works is its value");
         assert!(w.take_light_errors().is_empty());
+        // (a clone between a tick and the take carries the drained ones too)
+        let _ = w.light_or(Err("drained then copied".to_string()), 0);
+        w.tick();
+        let k = w.clone();
+        assert_eq!(k.take_light_errors(), vec!["drained then copied".to_string()]);
     }
 
     /// An open detector's power at day time `day` with the weather levels held (`rain`, `thunder`): the
