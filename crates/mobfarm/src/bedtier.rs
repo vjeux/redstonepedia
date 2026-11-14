@@ -2899,7 +2899,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let v = (d.x * d.x + d.y * d.y + d.z * d.z).sqrt();
                 row.speed_at_release = Some(v);
                 if lay.arm.is_some() && v >= 0.001 {
-                    row.problems.push(format!("t {t}: the cart moving at the release ({v:.4} b/t; the at-rest bar: under 0.001)"));
+                    row.problems.push(format!("t {t}: the cart moving at the release ({v:.4} b/t; the at-rest bar: under 0.001, G1's C19)"));
                 }
             }
             for &c in &lay.park_ctrl {
