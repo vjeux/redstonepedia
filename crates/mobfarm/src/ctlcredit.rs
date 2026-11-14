@@ -620,6 +620,11 @@ pub struct Out {
     pub ghost_rels: Vec<i64>,
     /// Per credit: the tick `armed` (RE_ARMED, the fast path's OR) first reads it after the press (item 8: measured).
     pub armed_latency: Vec<i64>,
+    /// dfb89499's ask (the core's compactness question, ironspec decides): the RELs that WAITED on each of F1's terms, each
+    /// REL counted once per term (due on the pulse and B past REL's latency, held back by that term at least one tick):
+    /// RE_ARMED (the store's read) and the holds-full term (the planted hold empties AND every lane holding a cart).
+    pub rel_wait_armed: usize,
+    pub rel_wait_holds: usize,
     /// Every credit's press tick (D(7)'s or the completion's) and the ring reset taps (REL + X): PRINTED only (the
     /// judged attribution is the ledger's `answers`).
     pub credit_press: Vec<i64>,
@@ -753,6 +758,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut j7 = false;
     let mut rel_waiting = false;
     let mut had_wait = false;
+    // (this REL's waits on F1's terms, counted once each: ARMED, the holds-full term)
+    let (mut ep_armed, mut ep_holds) = (false, false);
     // (THE NET's ITEM FORM: the in-flight cart items, and one mint per wait; the route's last motion evidence)
     let mut flight: i64 = 0;
     let mut last_route_ev: i64 = 0;
@@ -1075,6 +1082,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // (ironspec 02:46 (1) / G1 02:44b (1): THE RESYNC's PREMISE: when REL is due and waits for a credit, how many
         // batches are in flight (released, a slot neither in a lane nor missing / picked): recorded at each wait's start)
         let due = pending && t >= pulse_at + REL_LAT && b_ok && holds;
+        // (dfb89499's ask: which of F1's terms ever held a due REL back: the holds-full term, ARMED; each REL counted once
+        // per term)
+        if pending && t >= pulse_at + REL_LAT && b_ok {
+            if !holds && !ep_holds {
+                ep_holds = true;
+                o.rel_wait_holds += 1;
+            }
+            if !armed && !ep_armed {
+                ep_armed = true;
+                o.rel_wait_armed += 1;
+            }
+        }
         if due && !armed && !rel_waiting {
             rel_waiting = true;
             had_wait = true;
@@ -1133,6 +1152,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
         if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed && guard_ok {
             pending = false;
             had_wait = false;
+            (ep_armed, ep_holds) = (false, false);
             let last_rel_prev = last_rel;
             last_rel = Some(t);
             in_flight = false;
@@ -3546,6 +3566,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     row.pick = vec![(3, 0), (7, 1), (11, 2), (15, 0), (19, 1), (23, 2)];
     let o = run(&row, Defects::default());
     let b = design_bars(&o, &row, 25);
+    // (dfb89499's ask (the core's compactness question, ironspec decides): which of F1's terms ever hold REL back on the
+    // NORMAL rows: here the 25-batch normal run; the world-open sweep below prints its per-row counts and totals)
+    lines.push(format!("  the normal run ({} RELs): REL waited on ARMED: {} times; REL waited on the holds-full term: {} times", o.rels.len(), o.rel_wait_armed, o.rel_wait_holds));
     line(v, &format!("the normal run (25+ batches; returning nappers in each lane at R6 {} + 0 and + 20 behind slot 3; outbound picks of each lane twice): P = 100, every batch in phase, the store's bars, no picked cart diverted, every napper press neutral", r6()), &b, &o, &row, &mut lines);
     lines.push(format!("    the read at the first REL: {:?} (items, the fourth dust); the credit readable at D(7) + {} (the edge + AND {AND}, the dropper {DROPPER}, the comparator {CMP}); the least lead of batch b's credit over REL_(b+2)'s read {:?} gt (deterministic here: minus D(7)'s measured spread on the composed nights); the ring reset's margins per batch: {}; lane -1's emulated D(-1) behind the reset pulse's end {:?} gt (>= 1: no set-priority fight); the least distance of a batch D(-1) / D(3) from a K window {:?}", o.first_read, o.credit_latency.first().copied().unwrap_or(0), o.credit_lead_min, margins_line(&o), o.order_margin, o.mask_margin));
     let w = v.bar("ctl-credit: the ring reset's normal margins (J(-1)'s branch ahead of slot 1, J(3)'s return and J(-1)'s arming behind the previous slot 3) each >= 10 before the spread; lane -1's emulated D(-1) after the reset pulse", o.reset_margins.iter().all(|m| m.0.is_none_or(|x| x >= 10) && m.1.is_none_or(|x| x >= 10) && m.2.is_none_or(|x| x >= 10)) && o.order_margin.iter().all(|&m| m >= 1));
@@ -4141,6 +4164,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut n_bad_open = 0usize;
     let mut n_jit = 0usize;
     let (mut in_cool, mut cool_bad) = (0usize, Vec::new());
+    // (dfb89499's ask: per world-open row, the RELs that waited on ARMED / on the holds-full term, and the totals)
+    let (mut wait_rows, mut tot_armed, mut tot_holds, mut n_rels): (Vec<String>, usize, usize, usize) = (Vec::new(), 0, 0, 0);
     // (G1 CHANGES 8 on 5184136c2 (5): the opens start at t 400, so the lane-7 napper's batch 4 (REL_4 ~406, released at
     // REL_4 + 65) gets opens BETWEEN ITS REL AND ITS RELEASE too; idle 0 / 1 / 2; every failing row counted. (7)(d) and G1's
     // B2 / B3 on 40a74308f: the napper's ride at BOTH timing corners (-corner and +corner, read from the interface) under the
@@ -4152,11 +4177,23 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
             let o = run(&r, Defects::default());
             n_open += 1;
+            tot_armed += o.rel_wait_armed;
+            tot_holds += o.rel_wait_holds;
+            n_rels += o.rels.len();
+            if o.rel_wait_armed + o.rel_wait_holds > 0 {
+                wait_rows.push(format!("open t {t0} idle {idle} kj {kj}: ARMED {} / holds-full {}", o.rel_wait_armed, o.rel_wait_holds));
+            }
             for jit in [-cn, cn] {
                 let mut rj = r.clone();
                 rj.napper_jitter = vec![(4, jit), (5, jit), (6, jit)];
                 let oj = run(&rj, Defects::default());
                 n_jit += 1;
+                tot_armed += oj.rel_wait_armed;
+                tot_holds += oj.rel_wait_holds;
+                n_rels += oj.rels.len();
+                if oj.rel_wait_armed + oj.rel_wait_holds > 0 {
+                    wait_rows.push(format!("open t {t0} idle {idle} kj {kj}, the nappers {jit:+}: ARMED {} / holds-full {}", oj.rel_wait_armed, oj.rel_wait_holds));
+                }
                 // (G1 on f00f36742 (7): the jitter rows judged on the SAME bars as the open rows (the recovery bars, no cart
                 // misrouted, no napper misrouted), the plant read back on each)
                 let mut badj = recovery_bars(&oj, &rj, bf);
@@ -4201,6 +4238,20 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     }
     let w = v.bar_n(&format!("ctl-credit: A WORLD OPEN at every tick of t 400..719 (batches 4..6: idle 0 / 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and EACH napper's release (G1 CHANGES 8 (5)); every row again with the nappers {cn} gt early and {cn} gt late (the timing corners: CHANGES 8 (7)(d), G1's B3); a NORMAL event: NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown"), n_open + n_jit, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
     lines.push(format!("  A WORLD OPEN at every tick of t 400..719 under the opens {OPENS:?} (idle, k + j), {n_open} runs + {n_jit} with the nappers at the timing corners -{cn} / +{cn} ({in_cool} inside a hopper cooldown), failing rows {n_bad_open}: {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    lines.push(format!("  the world-open sweep ({} rows, {n_rels} RELs): REL waited on ARMED: {tot_armed} times; REL waited on the holds-full term: {tot_holds} times; per row: {}", n_open + n_jit, if wait_rows.is_empty() { "0 / 0 on every row".to_string() } else { format!("{} rows with a wait (every other row 0 / 0): {}", wait_rows.len(), wait_rows.join("; ")) }));
+    // (the wait counters' POSITIVE CONTROL (a 0 needs one): batch 5's slot 3 lost (its credit never lands: REL waits on
+    // ARMED until the resync net mints one) and the station's holds emptied for t 700..1000 (REL waits on the holds-full
+    // term): each counter must see its planted wait)
+    {
+        let mut ra = Row::normal("the wait counters: batch 5's slot 3 lost");
+        ra.missing = vec![(5, 2)];
+        let oa = run(&ra, Defects::default());
+        let mut rh = Row::normal("the wait counters: the holds emptied");
+        rh.holds_empty = vec![(700, 1000)];
+        let oh = run(&rh, Defects::default());
+        let c = v.control("ctl-credit CONTROL (dfb89499's ask): the wait counters see a planted wait: batch 5's slot 3 lost -> REL waits on ARMED; the holds emptied for t 700..1000 -> REL waits on the holds-full term", 2, oa.rel_wait_armed > 0 && oh.rel_wait_holds > 0).to_string();
+        lines.push(format!("  CONTROL (the wait counters): slot 3 lost: ARMED {} / holds-full {}; the holds emptied: ARMED {} / holds-full {}: {c}", oa.rel_wait_armed, oa.rel_wait_holds, oh.rel_wait_armed, oh.rel_wait_holds));
+    }
     // (R6's PHYSICAL CONSTRAINTS (R6 and K's halves ADOPTED ironspec 11:24a, the >= 2-gt form; every value read from the
     // interface) over the swept train-16 runs (G1's B3 / B4 / B5 / B6 on 40a74308f): `phys_sweep` (each napper's ride and
     // each napper batch's slot 3 at every offset of the timing corners, independently, under every open); each constraint

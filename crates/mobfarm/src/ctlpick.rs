@@ -82,10 +82,11 @@ pub fn release_offsets() -> [i64; 3] {
 }
 
 /// THE CONTROLLER's REL TAPS (exact: repeater-chain taps off REL), as the interface states them (`iface_rel_tap` reads
-/// each back in the bench): G captured at REL + 92 and cleared at REL + 33, the record written from G at REL + 102 and
-/// SHIFTED at REL + 61, HOME latched by the core at REL' + 57.
+/// each back in the bench): G_l captured at REL + 92 and HELD UNTIL REL' + 85 (cc767b78 13:18: the clear moved from + 33,
+/// so the ring gates its later taps with G directly), the record written from G at REL + 102 and SHIFTED at REL + 61,
+/// HOME latched by the core at REL' + 57.
 pub const G_CAPTURE: i64 = 92;
-pub const G_CLEAR: i64 = 33;
+pub const G_CLEAR: i64 = 85;
 pub const REC_WRITE: i64 = 102;
 pub const REC_SHIFT: i64 = 61;
 pub const HOME_LATCH: i64 = 57;
@@ -422,6 +423,9 @@ pub struct Out {
     /// REL + 61 + 2).
     pub arm3_arrivals: usize,
     pub arm3_near_home_shift: usize,
+    /// Point 6 of the ctl-pick report (day-1's job 3): the arrivals after the shift but at or before the hold's release
+    /// ((REL + 61, REL + 67]): the record model shifts them at that REL' + 61, before they arrive.
+    pub arm3_after_shift: usize,
 }
 
 /// One nap as stamped (the judge's bookkeeping): the villager, its lane, the night and the farm REL index in it of its pick,
@@ -829,6 +833,9 @@ pub fn run(cfg: &Cfg) -> Out {
                     o.arm3_arrivals += 1;
                     if (HOME_LATCH - CORNER..=REC_SHIFT + CORNER).contains(&ph) {
                         o.arm3_near_home_shift += 1;
+                    }
+                    if ph > REC_SHIFT && ph <= 67 {
+                        o.arm3_after_shift += 1;
                     }
                 }
                 let wait = start - arrive;
@@ -1463,6 +1470,7 @@ struct FormRec {
     w7_pairs: usize,
     arm3_n: usize,
     arm3_near: usize,
+    arm3_after_shift: usize,
     least_gap: i64,
     wait: [i64; 3],
     worst: i64,
@@ -1487,7 +1495,7 @@ struct FormRec {
 
 impl FormRec {
     fn new(hc: i64) -> FormRec {
-        FormRec { hc, rows: 0, multi: 0, w7_pairs: 0, arm3_n: 0, arm3_near: 0, least_gap: i64::MAX, wait: [0; 3], worst: 0, worst_at: String::new(), corner_gap: i64::MAX, corner_worst: 0, lost: 0, out_max: 0, arm3_max: 0, depth_max: 0, vs_ref: 0, behind: 0, wayin_max: 0, lag_min: None, spacing: [None; 3], bed_occ: [0; 3], bed_margin: [None; 3], bed_pairs: 0, term_fails: Default::default(), first_bad: String::new() }
+        FormRec { hc, rows: 0, multi: 0, w7_pairs: 0, arm3_n: 0, arm3_near: 0, arm3_after_shift: 0, least_gap: i64::MAX, wait: [0; 3], worst: 0, worst_at: String::new(), corner_gap: i64::MAX, corner_worst: 0, lost: 0, out_max: 0, arm3_max: 0, depth_max: 0, vs_ref: 0, behind: 0, wayin_max: 0, lag_min: None, spacing: [None; 3], bed_occ: [0; 3], bed_margin: [None; 3], bed_pairs: 0, term_fails: Default::default(), first_bad: String::new() }
     }
 
     fn take(&mut self, o: &Out, what: &str, corner: bool) {
@@ -1496,6 +1504,7 @@ impl FormRec {
         self.w7_pairs += o.w7_pairs;
         self.arm3_n += o.arm3_arrivals;
         self.arm3_near += o.arm3_near_home_shift;
+        self.arm3_after_shift += o.arm3_after_shift;
         self.least_gap = self.least_gap.min(o.min_hold_gap);
         for l in 0..3 {
             self.wait[l] = self.wait[l].max(o.max_grant_wait[l]);
@@ -2193,62 +2202,71 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 lines.push(format!("  EVERY REFUSAL (the adopted design): {refusals}; at the default T offsets 0 / 3 / 6, cycle 333 + 0: {} refusals", o333.refusals.len()));
             }
             // (G1's CHANGES 6 on 03f431632 (4): THE PRESS / TAP MARGINS by arithmetic: every press (each lane's POP, the station's
-            // D (x,0,2) at its slot release, REL + the interface's offset (ctlring8's convention); its SKIP step SKIP_RECHECK
-            // later; its ENTRY D(x)) moves +-CORNER gt, each independently, the REL taps are exact. The decisions that compare
-            // them: G's capture (REL + 92) reads REQ, a level from the lane's last ring step (the pop or its skip) to its next
-            // pop: each press > CORNER gt from the capture; the positional release at the ENTRY reads the ring's slot 2
-            // downstream of the tap, moved only by the lane's steps: each entry > 2 x CORNER gt from every step (both move).
-            // The taps are read back from the interface; the table printed: which timings are REL taps (exact) and which are
-            // presses (+-2), and the napper's (9,0,8) arrivals against the HOME latch / the shift (4 gt apart))
+            // D (x,0,2) at its slot release, REL + the interface's offset (ctlring8's convention); its ENTRY D(x)) moves
+            // +-CORNER gt, each independently; the REL taps are exact; the ring STEPS the interface's lag after the pop (`each
+            // lane's ring steps N gt after the lane's SENSED pop`, the laid ring's STEP_LAG) and SKIPS SKIP_RECHECK after a
+            // step. The decisions that compare them: G's capture (REL + 92) reads REQ, a level from the lane's last ring step
+            // (the step or its skip) to its next pop: each > CORNER gt from the capture; the positional release at the ENTRY
+            // reads the ring's slot 2 downstream of the tap, moved only by the lane's steps: each entry > 2 x CORNER gt from
+            // every step (both move). The taps are read back from the interface; the table printed: which timings are REL
+            // taps (exact) and which are presses (+-2), and the napper's (9,0,8) arrivals against the HOME latch / the shift
+            // (4 gt apart) and against the shift .. the hold's release ((REL + 61, REL + 67]))
+            let step_lag = iface_rel_tap("each lane's ring steps ");
             {
                 let offs = release_offsets();
-                let taps = [("G captured at REL + ", G_CAPTURE), ("cleared at REL + ", G_CLEAR), ("written from G at REL + ", REC_WRITE), ("SHIFTED at REL + ", REC_SHIFT), ("read (latched) by the core at REL' + ", HOME_LATCH)];
+                let taps = [("G_l is captured at REL + ", G_CAPTURE), ("held until REL' + ", G_CLEAR), ("written from G at REL + ", REC_WRITE), ("SHIFTED at REL + ", REC_SHIFT), ("read (latched) by the core at REL' + ", HOME_LATCH)];
                 let reads: Vec<(String, bool)> = taps.iter().map(|&(k, want)| match iface_rel_tap(k) {
                     Ok(n) => (format!("\"{}\" {n}", k.trim_end_matches(" + ")), n == want),
                     Err(e) => (e, false),
                 }).collect();
                 let all_read = reads.iter().all(|r| r.1);
-                let w = v.bar_n("ctl-pick: THE REL TAPS read back from the interface (G captured / cleared, the record written / shifted, HOME latched) equal the model's constants", taps.len(), all_read);
+                let w = v.bar_n("ctl-pick: THE REL TAPS read back from the interface (G_l captured / held until, the record written / shifted, HOME latched) equal the model's constants", taps.len(), all_read);
                 lines.push(format!("  THE REL TAPS (the interface): {}: {w}", reads.iter().map(|r| r.0.clone()).collect::<Vec<_>>().join(", ")));
+                let w = v.bar("ctl-pick: THE RING's STEP LAG read from the interface equals the laid ring's (ctlring8::STEP_LAG)", step_lag == Ok(crate::ctlring8::STEP_LAG));
+                lines.push(format!("  THE RING's STEP LAG (the interface: \"each lane's ring steps N gt after the lane's SENSED pop\"): {step_lag:?}; the laid ring's STEP_LAG {}: {w}", crate::ctlring8::STEP_LAG));
+                let lag = step_lag.clone().unwrap_or(crate::ctlring8::STEP_LAG);
                 let near = |a: i64, b: i64| (a - b).rem_euclid(PERIOD).min((b - a).rem_euclid(PERIOD));
                 let (mut least_cap, mut least_ent, mut rows) = (i64::MAX, i64::MAX, Vec::new());
                 for l in 0..3 {
                     let pop = offs[l];
-                    let skip = pop + SKIP_RECHECK;
+                    let step = pop + lag;
+                    let skip = step + SKIP_RECHECK;
                     let entry = SLOT_T[l][l] + (offs[l] - TRAIN15_OFFSETS[l]) + J_TO_D;
-                    let cap = near(pop, G_CAPTURE).min(near(skip, G_CAPTURE));
-                    let ent = near(entry, pop).min(near(entry, skip));
+                    let cap = near(pop, G_CAPTURE).min(near(step, G_CAPTURE)).min(near(skip, G_CAPTURE));
+                    let ent = near(entry, step).min(near(entry, skip));
                     least_cap = least_cap.min(cap);
                     least_ent = least_ent.min(ent);
-                    rows.push(format!("lane {}: the pop REL + {pop}, its skip + {skip}, the entry + {entry} (= REL' + {}): the capture + {G_CAPTURE} {cap} gt from the nearest step; the entry {ent} gt from the nearest step", LANES[l], entry.rem_euclid(PERIOD)));
+                    rows.push(format!("lane {}: the pop REL + {pop}, its step + {step}, a skip + {skip}, the entry + {entry} (= REL' + {}): the capture + {G_CAPTURE} {cap} gt from the nearest pop / step; the entry {ent} gt from the nearest step", LANES[l], entry.rem_euclid(PERIOD)));
                 }
-                let w = v.bar_n(&format!("ctl-pick: THE PRESS / TAP MARGINS (G1's CHANGES 6 on 03f431632 (4)): every lane's pop and skip step more than {CORNER} gt from G's capture (REL + {G_CAPTURE}), and every entry more than {} gt from the lane's steps (each press +-{CORNER} independently)", 2 * CORNER), 6, least_cap > CORNER && least_ent > 2 * CORNER);
-                lines.push(format!("  THE PRESS / TAP MARGINS: {}; the least {least_cap} gt to the capture (> {CORNER}), {least_ent} gt entry -> step (> {}): {w}", rows.join("; "), 2 * CORNER));
-                lines.push(format!("  THE TIMINGS: REL TAPS (exact): G captured + {G_CAPTURE}, cleared + {G_CLEAR}, W7 takes G7 + {W7_TAKE} (cc767b78), the record written + {REC_WRITE}, shifted + {REC_SHIFT}, HOME latched + {HOME_LATCH} ({} gt before the shift: two taps, exact), the napper hold's lever + 61 / its rail + 67; PRESSES (+-{CORNER}): the pops + {:?} (the slot releases), the skips + {SKIP_RECHECK} after them, the entries D(x), the napper's (9,0,8) arrival (its stop release + the trip, asynchronous to REL): over (b'+w)'s rows {} of {} arrivals fall within +-{CORNER} gt of the HOME latch .. the shift (REL + {} .. {}) (PRINTED: cc767b78's record reads them)", REC_SHIFT - HOME_LATCH, offs, rec4.arm3_near, rec4.arm3_n, HOME_LATCH - CORNER, REC_SHIFT + CORNER));
+                let w = v.bar_n(&format!("ctl-pick: THE PRESS / TAP MARGINS (G1's CHANGES 6 on 03f431632 (4)): every lane's pop, step and skip more than {CORNER} gt from G's capture (REL + {G_CAPTURE}), and every entry more than {} gt from the lane's ring steps (each press +-{CORNER} independently)", 2 * CORNER), 6, least_cap > CORNER && least_ent > 2 * CORNER);
+                lines.push(format!("  THE PRESS / TAP MARGINS (the ring's step {lag} gt after the pop): {}; the least {least_cap} gt to the capture (> {CORNER}), {least_ent} gt entry -> step (> {}): {w}", rows.join("; "), 2 * CORNER));
+                lines.push(format!("  THE TIMINGS: REL TAPS (exact): G_l captured + {G_CAPTURE}, held until REL' + {G_CLEAR}, W7 takes G7 + {W7_TAKE} (cc767b78), the record written + {REC_WRITE}, shifted + {REC_SHIFT}, HOME latched + {HOME_LATCH} ({} gt before the shift: two taps, exact), the napper hold's lever + 61 / its rail + 67; PRESSES (+-{CORNER}): the pops + {:?} (the slot releases; the ring's steps {lag} gt after them, a skip {SKIP_RECHECK} after a step), the entries D(x), the napper's (9,0,8) arrival (its stop release + the trip, asynchronous to REL): over (b'+w)'s rows (the trip {} gt) {} of {} arrivals fall within +-{CORNER} gt of the HOME latch .. the shift (REL + {} .. {}), and {} after the shift but at or before the hold's release (REL + {} .. 67], shifted at that REL' + {REC_SHIFT} by the record model before they arrive) (PRINTED: cc767b78's record reads them)", REC_SHIFT - HOME_LATCH, offs, ARM3_TRIP_BAND[1] + CORNER, rec4.arm3_near, rec4.arm3_n, HOME_LATCH - CORNER, REC_SHIFT + CORNER, rec4.arm3_after_shift, REC_SHIFT + 1));
             }
-            // (G1's B6 on 239acc610: THE ENTRY / POP SEPARATION, computed (no literals): each lane's circuit entry (the S-bend D
-            // press: its slot's J(l) arrival on train 16 + J -> D) against the same lane's pops one and two RELs after its
-            // release (REL + 100 / 200 + its release offset, read from the interface): the REL model processes the entry after
-            // the first and before the second; judged > CORNER gt each side, so a +-2 gt shift never reorders them)
+            // (G1's B6 on 239acc610: THE ENTRY / STEP SEPARATION, computed (no literals): each lane's circuit entry (the S-bend
+            // D press: its slot's J(l) arrival on train 16 + J -> D) against the same lane's RING STEPS one and two RELs after
+            // its release (REL + 100 / 200 + its release offset, read from the interface, + the ring's step lag): the REL model
+            // processes the entry after the first and before the second; judged > CORNER gt each side, so a +-2 gt shift never
+            // reorders them)
             {
                 let offs = release_offsets();
+                let lag = step_lag.clone().unwrap_or(crate::ctlring8::STEP_LAG);
                 let (mut least, mut seps) = (i64::MAX, Vec::new());
                 for l in 0..3 {
                     let entry = SLOT_T[l][l] + (offs[l] - TRAIN15_OFFSETS[l]) + J_TO_D;
-                    let (p1, p2) = (PERIOD + offs[l], 2 * PERIOD + offs[l]);
+                    let (p1, p2) = (PERIOD + offs[l] + lag, 2 * PERIOD + offs[l] + lag);
                     least = least.min(entry - p1).min(p2 - entry);
-                    seps.push(format!("lane {}: the entry at REL + {entry}: {} gt after the pop at REL + {p1}, {} gt before the pop at REL + {p2}", LANES[l], entry - p1, p2 - entry));
+                    seps.push(format!("lane {}: the entry at REL + {entry}: {} gt after the step at REL + {p1}, {} gt before the step at REL + {p2}", LANES[l], entry - p1, p2 - entry));
                 }
-                let w = v.bar_n(&format!("ctl-pick: THE ENTRY / POP SEPARATION (G1's B6 on 239acc610): each lane's circuit entry (its slot's train-16 J(l) arrival + J -> D {J_TO_D}) lies between the same lane's pops one and two RELs after its release (REL + 100 / 200 + the interface's release offsets) by > {CORNER} gt each side"), 3, least > CORNER);
-                lines.push(format!("  THE ENTRY / POP SEPARATION (SLOT_T, the interface's release offsets {offs:?}): {}; the least {least} gt (> {CORNER}): {w}", seps.join("; ")));
+                let w = v.bar_n(&format!("ctl-pick: THE ENTRY / STEP SEPARATION (G1's B6 on 239acc610): each lane's circuit entry (its slot's train-16 J(l) arrival + J -> D {J_TO_D}) lies between the same lane's ring steps one and two RELs after its release (REL + 100 / 200 + the interface's release offsets + the ring's step lag {lag}) by > {CORNER} gt each side"), 3, least > CORNER);
+                lines.push(format!("  THE ENTRY / STEP SEPARATION (SLOT_T, the interface's release offsets {offs:?}, the ring's step lag {lag} gt): {}; the least {least} gt (> {CORNER}): {w}", seps.join("; ")));
             }
             // (THE TIMING CORNER (ironspec 12:02p (1)): every circuit entry processed after the same REL's pops (any shift of an
             // entry past a pop, 2 gt included), at five points: THE ORDER-INDEPENDENCE CHECK judged (G1's B6: the ring in sync,
             // the rejoins in pick order, no X conflict, each point its own sample) on the MARK-FIFO release, the form that
             // check was asked of ("the mark FIFO, the sensed rejoin and the extract flags must not depend on that order"). THE
             // POSITIONAL RELEASE (the adopted form) reads the ring's slot 2 downstream of the tap AT the entry, so it depends on
-            // the entry preceding the same REL's next pop by construction: its stress row printed; that order is what the
-            // entry / pop separation and the press / tap margins above judge. The nap bar on the stress rows is scoped (every
+            // the entry following the lane's last step and preceding its next by construction: its stress row printed; that
+            // order is what the entry / step separation and the press / tap margins above judge. The nap bar on the stress rows is scoped (every
             // rejoin chance resolved late))
             let mut corner = Vec::new();
             let (mut n_corner, mut corner_good) = (0usize, 0usize);
@@ -2274,7 +2292,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             }
             let w = v.bar_n("ctl-pick: THE ORDER-INDEPENDENCE CHECK (ironspec 12:02p; G1's B6 on 239acc610): with EVERY circuit entry processed after the same REL's pops, the sensed ring on the mark FIFO stays in sync with the carts popped, its rejoins in pick order, no X type conflict, at each point", n_corner, corner_good == n_corner);
             lines.push(format!("  THE ORDER-INDEPENDENCE CHECK (the mark FIFO; every entry after the same REL's pops): {corner_good} of {n_corner} points in sync: {w}"));
-            let sc = v.scope("ctl-pick: the nap bar on the entries-after-the-pops stress rows (every rejoin chance resolved late)", "a stress row, not the +-2 gt corner: the entries' separation from the pops is judged above (> 2 gt each side, so no +-2 gt shift reorders them); here EVERY entry is delayed past those pops, and both pointer forms reach 24,000+ gt: the nap bar's margin then depends on the rejoin race, the composed battery's gt-level corner (step b) judges it");
+            let sc = v.scope("ctl-pick: the nap bar on the entries-after-the-pops stress rows (every rejoin chance resolved late)", "a stress row, not the +-2 gt corner: the entries' separation from the lane's ring steps is judged above (> 2 gt each side, so no +-2 gt shift reorders them); here EVERY entry is delayed past those pops, and both pointer forms reach 24,000+ gt: the nap bar's margin then depends on the rejoin race, the composed battery's gt-level corner (step b) judges it");
             lines.push(format!("  THE ENTRIES-AFTER-THE-POPS STRESS ROW: {}: {sc}", corner.join("; ")));
         }
         let w = v.bar("ctl-pick: THE WAY-IN ROOM TERM never defers a pick on the normal nights (the design unchanged: 24 distinct, every interval < 24,000 - margin) and the way-in holds at most 3", ok(&on) && on.wayin_deferred == 0 && on.max_wayin <= 3);
@@ -2621,15 +2639,24 @@ mod tests {
 
     #[test]
     fn the_bench_prints() {
-        // (the pinned verdict: the ruled design (the pointer form, three in flight, the first-entry rejoin counted, the bed
-        // a single server; the way-in as bought: P1 OCCUPIED form (B), the token from sensed edges, the room's down-count
-        // from the front emptying) passes every judged row; every control bites; the CLI exits 0)
+        // (the pinned verdict: the adopted design (the sensed ring, the positional release, (b'+w), the record 3-deep, the
+        // bed a single server) passes every judged row and every control bites, EXCEPT the two timing misses pinned by name
+        // below until the ring's laid timing is ruled on; the CLI then fails by name)
         let mut v = Verdict::new("ctl-pick-test");
         for l in bench(&mut v) {
             println!("{l}");
         }
-        println!("ctl-pick fails: {:?}", v.fails());
-        assert!(v.fails().is_empty(), "ctl-pick-bench: the pinned verdict changed: {:?}", v.fails());
-        assert!(v.finish(false).is_ok());
+        let fails = v.fails();
+        println!("ctl-pick fails: {:?}", fails);
+        // (day-1's job 3: the merged interface's "each lane's ring steps 6 gt after the lane's SENSED pop" (the laid ring's
+        // STEP_LAG) puts lane -1's circuit entry (D(-1) at REL' + 5) 1 gt BEFORE its ring's step (REL' + 6), against the REL
+        // model's order (the entry after the lane's last step), and lane 3's entry (REL' + 43) on its ring's skip step (the
+        // step + 20): both timing bars miss by name, PINNED)
+        let expected: [&str; 2] = ["THE PRESS / TAP MARGINS", "THE ENTRY / STEP SEPARATION"];
+        assert_eq!(fails.len(), expected.len(), "ctl-pick-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
+        for e in expected {
+            assert_eq!(fails.iter().filter(|f| f.contains(e)).count(), 1, "ctl-pick-bench: the pinned miss \"{e}\" is not exactly once among {:#?}", fails);
+        }
+        assert_eq!(v.finish(false).is_ok(), expected.is_empty(), "ctl-pick-bench: the verdict must fail exactly on the pinned misses");
     }
 }
