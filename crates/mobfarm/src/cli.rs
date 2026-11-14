@@ -1380,6 +1380,10 @@ pub enum MobfarmCmd {
     /// corners not needed), the interior a full rectangle 2..21 wide and 3..21 high; exit 1 on any failure
     PortalFrames {
         designs: Vec<PathBuf>,
+        /// (G1 13:41, part 91) The expected plane counts, OVERWORLD,NETHER (each design listed): a plane whose portal
+        /// blocks are missing isn't found, so a count other than expected fails by name
+        #[arg(long)]
+        expect: Option<String>,
     },
     Census {
         design: PathBuf,
@@ -15829,28 +15833,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
         }
-        MobfarmCmd::PortalFrames { designs } => {
-            let mut bad = 0usize;
+        MobfarmCmd::PortalFrames { designs, expect } => {
+            let expect = match &expect {
+                Some(s) => {
+                    let v: Vec<usize> = s.split(',').map(|n| n.trim().parse::<usize>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--expect {s:?}: OVERWORLD,NETHER ({e})"))?;
+                    anyhow::ensure!(v.len() == 2, "--expect {s:?}: OVERWORLD,NETHER");
+                    Some((v[0], v[1]))
+                }
+                None => None,
+            };
+            let mut bad: Vec<String> = Vec::new();
             for f in &designs {
                 let text = std::fs::read_to_string(f)?;
                 let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
                 // (farmopt 13:25, part 89: the overworld's planes and the Nether part's, each in its own coordinates)
                 let mut planes: Vec<(&str, crate::portalframe::Plane)> = crate::portalframe::portal_planes(&d.blocks).into_iter().map(|p| ("overworld", p)).collect();
                 planes.extend(crate::portalframe::portal_planes(&d.nether_blocks).into_iter().map(|p| ("Nether", p)));
-                println!("portal frames {}: {} plane(s) ({} in the Nether part), {} failing", f.display(), planes.len(), planes.iter().filter(|(w, _)| *w == "Nether").count(), planes.iter().filter(|(_, p)| !p.failures.is_empty()).count());
+                let ne = planes.iter().filter(|(w, _)| *w == "Nether").count();
+                println!(
+                    "portal frames {}: {} plane(s) ({} in the Nether part){}, {} failing",
+                    f.display(),
+                    planes.len(),
+                    ne,
+                    expect.map_or(String::new(), |(o, n)| format!(", {o} overworld and {n} Nether expected")),
+                    planes.iter().filter(|(_, p)| !p.failures.is_empty()).count()
+                );
                 for (world, p) in &planes {
                     let span = format!("{world} axis {} interior {},{},{}..{},{},{}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2]);
                     if p.failures.is_empty() {
                         println!("  stands: {span}");
                     } else {
-                        bad += 1;
                         println!("  FAILS: {span}: {}", p.failures.join("; "));
+                        bad.push(format!("{}: {span}", f.display()));
+                    }
+                }
+                // (part 91) the expected counts through the library's one entry
+                if let Some((o, n)) = expect
+                    && let Err(e) = crate::portalframe::check_expect(&d, o, n)
+                {
+                    for l in e.iter().filter(|l| l.contains("expected")) {
+                        println!("  FAILS: {l}");
+                        bad.push(format!("{}: {l}", f.display()));
                     }
                 }
             }
-            if bad > 0 {
-                std::process::exit(1);
-            }
+            // (G1 13:41, part 91: an Err, never `exit(1)`, so the evidence dispatch's last line stands)
+            anyhow::ensure!(bad.is_empty(), "portal frames: {} failing: {}", bad.len(), bad.join("; "));
         }
         MobfarmCmd::Census { design } => {
             let text = std::fs::read_to_string(&design)?;

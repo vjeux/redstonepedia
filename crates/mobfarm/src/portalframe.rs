@@ -23,7 +23,8 @@ fn axis_of(state: &str) -> Option<char> {
     Some(if state.contains("axis=z") { 'z' } else { 'x' })
 }
 
-/// The planes of a design's blocks (its portal cells grouped by axis and 6-connectivity within the plane), each checked.
+/// The planes of a design's blocks (its portal cells grouped by axis and in-plane 4-connectivity: along the axis's
+/// horizontal and up / down), each checked.
 pub fn portal_planes(blocks: &BTreeMap<[i32; 3], String>) -> Vec<Plane> {
     let portals: BTreeMap<[i32; 3], char> = blocks.iter().filter_map(|(p, s)| axis_of(s).map(|a| (*p, a))).collect();
     let mut seen: BTreeSet<[i32; 3]> = BTreeSet::new();
@@ -103,6 +104,21 @@ pub fn check(d: &mctas::design::Design) -> Result<usize, Vec<String>> {
     if bad.is_empty() { Ok(planes.len()) } else { Err(bad) }
 }
 
+/// (G1 Nov 14 13:41, part 91) [`check`] with the design's EXPECTED plane counts (overworld, Nether): a plane whose
+/// portal blocks went missing simply isn't found, so "0 failing" alone would pass it; a count other than expected is
+/// an Err by name, beside any failing plane.
+pub fn check_expect(d: &mctas::design::Design, overworld: usize, nether: usize) -> Result<usize, Vec<String>> {
+    let (ow, ne) = (portal_planes(&d.blocks).len(), portal_planes(&d.nether_blocks).len());
+    let mut bad = match check(d) {
+        Ok(_) => Vec::new(),
+        Err(b) => b,
+    };
+    if (ow, ne) != (overworld, nether) {
+        bad.push(format!("{ow} overworld and {ne} Nether plane(s) found, {overworld} and {nether} expected (a plane whose portal blocks are missing isn't found)"));
+    }
+    if bad.is_empty() { Ok(ow + ne) } else { Err(bad) }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -150,5 +166,12 @@ mod tests {
         d.nether_blocks.remove(&[2, 0, 0]);
         let e = super::check(&d).unwrap_err();
         assert!(e.len() == 1 && e[0].starts_with("Nether axis x interior 1,1,0..3,3,0: the bottom frame cell 2,0,0 is air"), "{e:?}");
+        // (part 91) the expected counts: a Nether plane whose portal blocks are gone isn't found, and fails by count
+        let mut gone = mctas::design::Design { blocks: plane(None), nether_blocks: plane(None), ..Default::default() };
+        assert_eq!(super::check_expect(&gone, 1, 1), Ok(2));
+        gone.nether_blocks.retain(|_, s| !s.contains("nether_portal"));
+        assert_eq!(super::check(&gone), Ok(1), "0 failing alone passes it");
+        let e = super::check_expect(&gone, 1, 1).unwrap_err();
+        assert!(e.len() == 1 && e[0].contains("1 overworld and 0 Nether plane(s) found, 1 and 1 expected"), "{e:?}");
     }
 }
