@@ -6089,11 +6089,17 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
         for s in &into {
             for q in n6(*s) {
                 let b = w.get(q);
+                // (G1 Nov 14 05:38, part 50) a source counts only by its real faces (`source_faces`): its weak
+                // signal must face the cell to feed it directly; a conductor beside the cell passes on only the
+                // strong signal a source beside it points into that conductor
                 if may_source(&w, &b) {
-                    hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                    if source_faces(q, &b.to_string())(*s).0 {
+                        hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                    }
                 } else if redsim::behavior::is_conductor(&w, &b, q) {
                     for r in n6(q) {
-                        if r != *s && may_source(&w, &w.get(r)) {
+                        let rb = w.get(r);
+                        if r != *s && may_source(&w, &rb) && source_faces(r, &rb.to_string())(q).1 {
                             hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{} beside {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
                         }
                     }
@@ -12025,6 +12031,18 @@ mod gate_tests {
             nd == 2 && ld[0].contains("dropper[facing=east,triggered=false] at 3,1,2 beside it") && !ld[0].contains("4,1,2") && ld[0].contains("at 2,0,1 through the conductor stone at 2,0,2"),
             "a detector rail's faces: {ld:?}"
         );
+        // (part 50) power-into reads the same faces: the dropper beside the dropper next to a detector rail has
+        // no source (the rail's side output is weak: the middle dropper passes nothing on), quasi-connectivity
+        // off; the first dropper has the rail beside it
+        let (pd, npd) = super::power_into(&sd, &[b(4, 1, 2)], true, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(npd == 0 && pd[0].contains("(PASS)"), "no side-strong rail power through the dropper: {pd:?}");
+        let (pd2, npd2) = super::power_into(&sd, &[b(3, 1, 2)], true, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(npd2 == 1 && pd2[0].contains("detector_rail[") && pd2[0].contains("beside 3,1,2"), "the rail beside the first dropper: {pd2:?}");
+        // a repeater facing west (front east) feeds the lamp at its front, not one behind it (2 west)
+        let (pr1, npr1) = super::power_into(&sp, &[b(3, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(npr1 == 1 && pr1[0].contains("repeater[delay=1,facing=west"), "its front: {pr1:?}");
+        let (pr2, npr2) = super::power_into(&sp, &[b(2, 1, 1)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(npr2 == 0, "its side: {pr2:?}");
         // (G1 Nov 14 02:50 (1), part 42) a redstone block beside a powered rail: the two powered rails joined
         // to it in its line are reached too, by propagation (3 consumers); a plain rail beyond stops the run
         let pr = p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]");
