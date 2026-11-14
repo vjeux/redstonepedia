@@ -830,6 +830,48 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
 
 // ---------------------------------------------------------------------- behavior
 
+/// (ironspec / farmopt Nov 14 08:36a / 08:40, part 64) A block kind the game pops (or refuses) without its support
+/// whose survival rule redsim doesn't model yet: the rule's short name, or None (a kind with no survival rule, or one
+/// [`can_survive`] models). The farm loader fails such a design cell by name as NOT MODELED until it is modelled, so
+/// a block the game would pop is never kept silently.
+pub fn survival_not_modeled(s: &Block) -> Option<&'static str> {
+    let Block::Terrain(id) = *s else { return None };
+    let name = crate::terrain::blocks::props(id).name.as_str();
+    let bid = name.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+    let ends = |suffixes: &[&str]| suffixes.iter().any(|x| bid.ends_with(x));
+    let rule = if bid == "ladder" {
+        "LadderBlock.canSurvive: the face behind it sturdy"
+    } else if ends(&["_wall_sign", "_wall_hanging_sign"]) {
+        "WallSignBlock / WallHangingSignBlock.canSurvive: the block behind it"
+    } else if ends(&["_hanging_sign"]) {
+        "CeilingHangingSignBlock.canSurvive: the block above it"
+    } else if ends(&["_sign"]) {
+        "StandingSignBlock.canSurvive: the block below it solid"
+    } else if ends(&["_banner"]) && !bid.ends_with("_wall_banner") {
+        "BannerBlock.canSurvive: the block below it solid"
+    } else if ends(&["vine", "vines", "vines_plant"]) || matches!(bid, "glow_lichen" | "sculk_vein" | "resin_clump" | "hanging_roots" | "spore_blossom" | "cocoa" | "pointed_dripstone") {
+        "an attached plant's canSurvive: the face it hangs from"
+    } else if (ends(&["_sapling", "_mushroom", "_tulip", "_fungus", "_roots", "_propagule", "_crop", "_petals"]) && !bid.ends_with("mangrove_roots"))
+        || matches!(
+            bid,
+            "short_grass" | "tall_grass" | "fern" | "large_fern" | "dead_bush" | "bush" | "firefly_bush" | "short_dry_grass" | "tall_dry_grass" | "leaf_litter" | "wildflowers" | "dandelion" | "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" | "wither_rose" | "torchflower" | "closed_eyeblossom" | "open_eyeblossom" | "sunflower" | "lilac" | "rose_bush" | "peony" | "pitcher_plant" | "azalea" | "flowering_azalea" | "nether_sprouts" | "wheat" | "carrots" | "potatoes" | "beetroots" | "nether_wart" | "sweet_berry_bush" | "lily_pad" | "seagrass" | "tall_seagrass" | "small_dripleaf" | "big_dripleaf_stem" | "chorus_plant" | "chorus_flower" | "frogspawn"
+        )
+    {
+        "VegetationBlock.canSurvive: its soil below"
+    } else if ends(&["amethyst_bud", "amethyst_cluster"]) {
+        "AmethystClusterBlock.canSurvive: the face it grows from"
+    } else if ends(&["_coral"]) && !bid.ends_with("_coral_block") {
+        "BaseCoralPlantTypeBlock.canSurvive: the face below it sturdy"
+    } else if bid == "snow" {
+        "SnowLayerBlock.canSurvive: the block below it"
+    } else if bid == "bell" {
+        "BellBlock.canSurvive: its attachment"
+    } else {
+        return None;
+    };
+    Some(rule)
+}
+
 pub fn can_survive(w: &World, s: &Block, p: BlockPos) -> bool {
     match *s {
         Block::Wire { .. } => wire::can_survive(w, p),
@@ -858,6 +900,10 @@ pub fn can_survive(w: &World, s: &Block, p: BlockPos) -> bool {
         Block::PlainRail { .. } | Block::DetectorRail { .. } => crate::rails::can_survive(w, p),
         Block::BigDripleaf { .. } => crate::react::dripleaf::can_survive(w, p),
         Block::WallBanner { facing } => is_solid(&w.get(p.rel(facing.opposite()))),
+        // (ironspec / farmopt Nov 14 08:40, part 64) 26.3 WallSignBlock.canSurvive: the block behind it (its facing's
+        // opposite) isSolid; StandingSignBlock.canSurvive: the block below isSolid
+        Block::Sign { wall: true, facing, .. } => is_solid(&w.get(p.rel(facing.opposite()))),
+        Block::Sign { wall: false, .. } => is_solid(&w.get(p.below())),
         // canSupportCenter of the block above (hanging) or below
         Block::Lantern { hanging } => {
             let d = if hanging { Dir::Up } else { Dir::Down };
@@ -891,6 +937,8 @@ pub fn can_survive(w: &World, s: &Block, p: BlockPos) -> bool {
         Block::CoralFan { .. } | Block::CoralWallFan { .. } => crate::tnt::fan_can_survive(w, s, p),
         // ---- fire (mobinfra) ----
         Block::Fire { .. } => crate::weather::fire::can_survive(w, s, p),
+        // (part 64) 26.3 CarpetBlock.canSurvive: `!level.isEmptyBlock(pos.below())`
+        Block::Terrain(id) if crate::terrain::blocks::props(id).name.trim_start_matches("minecraft:").split('[').next().unwrap_or("").ends_with("_carpet") => !w.get(p.below()).is_air(),
         _ => true,
     }
 }
