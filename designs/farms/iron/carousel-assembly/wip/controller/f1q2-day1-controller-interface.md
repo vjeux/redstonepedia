@@ -14,9 +14,15 @@ code reads the release pulse FROM this file: one written number).
 - SEEN3_OLD's tap = REL + 80 gt, PROVISIONAL (the window 78..82 on train 15's offsets; train 16 re-sweeps it).
 - K windows: the early half 5 gt, the late half 10 gt, riding each napper's release.
 - The claim cap is in the design (a credit with no open claim is refused).
-- The token's recovery delay N = 40 gt in the logic bench: counted from the arrival detector going UNPOWERED (after its
-  20-gt recheck hold); N >= a departing napper's time to clear every landing position + margin, re-derived from
-  b8949c96's clearing times (printed with the derivation when the netlist lands).
+- The token's recovery delay N = 30 gt (ironspec 09:00a (1): one N, read by both benches): counted from the arrival
+  detector going UNPOWERED (after its 20-gt recheck hold); N >= a departing napper's clear time (its box out of the
+  landing footprint, z > -4.01, from its last rest tick; b8949c96's build 9303460bc prints it) + margin: ironspec re-rules
+  only if that clear time exceeds 10 gt.
+- R6 = 15 (bought, ironspec 09:00a (3)): each lane's napper leaves its R hold (x,24,7) at delay(x) = REL' + 165 + 5 -
+  travel(x), REL' the release cycle that TAKES the napper (it reaches its R brake after its own batch's R release, so the
+  next cycle's); cc767b78's D-keyed form (R = D_l + 34) names the same event; travel(x) = R(x) -> J(x) from ironfarm's
+  trace (owed); the station row's (9,0,8) hold stays at REL + 67. (The logic bench still runs R6 = 10 until the shift's
+  re-derivation lands; R6's physical bar is pinned failing by name meanwhile.)
 
 ## Readers (detector -> reader)
 
@@ -39,8 +45,14 @@ code reads the release pulse FROM this file: one written number).
 
 ## Release terms
 
-- P1 release (the next napper rolls to the front) = TOKEN AND FRONT CLEAR (the arrival detector unpowered). With two
-  nappers nose to tail at P1, one token releases exactly ONE (P1's hold closes before the second passes: its row owed).
+- P1 release (the next napper rolls to the front): ruled 09:18a, THE RISING EDGE of (TOKEN AND FRONT CLEAR AND P1
+  OCCUPIED) fires one release pulse; the pulse CLEARS the token and resets A_SEEN (reset-dominant). A napper already
+  waiting releases when the token sets; one arriving later releases when it comes to rest on P1; nose to tail, the token
+  is already consumed, so the second waits. P1 OCCUPIED is a SENSED LEVEL a RESTING napper keeps on (its sensor: a
+  detector along the track one level off P1's deterministic rest, diagonal, no face neighbour of P1 or its powered rails,
+  the second-in-queue outside its box: its cell named with P1's new rest by b8949c96 / vcompose). Failure directions:
+  stuck LOW = a stall; a false HIGH fires a pulse into an empty P1 = also a stall (no kill path: the token is consumed by
+  the release act). A retry-clock form is rejected.
 - THE TOKEN (ironspec 07:38r / 08:41a, G1 07:39): set ONLY by evidence from the napper released LAST.
   - Each release pulse CLEARS the token and A_SEEN (ARRIVED).
   - The arrival detector's rising edge after the release SETS A_SEEN; a release and an arrival in the same tick resolve

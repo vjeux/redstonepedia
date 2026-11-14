@@ -25,10 +25,15 @@ pub const DAY: i64 = 240;
 pub const CIRCUIT: i64 = 2;
 pub const N0: usize = 8;
 pub const MARGIN: i64 = 1_000;
-/// The token's recovery delay (ironspec 07:38r): the front empty continuously for N_REC gt (>= the detector's 20-gt hold
-/// + a departing napper's time to clear every landing position + margin: 40, to be re-derived from b8949c96's clearing
-/// times) before a missed departure's token SET (and the room count's down-count).
-pub const N_REC: i64 = 40;
+/// The token's recovery delay N (gt), READ from day-1's controller interface file ("recovery delay N = N gt"; ironspec
+/// 09:00a (1): one N, stated once, read by both benches): the arrival detector unpowered continuously for N while A_SEEN
+/// (counted after its 20-gt recheck hold) before a missed departure's token SET (and the room count's down-count).
+pub fn n_rec() -> i64 {
+    let f = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
+    let key = "recovery delay N = ";
+    let at = f.find(key).expect("the interface file states the recovery delay N") + key.len();
+    f[at..].split(' ').next().and_then(|s| s.parse().ok()).expect("the recovery delay N is a number of gt")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Merge {
@@ -223,6 +228,7 @@ const LEG: [i64; 3] = [132, 154, 186];
 const LANE_EXTRA: [i64; 3] = [0, 0, 1];
 
 pub fn run(cfg: &Cfg) -> Out {
+    let n_rec_gt = n_rec();
     let mut lanes: Vec<VecDeque<usize>> = (0..3).map(|l| (0..N0).map(|i| l * N0 + i).collect()).collect();
     let mut napped: Vec<VecDeque<usize>> = vec![VecDeque::new(); 3];
     let nv = 3 * N0;
@@ -336,7 +342,7 @@ pub fn run(cfg: &Cfg) -> Out {
             // (the recovery (ruled 08:41a): A_SEEN AND the arrival detector unpowered continuously for N_REC after the missed
             // departure: the down-count lands then; "a napper at P1" is dropped. TOKEN EMULATED (G1 08:39 (1)): A_SEEN is
             // not yet a modelled state driven by the arrival detector's edge; the departure ticks stand in for it)
-            while recov.first().is_some_and(|&d| d + N_REC <= gt) {
+            while recov.first().is_some_and(|&d| d + n_rec_gt <= gt) {
                 recov.remove(0);
                 room -= 1;
                 o.room_recoveries += 1;
@@ -992,7 +998,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         ra.missed_dep = vec![30];
         let oa = run(&ra);
         let wa = v.bar("ctl-pick: THE ROOM COUNT (token EMULATED: A_SEEN not yet a modelled state) with a MISSED departure press (the 30th): the token's recovery counts it down (once), the way-in still <= 3, the nights still meet the bars (24 distinct, every interval < 24,000 - margin)", oa.max_wayin <= 3 && ok(&oa) && oa.room_recoveries == 1);
-        lines.push(format!("  THE ROOM COUNT, a MISSED departure press (the 30th): the recovery's down-counts {} (N_REC {N_REC} gt after the arrival detector goes unpowered, while A_SEEN; token emulated), picks deferred {} (normal {}), the most in the way-in {}, the worst interval {}: {wa}", oa.room_recoveries, oa.wayin_deferred, base.wayin_deferred, oa.max_wayin, oa.max_gap.0));
+        lines.push(format!("  THE ROOM COUNT, a MISSED departure press (the 30th): the recovery's down-counts {} (N {} gt from the interface file, after the arrival detector goes unpowered, while A_SEEN; token emulated), picks deferred {} (normal {}), the most in the way-in {}, the worst interval {}: {wa}", oa.room_recoveries, n_rec(), oa.wayin_deferred, base.wayin_deferred, oa.max_wayin, oa.max_gap.0));
         // (b): the extra press planted at each REL of night 3's window while the stop is stalled (the count full)
         let night3 = 3 * DAY * 100;
         let (mut over, mut over_at, mut ign) = (0usize, String::new(), 0usize);
