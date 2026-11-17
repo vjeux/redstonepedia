@@ -8,6 +8,10 @@ use std::process::Command;
 
 pub const UI_DIR: &str = "web/site";
 pub const UI_NAME: &str = "redstonepedia";
+/// The Tools pages' bundle (the calculators, crates/site/src/tools.rs): built like the UI, into
+/// `tools/pkg/`.
+pub const TOOLS_DIR: &str = "web/tools";
+pub const TOOLS_NAME: &str = "tools";
 
 /// A tool from PATH, else from ~/.cargo/bin.
 fn tool(name: &str) -> PathBuf {
@@ -39,15 +43,26 @@ fn locked_bindgen_version(ui: &Path) -> Option<String> {
 /// `src/` and their Cargo files), written next to a built UI as `pkg/SOURCE` so a copied UI
 /// (`--pkg`, `--pkg-ref`) can be checked against the checkout.
 pub fn ui_source_hash(repo: &Path) -> Result<String> {
+    source_hash(repo, &["web/site", "crates/site-model"])
+}
+
+/// The fingerprint of the Tools bundle's sources (web/tools and crates/rng, its `data/` too: the
+/// game's data is compiled into the bundle), written as `tools/pkg/SOURCE`.
+pub fn tools_source_hash(repo: &Path) -> Result<String> {
+    source_hash(repo, &["web/tools", "crates/rng"])
+}
+
+/// Every file under each root's `src/` (and `data/`) and its Cargo files, hashed in order.
+fn source_hash(repo: &Path, roots: &[&str]) -> Result<String> {
     let mut files: Vec<PathBuf> = Vec::new();
-    for root in ["web/site", "crates/site-model"] {
+    for root in roots {
         for f in ["Cargo.toml", "Cargo.lock"] {
             let p = repo.join(root).join(f);
             if p.is_file() {
                 files.push(p);
             }
         }
-        let mut stack = vec![repo.join(root).join("src")];
+        let mut stack: Vec<PathBuf> = ["src", "data"].iter().map(|d| repo.join(root).join(d)).filter(|d| d.is_dir()).collect();
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d).with_context(|| format!("reading {}", d.display()))?.flatten() {
                 let p = e.path();
@@ -201,7 +216,27 @@ pub fn stale_viewer(repo: &Path, viewer: &Path, from: &str) -> Result<Option<Str
 /// Build web/site in release mode for wasm32-unknown-unknown and bind it into `out`
 /// (redstonepedia.js + redstonepedia_bg.wasm + SOURCE).
 pub fn build_ui(repo: &Path, out: &Path) -> Result<()> {
-    let ui = repo.join(UI_DIR);
+    build_bundle(repo, UI_DIR, UI_NAME, out, &ui_source_hash(repo)?)
+}
+
+/// Build web/tools the same way into `out` (tools.js + tools_bg.wasm + SOURCE) and write its
+/// workers' start, `worker.js`: the one line every page starts a bundle with (a worker of the seed
+/// search is this same bundle, crates/site/src/tools.rs).
+pub fn build_tools(repo: &Path, out: &Path) -> Result<()> {
+    build_bundle(repo, TOOLS_DIR, TOOLS_NAME, out, &tools_source_hash(repo)?)
+}
+
+/// `tools/pkg/worker.js`: the bundle's own one-line start, its files by their content hashes.
+pub fn tools_worker(pkg: &Path) -> String {
+    format!(
+        "import init from \"./{TOOLS_NAME}.js?v={}\"; init({{module_or_path: \"./{TOOLS_NAME}_bg.wasm?v={}\"}});\n",
+        crate::pages::file_hash(&pkg.join(format!("{TOOLS_NAME}.js"))),
+        crate::pages::file_hash(&pkg.join(format!("{TOOLS_NAME}_bg.wasm")))
+    )
+}
+
+fn build_bundle(repo: &Path, dir: &str, name: &str, out: &Path, source: &str) -> Result<()> {
+    let ui = repo.join(dir);
     let cargo = std::env::var_os("CARGO").map(PathBuf::from).filter(|p| p.is_file()).unwrap_or_else(|| tool("cargo"));
     let st = Command::new(&cargo)
         .args(["build", "--release", "--target", "wasm32-unknown-unknown", "--manifest-path"])
@@ -209,9 +244,9 @@ pub fn build_ui(repo: &Path, out: &Path) -> Result<()> {
         .status()
         .with_context(|| format!("running {}", cargo.display()))?;
     if !st.success() {
-        bail!("building {UI_DIR} for wasm32-unknown-unknown failed (needs `rustup target add wasm32-unknown-unknown`)");
+        bail!("building {dir} for wasm32-unknown-unknown failed (needs `rustup target add wasm32-unknown-unknown`)");
     }
-    let wasm = ui.join("target/wasm32-unknown-unknown/release").join(format!("{}.wasm", UI_NAME.replace('-', "_")));
+    let wasm = ui.join("target/wasm32-unknown-unknown/release").join(format!("{}.wasm", name.replace('-', "_")));
     let bindgen = tool("wasm-bindgen");
     let want = locked_bindgen_version(&ui).unwrap_or_default();
     let have = Command::new(&bindgen).arg("--version").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
@@ -220,7 +255,7 @@ pub fn build_ui(repo: &Path, out: &Path) -> Result<()> {
     }
     std::fs::create_dir_all(out)?;
     let st = Command::new(&bindgen)
-        .args(["--target", "web", "--no-typescript", "--out-name", UI_NAME, "--out-dir"])
+        .args(["--target", "web", "--no-typescript", "--out-name", name, "--out-dir"])
         .arg(out)
         .arg(&wasm)
         .status()
@@ -228,10 +263,20 @@ pub fn build_ui(repo: &Path, out: &Path) -> Result<()> {
     if !st.success() {
         bail!("wasm-bindgen failed on {}", wasm.display());
     }
-    let size = std::fs::metadata(out.join(format!("{UI_NAME}_bg.wasm"))).map(|m| m.len()).unwrap_or(0);
-    std::fs::write(out.join("SOURCE"), format!("{}\n", ui_source_hash(repo)?))?;
-    eprintln!("UI: {} ({} KB of WebAssembly)", out.display(), size / 1024);
+    let size = std::fs::metadata(out.join(format!("{name}_bg.wasm"))).map(|m| m.len()).unwrap_or(0);
+    std::fs::write(out.join("SOURCE"), format!("{source}\n"))?;
+    eprintln!("{dir}: {} ({} KB of WebAssembly)", out.display(), size / 1024);
     Ok(())
+}
+
+/// A copied Tools bundle (`--pkg-ref`'s `tools/pkg/`) must come from the checkout's sources.
+pub fn check_copied_tools(repo: &Path, pkg: &Path, from: &str) -> Result<()> {
+    let want = tools_source_hash(repo)?;
+    match std::fs::read_to_string(pkg.join("SOURCE")) {
+        Ok(s) if s.trim() == want => Ok(()),
+        Ok(s) => bail!("the Tools bundle from {from} was built from other sources ({}) than this checkout's web/tools + crates/rng ({want})", s.trim()),
+        Err(_) => bail!("the Tools bundle from {from} has no SOURCE fingerprint"),
+    }
 }
 
 /// A copied UI (`--pkg`, `--pkg-ref`) must come from the checkout's UI sources: fail when its

@@ -373,7 +373,7 @@ fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, si
     );
     pages::set_preview(Some(pages::Preview { banner, footer, game_tested, numbers, commit: design_commit.clone().unwrap_or_else(|| from.commit.clone()) }));
     let site = site_model::Site { version: site_model::DATA_VERSION, generated: from.time.clone(), commit: from.commit.clone(), builds: vec![b.clone()], cards: Vec::new(), members: Vec::new() };
-    let html = pages::build_page(&site, &b, &text, &repo_path, Scripts { viewer: true, app: false, ui: false });
+    let html = pages::build_page(&site, &b, &text, &repo_path, Scripts { viewer: true, ..Default::default() });
     pages::set_preview(None);
     let html = relink(&html, slug, assets, site_url)?;
     files.push((b.page.clone(), html.into_bytes()));

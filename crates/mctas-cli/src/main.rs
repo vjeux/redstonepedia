@@ -126,6 +126,13 @@ enum Cmd {
         #[command(subcommand)]
         command: mobai::cli::MobaiCmd,
     },
+    /// The game's random number generators a player can steer (docs/tools.md#mctas-rng): the
+    /// enchanting table's seed found from what the table shows and steered by dropping items, the
+    /// librarian's trades from the world seed, and the runs on the real server that check them.
+    Rng {
+        #[command(subcommand)]
+        command: rng::cli::RngCmd,
+    },
     /// The design text format itself: `blank-rows` lists (and rewrites) blank lines inside a
     /// layer, which the parser refuses.
     Design {
@@ -249,6 +256,7 @@ fn main() -> Result<()> {
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
         Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,
         Cmd::Mobai { command } => mobai::cli::run(&cli.version, command)?,
+        Cmd::Rng { command } => rng::cli::run(&cli.version, command)?,
         Cmd::Design { command } => design_cli::run(command)?,
     }
     Ok(())

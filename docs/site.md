@@ -242,6 +242,31 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
 - Curated cards (`designs/circuits/<study>/cards.tsv`) and the internal-names check apply to every
   farm page, the hub and the components' pages included.
 
+## Tools (`crates/site/src/tools.rs`)
+
+Calculators for the parts of the game that only look random (vjeux 2026-11-17: "Please put it on
+redstonepedia", of the enchanting table calculator), the fifth tab: Doors · Clocks · Circuits ·
+Farms · Tools. `tools/index.html` lists them (`tools::PAGES`); each is one page whose text and
+empty forms the build writes and whose buttons the Tools bundle answers (`web/tools`, Rust compiled
+to WebAssembly on `crates/rng`, built by `site build` into `tools/pkg/` like the UI into `pkg/`;
+`--pkg-ref` reuses the live site's when its `SOURCE` matches web/tools + crates/rng, data
+included). The numbers are crates/rng's, checked against the real 26.3 game by `mctas rng game`
+([tools.md](tools.md#the-enchanting-table-and-the-librarian-mctas-rng); the mechanics:
+[mechanics.md](mechanics.md#the-enchanting-table-and-the-players-random-generator--cratesrng)).
+
+- `tools/enchanting.html`: the enchanting table calculator. The player reads the table's three
+  level costs (and, if they like, the hover hints) at a few bookshelf counts; the page finds the
+  enchanting seed (the first time, all 2^32 seeds on one Web Worker per core: each worker is the
+  same bundle, started by `tools/pkg/worker.js`, the one-line start every page uses; a browser
+  without module workers searches on the page, a slice per turn), then the next seed after one
+  cheap enchant (65,536 seeds), the player's generator from the two, and the plan: how many items
+  to drop with Q, one throwaway enchant, the bookshelves and the slot for the enchantments picked.
+- `tools/librarian.html`: the librarian calculator. From the world seed (the page says how to read
+  it) and two or three trade screens in a row it finds the world's place in the librarians' trade
+  sequence, then the rerolls until the book wanted, with every screen on the way to check against.
+- A search from a tool's page searches every build (the header's form carries no kind there).
+- The pages pass the same checks as every page (no internal names, none of the rejected copy).
+
 Everything is Rust: `crates/site` (the generator, `mctas site ...`), `crates/site-model` (the data
 model, the query engine and the card markup, shared by both sides and unit-tested natively) and
 `web/site` (the filtering UI: Rust compiled to WebAssembly with wasm-bindgen; its own cargo
@@ -265,8 +290,9 @@ generates and the one-line `import init ...; init();` each page uses to start a 
 | `mctas site deploy --dir site/ [--enable-pages]` | one orphan commit of the folder, force-pushed to `gh-pages` (temporary index: the working tree and branch are untouched; a rejected push is retried). The push carries a transport commit beside it (the same tree with the live site as parent, on `refs/mctas/gh-pages-transport`, never cloned) so git sends each changed file as a delta against its live version: a viewer-only change pushes 1.7 MB instead of 12.9 MB (every page's asset tags change); `--dry-run` prints both sizes. `--remote <path>` deploys to a local mirror (no Pages build to follow). Before pushing it refuses an older tree than the live site's: the checkout must hold what the live site was built from (its commit message: `(source tree <tree>) from <hash>`): the commit in its history, or the same source tree among its last 500 commits', or every change of the commit by patch (`git cherry`), so a cherry-picked commit counts as contained (the coordinator 2026-11-08: fd43c1cd6 cherry-picked as 50d144bcc had needed a force push) |
 
 Needs: `rustup target add wasm32-unknown-unknown` and the wasm-bindgen CLI of the version
-`web/site/Cargo.toml` pins (`cargo install wasm-bindgen-cli --version 0.2.129 --locked`); the
-build checks both. `--no-wasm` skips the UI, `--pkg <dir>` takes a prebuilt one. `smoke` uses
+`web/site/Cargo.toml` pins (`cargo install wasm-bindgen-cli --version 0.2.129 --locked`; web/tools
+pins the same); the build checks both. `--no-wasm` skips the UI and the Tools bundle, `--pkg <dir>`
+takes a prebuilt UI. `smoke` uses
 Chrome for Testing's `chrome-headless-shell` (`--chrome`, `$CHROME`, or unpacked in `~/tools`).
 Validate the HTML with the Nu checker: `vnu --errors-only --skip-non-html site/`.
 
@@ -590,9 +616,9 @@ the same way. Without `mcview-live-src` the links simply navigate.
 
 ## The UI
 
-Every page's header is the title, the Doors / Clocks / Circuits tabs and one search box (vjeux:
-nothing else at the top; about, door boards, families, circuit studies and everything sit in the
-footer). `index.html` is a shell; `pkg/redstonepedia.js` fetches `data/site.json`, marks the
+Every page's header is the title, the Doors / Clocks / Circuits / Farms tabs, the Tools tab and one
+search box (vjeux: nothing else at the top; about, door boards, families, circuit studies and
+everything sit in the footer). `index.html` is a shell; `pkg/redstonepedia.js` fetches `data/site.json`, marks the
 header's active tab with live counts and makes the header's box the live search: text, or on the
 Clocks tab (or with a unit) the clock time search (`48`, `2.5 s`, `1 min 30 s`, `40-60 gt`,
 `2-3 s`, `< 1 min`: `site_model::parse_time_query`); from any other page the box is a plain form

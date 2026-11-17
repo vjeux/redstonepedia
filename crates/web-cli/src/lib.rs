@@ -9,6 +9,7 @@ mod cdp;
 mod qa;
 mod recqa;
 mod single;
+mod tools_check;
 
 #[derive(Subcommand)]
 pub enum WebCmd {
@@ -580,6 +581,25 @@ pub enum WebCmd {
         #[arg(long, default_value = "/usr/lib64/chromium-browser/headless_shell")]
         browser: PathBuf,
     },
+    /// The site's Tools pages (docs/site.md#tools) driven in headless Chrome like a player, every
+    /// answer checked against crates/rng's: the enchanting calculator on the video's numbers, then
+    /// a whole run from readings of the table (every seed searched on the page's workers), the
+    /// librarian calculator in a positive and a negative world seed, and every Tools page at 375
+    /// and 320 px wide without a sideways scroll. Exits non-zero on a failed check.
+    Tools {
+        /// A `mctas site build` output, served locally.
+        #[arg(long, default_value = "site")]
+        dir: PathBuf,
+        /// Check the deployed site at this URL instead (e.g. https://vjeux.github.io/redstonepedia/).
+        #[arg(long)]
+        url: Option<String>,
+        /// Also save each page's phone screenshots into this folder.
+        #[arg(long)]
+        shots: Option<PathBuf>,
+        /// The headless Chrome (default: the one `mctas site chrome` installs).
+        #[arg(long)]
+        browser: Option<PathBuf>,
+    },
     /// The site's in-place design swap on a page's first live viewer: orbit, set
     /// `data-keep-camera` then `data-src` to `--to`: the new design must show under the same
     /// camera, the viewer marked `mcview-live-src`.
@@ -959,6 +979,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
             Ok(())
         }
         WebCmd::Lose { url, window, browser } => crate::cdp::cmd_lose(&url, &window, &browser),
+        WebCmd::Tools { dir, url, shots, browser } => crate::tools_check::cmd_tools(&dir, url.as_deref(), shots.as_deref(), browser.as_deref()),
         WebCmd::Swap { url, to, window, browser } => crate::cdp::cmd_swap(&url, &to, &window, &browser),
         WebCmd::Mobrate { designs, threads } => cmd_mobrate(&designs, threads),
         WebCmd::Mobdiff { design, build, seed, ticks } => cmd_mobdiff(&design, build, seed, ticks),

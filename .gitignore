@@ -1,6 +1,7 @@
 /target
-# REDSTONEPEDIA: the browser UI's own build folder and the default `mctas site build` output
+# REDSTONEPEDIA: the browser UI's and the Tools bundle's own build folders and the default `mctas site build` output
 /web/site/target
+/web/tools/target
 /site
 # Never commit Minecraft jars or decompiled sources: they live in $MCTAS_HOME (~/.cache/mctas).
 *.jar

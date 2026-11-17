@@ -1,0 +1,307 @@
+# The librarian's level-1 trades in a fresh 26.3 world, one generation per line (a villager made a librarian again
+# and again, its trade screen opened each time), recorded by `mctas rng game librarian --record`; replayed by
+# crates/rng's tests (src/recorded.rs). state_after: the random sequence's two longs after these generations.
+world_seed	-5584399522669591931
+sequence	minecraft:trade_set/librarian/level_1
+generations	300
+state_after	3477134751978839328 -1809323124763861703
+0	9 emerald -> 1 bookshelf x12 xp1 | 14 emerald + 1 book -> 1 enchanted_book density:2 x12 xp1
+1	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+2	17 emerald + 1 book -> 1 enchanted_book punch:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+3	9 emerald -> 1 bookshelf x12 xp1 | 37 emerald + 1 book -> 1 enchanted_book projectile_protection:4 x12 xp1
+4	14 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+5	15 emerald + 1 book -> 1 enchanted_book loyalty:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+6	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+7	8 emerald + 1 book -> 1 enchanted_book thorns:2 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+8	17 emerald + 1 book -> 1 enchanted_book unbreaking:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+9	9 emerald -> 1 bookshelf x12 xp1 | 17 emerald + 1 book -> 1 enchanted_book silk_touch:1 x12 xp1
+10	8 emerald + 1 book -> 1 enchanted_book lure:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+11	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+12	28 emerald + 1 book -> 1 enchanted_book frost_walker:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+13	24 paper -> 1 emerald x16 xp2 | 9 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+14	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+15	18 emerald + 1 book -> 1 enchanted_book punch:2 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+16	16 emerald + 1 book -> 1 enchanted_book flame:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+17	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+18	19 emerald + 1 book -> 1 enchanted_book sweeping_edge:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+19	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+20	12 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+21	20 emerald + 1 book -> 1 enchanted_book depth_strider:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+22	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+23	9 emerald -> 1 bookshelf x12 xp1 | 14 emerald + 1 book -> 1 enchanted_book punch:1 x12 xp1
+24	23 emerald + 1 book -> 1 enchanted_book lure:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+25	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+26	9 emerald -> 1 bookshelf x12 xp1 | 30 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:3 x12 xp1
+27	6 emerald + 1 book -> 1 enchanted_book fortune:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+28	10 emerald + 1 book -> 1 enchanted_book fortune:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+29	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+30	9 emerald -> 1 bookshelf x12 xp1 | 6 emerald + 1 book -> 1 enchanted_book channeling:1 x12 xp1
+31	16 emerald + 1 book -> 1 enchanted_book flame:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+32	24 paper -> 1 emerald x16 xp2 | 15 emerald + 1 book -> 1 enchanted_book thorns:3 x12 xp1
+33	9 emerald -> 1 bookshelf x12 xp1 | 5 emerald + 1 book -> 1 enchanted_book depth_strider:1 x12 xp1
+34	17 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+35	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+36	12 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+37	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book density:5 x12 xp1
+38	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+39	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+40	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+41	24 paper -> 1 emerald x16 xp2 | 10 emerald + 1 book -> 1 enchanted_book binding_curse:1 x12 xp1
+42	24 paper -> 1 emerald x16 xp2 | 31 emerald + 1 book -> 1 enchanted_book punch:2 x12 xp1
+43	24 paper -> 1 emerald x16 xp2 | 31 emerald + 1 book -> 1 enchanted_book sharpness:2 x12 xp1
+44	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+45	41 emerald + 1 book -> 1 enchanted_book lunge:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+46	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+47	29 emerald + 1 book -> 1 enchanted_book power:4 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+48	24 paper -> 1 emerald x16 xp2 | 46 emerald + 1 book -> 1 enchanted_book frost_walker:2 x12 xp1
+49	34 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+50	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book looting:1 x12 xp1
+51	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+52	24 paper -> 1 emerald x16 xp2 | 5 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1
+53	24 paper -> 1 emerald x16 xp2 | 9 emerald + 1 book -> 1 enchanted_book breach:1 x12 xp1
+54	24 paper -> 1 emerald x16 xp2 | 6 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1
+55	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book riptide:3 x12 xp1
+56	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+57	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+58	17 emerald + 1 book -> 1 enchanted_book sharpness:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+59	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+60	13 emerald + 1 book -> 1 enchanted_book aqua_affinity:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+61	16 emerald + 1 book -> 1 enchanted_book mending:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+62	9 emerald -> 1 bookshelf x12 xp1 | 12 emerald + 1 book -> 1 enchanted_book lunge:1 x12 xp1
+63	13 emerald + 1 book -> 1 enchanted_book fire_protection:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+64	9 emerald -> 1 bookshelf x12 xp1 | 37 emerald + 1 book -> 1 enchanted_book quick_charge:3 x12 xp1
+65	9 emerald -> 1 bookshelf x12 xp1 | 14 emerald + 1 book -> 1 enchanted_book unbreaking:2 x12 xp1
+66	24 paper -> 1 emerald x16 xp2 | 11 emerald + 1 book -> 1 enchanted_book blast_protection:1 x12 xp1
+67	24 paper -> 1 emerald x16 xp2 | 12 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+68	32 emerald + 1 book -> 1 enchanted_book lure:2 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+69	38 emerald + 1 book -> 1 enchanted_book bane_of_arthropods:5 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+70	9 emerald -> 1 bookshelf x12 xp1 | 12 emerald + 1 book -> 1 enchanted_book vanishing_curse:1 x12 xp1
+71	15 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+72	28 emerald + 1 book -> 1 enchanted_book vanishing_curse:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+73	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+74	13 emerald + 1 book -> 1 enchanted_book feather_falling:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+75	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+76	12 emerald + 1 book -> 1 enchanted_book riptide:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+77	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+78	9 emerald -> 1 bookshelf x12 xp1 | 49 emerald + 1 book -> 1 enchanted_book feather_falling:4 x12 xp1
+79	35 emerald + 1 book -> 1 enchanted_book piercing:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+80	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+81	14 emerald + 1 book -> 1 enchanted_book sharpness:4 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+82	24 paper -> 1 emerald x16 xp2 | 11 emerald + 1 book -> 1 enchanted_book power:1 x12 xp1
+83	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+84	9 emerald -> 1 bookshelf x12 xp1 | 15 emerald + 1 book -> 1 enchanted_book protection:1 x12 xp1
+85	15 emerald + 1 book -> 1 enchanted_book loyalty:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+86	24 paper -> 1 emerald x16 xp2 | 20 emerald + 1 book -> 1 enchanted_book looting:3 x12 xp1
+87	13 emerald + 1 book -> 1 enchanted_book unbreaking:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+88	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+89	24 paper -> 1 emerald x16 xp2 | 36 emerald + 1 book -> 1 enchanted_book efficiency:3 x12 xp1
+90	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+91	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+92	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+93	23 emerald + 1 book -> 1 enchanted_book respiration:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+94	12 emerald + 1 book -> 1 enchanted_book unbreaking:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+95	24 emerald + 1 book -> 1 enchanted_book breach:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+96	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+97	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+98	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+99	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+100	24 paper -> 1 emerald x16 xp2 | 9 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+101	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+102	9 emerald -> 1 bookshelf x12 xp1 | 9 emerald + 1 book -> 1 enchanted_book flame:1 x12 xp1
+103	24 paper -> 1 emerald x16 xp2 | 24 emerald + 1 book -> 1 enchanted_book feather_falling:2 x12 xp1
+104	9 emerald -> 1 bookshelf x12 xp1 | 26 emerald + 1 book -> 1 enchanted_book unbreaking:3 x12 xp1
+105	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+106	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+107	9 emerald -> 1 bookshelf x12 xp1 | 12 emerald + 1 book -> 1 enchanted_book blast_protection:1 x12 xp1
+108	24 paper -> 1 emerald x16 xp2 | 11 emerald + 1 book -> 1 enchanted_book lure:1 x12 xp1
+109	41 emerald + 1 book -> 1 enchanted_book lunge:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+110	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+111	9 emerald -> 1 bookshelf x12 xp1 | 7 emerald + 1 book -> 1 enchanted_book channeling:1 x12 xp1
+112	24 paper -> 1 emerald x16 xp2 | 15 emerald + 1 book -> 1 enchanted_book breach:4 x12 xp1
+113	9 emerald -> 1 bookshelf x12 xp1 | 11 emerald + 1 book -> 1 enchanted_book knockback:2 x12 xp1
+114	11 emerald + 1 book -> 1 enchanted_book looting:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+115	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+116	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+117	9 emerald -> 1 bookshelf x12 xp1 | 22 emerald + 1 book -> 1 enchanted_book unbreaking:3 x12 xp1
+118	9 emerald -> 1 bookshelf x12 xp1 | 10 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+119	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+120	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+121	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+122	23 emerald + 1 book -> 1 enchanted_book knockback:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+123	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+124	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+125	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+126	14 emerald + 1 book -> 1 enchanted_book channeling:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+127	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+128	24 emerald + 1 book -> 1 enchanted_book breach:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+129	10 emerald + 1 book -> 1 enchanted_book smite:2 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+130	15 emerald + 1 book -> 1 enchanted_book quick_charge:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+131	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+132	30 emerald + 1 book -> 1 enchanted_book sharpness:5 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+133	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1
+134	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+135	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+136	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+137	38 emerald + 1 book -> 1 enchanted_book frost_walker:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+138	9 emerald -> 1 bookshelf x12 xp1 | 16 emerald + 1 book -> 1 enchanted_book power:1 x12 xp1
+139	39 emerald + 1 book -> 1 enchanted_book thorns:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+140	9 emerald -> 1 bookshelf x12 xp1 | 5 emerald + 1 book -> 1 enchanted_book piercing:1 x12 xp1
+141	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+142	7 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+143	62 emerald + 1 book -> 1 enchanted_book frost_walker:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+144	42 emerald + 1 book -> 1 enchanted_book impaling:5 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+145	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+146	24 paper -> 1 emerald x16 xp2 | 32 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:2 x12 xp1
+147	9 emerald -> 1 bookshelf x12 xp1 | 9 emerald + 1 book -> 1 enchanted_book flame:1 x12 xp1
+148	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+149	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+150	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+151	8 emerald + 1 book -> 1 enchanted_book fortune:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+152	8 emerald + 1 book -> 1 enchanted_book projectile_protection:2 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+153	24 paper -> 1 emerald x16 xp2 | 47 emerald + 1 book -> 1 enchanted_book smite:4 x12 xp1
+154	9 emerald -> 1 bookshelf x12 xp1 | 27 emerald + 1 book -> 1 enchanted_book punch:2 x12 xp1
+155	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+156	58 emerald + 1 book -> 1 enchanted_book bane_of_arthropods:5 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+157	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+158	9 emerald -> 1 bookshelf x12 xp1 | 15 emerald + 1 book -> 1 enchanted_book feather_falling:3 x12 xp1
+159	9 emerald -> 1 bookshelf x12 xp1 | 12 emerald + 1 book -> 1 enchanted_book fire_protection:2 x12 xp1
+160	10 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+161	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+162	14 emerald + 1 book -> 1 enchanted_book feather_falling:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+163	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+164	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+165	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+166	9 emerald -> 1 bookshelf x12 xp1 | 14 emerald + 1 book -> 1 enchanted_book mending:1 x12 xp1
+167	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+168	28 emerald + 1 book -> 1 enchanted_book feather_falling:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+169	24 paper -> 1 emerald x16 xp2 | 8 emerald + 1 book -> 1 enchanted_book silk_touch:1 x12 xp1
+170	13 emerald + 1 book -> 1 enchanted_book punch:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+171	9 emerald -> 1 bookshelf x12 xp1 | 17 emerald + 1 book -> 1 enchanted_book unbreaking:1 x12 xp1
+172	9 emerald -> 1 bookshelf x12 xp1 | 22 emerald + 1 book -> 1 enchanted_book breach:3 x12 xp1
+173	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+174	24 paper -> 1 emerald x16 xp2 | 32 emerald + 1 book -> 1 enchanted_book frost_walker:2 x12 xp1
+175	9 emerald -> 1 bookshelf x12 xp1 | 29 emerald + 1 book -> 1 enchanted_book projectile_protection:2 x12 xp1
+176	8 emerald + 1 book -> 1 enchanted_book depth_strider:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+177	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+178	11 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+179	9 emerald -> 1 bookshelf x12 xp1 | 21 emerald + 1 book -> 1 enchanted_book fire_aspect:2 x12 xp1
+180	11 emerald + 1 book -> 1 enchanted_book depth_strider:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+181	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+182	9 emerald -> 1 bookshelf x12 xp1 | 18 emerald + 1 book -> 1 enchanted_book lure:1 x12 xp1
+183	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+184	7 emerald + 1 book -> 1 enchanted_book fire_aspect:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+185	16 emerald + 1 book -> 1 enchanted_book smite:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+186	9 emerald -> 1 bookshelf x12 xp1 | 8 emerald + 1 book -> 1 enchanted_book lure:2 x12 xp1
+187	16 emerald + 1 book -> 1 enchanted_book vanishing_curse:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+188	9 emerald -> 1 bookshelf x12 xp1 | 7 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1
+189	33 emerald + 1 book -> 1 enchanted_book depth_strider:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+190	24 paper -> 1 emerald x16 xp2 | 12 emerald + 1 book -> 1 enchanted_book fortune:1 x12 xp1
+191	9 emerald -> 1 bookshelf x12 xp1 | 18 emerald + 1 book -> 1 enchanted_book breach:3 x12 xp1
+192	9 emerald -> 1 bookshelf x12 xp1 | 14 emerald + 1 book -> 1 enchanted_book unbreaking:3 x12 xp1
+193	9 emerald -> 1 bookshelf x12 xp1 | 17 emerald + 1 book -> 1 enchanted_book fire_protection:1 x12 xp1
+194	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+195	16 emerald + 1 book -> 1 enchanted_book feather_falling:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+196	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+197	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+198	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+199	15 emerald + 1 book -> 1 enchanted_book feather_falling:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+200	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+201	17 emerald + 1 book -> 1 enchanted_book flame:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+202	20 emerald + 1 book -> 1 enchanted_book power:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+203	9 emerald -> 1 bookshelf x12 xp1 | 5 emerald + 1 book -> 1 enchanted_book fire_aspect:1 x12 xp1
+204	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+205	9 emerald -> 1 bookshelf x12 xp1 | 38 emerald + 1 book -> 1 enchanted_book binding_curse:1 x12 xp1
+206	24 paper -> 1 emerald x16 xp2 | 5 emerald + 1 book -> 1 enchanted_book lunge:1 x12 xp1
+207	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+208	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+209	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+210	51 emerald + 1 book -> 1 enchanted_book bane_of_arthropods:4 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+211	9 emerald -> 1 bookshelf x12 xp1 | 25 emerald + 1 book -> 1 enchanted_book quick_charge:3 x12 xp1
+212	13 emerald + 1 book -> 1 enchanted_book blast_protection:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+213	6 emerald + 1 book -> 1 enchanted_book fire_aspect:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+214	9 emerald -> 1 bookshelf x12 xp1 | 15 emerald + 1 book -> 1 enchanted_book bane_of_arthropods:3 x12 xp1
+215	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+216	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+217	11 emerald + 1 book -> 1 enchanted_book fortune:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+218	9 emerald -> 1 bookshelf x12 xp1 | 40 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:3 x12 xp1
+219	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+220	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+221	9 emerald -> 1 bookshelf x12 xp1 | 31 emerald + 1 book -> 1 enchanted_book loyalty:2 x12 xp1
+222	13 emerald + 1 book -> 1 enchanted_book knockback:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+223	24 paper -> 1 emerald x16 xp2 | 13 emerald + 1 book -> 1 enchanted_book fire_aspect:2 x12 xp1
+224	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+225	9 emerald -> 1 bookshelf x12 xp1 | 18 emerald + 1 book -> 1 enchanted_book punch:1 x12 xp1
+226	24 paper -> 1 emerald x16 xp2 | 36 emerald + 1 book -> 1 enchanted_book impaling:5 x12 xp1
+227	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+228	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+229	5 emerald + 1 book -> 1 enchanted_book aqua_affinity:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+230	24 paper -> 1 emerald x16 xp2 | 21 emerald + 1 book -> 1 enchanted_book quick_charge:2 x12 xp1
+231	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+232	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+233	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+234	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+235	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+236	17 emerald + 1 book -> 1 enchanted_book lunge:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+237	9 emerald -> 1 bookshelf x12 xp1 | 16 emerald + 1 book -> 1 enchanted_book depth_strider:1 x12 xp1
+238	24 paper -> 1 emerald x16 xp2 | 9 emerald + 1 book -> 1 enchanted_book silk_touch:1 x12 xp1
+239	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+240	24 paper -> 1 emerald x16 xp2 | 28 emerald + 1 book -> 1 enchanted_book impaling:3 x12 xp1
+241	18 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+242	9 emerald -> 1 bookshelf x12 xp1 | 39 emerald + 1 book -> 1 enchanted_book power:4 x12 xp1
+243	9 emerald -> 1 bookshelf x12 xp1 | 36 emerald + 1 book -> 1 enchanted_book vanishing_curse:1 x12 xp1
+244	9 emerald -> 1 bookshelf x12 xp1 | 23 emerald + 1 book -> 1 enchanted_book lure:3 x12 xp1
+245	12 emerald + 1 book -> 1 enchanted_book smite:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+246	24 paper -> 1 emerald x16 xp2 | 41 emerald + 1 book -> 1 enchanted_book sweeping_edge:3 x12 xp1
+247	34 emerald + 1 book -> 1 enchanted_book breach:4 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+248	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+249	33 emerald + 1 book -> 1 enchanted_book sharpness:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+250	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+251	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+252	24 paper -> 1 emerald x16 xp2 | 9 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+253	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+254	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+255	6 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+256	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+257	28 emerald + 1 book -> 1 enchanted_book density:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+258	18 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+259	24 paper -> 1 emerald x16 xp2 | 30 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:3 x12 xp1
+260	9 emerald -> 1 bookshelf x12 xp1 | 33 emerald + 1 book -> 1 enchanted_book density:3 x12 xp1
+261	24 paper -> 1 emerald x16 xp2 | 15 emerald + 1 book -> 1 enchanted_book luck_of_the_sea:3 x12 xp1
+262	45 emerald + 1 book -> 1 enchanted_book protection:4 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+263	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+264	32 emerald + 1 book -> 1 enchanted_book sharpness:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+265	57 emerald + 1 book -> 1 enchanted_book breach:4 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+266	17 emerald + 1 book -> 1 enchanted_book knockback:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+267	9 emerald -> 1 bookshelf x12 xp1 | 58 emerald + 1 book -> 1 enchanted_book frost_walker:2 x12 xp1
+268	24 paper -> 1 emerald x16 xp2 | 45 emerald + 1 book -> 1 enchanted_book efficiency:3 x12 xp1
+269	9 emerald -> 1 bookshelf x12 xp1 | 20 emerald + 1 book -> 1 enchanted_book respiration:2 x12 xp1
+270	35 emerald + 1 book -> 1 enchanted_book projectile_protection:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+271	19 emerald + 1 book -> 1 enchanted_book breach:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+272	8 emerald + 1 book -> 1 enchanted_book respiration:1 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+273	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+274	24 paper -> 1 emerald x16 xp2 | 43 emerald + 1 book -> 1 enchanted_book feather_falling:4 x12 xp1
+275	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+276	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+277	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book silk_touch:1 x12 xp1
+278	11 emerald + 1 book -> 1 enchanted_book thorns:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+279	24 paper -> 1 emerald x16 xp2 | 17 emerald + 1 book -> 1 enchanted_book infinity:1 x12 xp1
+280	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+281	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+282	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+283	12 emerald + 1 book -> 1 enchanted_book density:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+284	9 emerald -> 1 bookshelf x12 xp1 | 43 emerald + 1 book -> 1 enchanted_book fire_protection:4 x12 xp1
+285	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+286	15 emerald + 1 book -> 1 enchanted_book projectile_protection:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+287	23 emerald + 1 book -> 1 enchanted_book unbreaking:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+288	24 emerald + 1 book -> 1 enchanted_book unbreaking:3 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+289	43 emerald + 1 book -> 1 enchanted_book looting:3 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+290	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+291	24 paper -> 1 emerald x16 xp2 | 14 emerald + 1 book -> 1 enchanted_book silk_touch:1 x12 xp1
+292	14 emerald + 1 book -> 1 enchanted_book piercing:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+293	9 emerald -> 1 bookshelf x12 xp1 | 19 emerald + 1 book -> 1 enchanted_book aqua_affinity:1 x12 xp1
+294	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+295	24 paper -> 1 emerald x16 xp2 | 9 emerald -> 1 bookshelf x12 xp1
+296	13 emerald + 1 book -> 1 enchanted_book multishot:1 x12 xp1 | 9 emerald -> 1 bookshelf x12 xp1
+297	32 emerald + 1 book -> 1 enchanted_book knockback:2 x12 xp1 | 24 paper -> 1 emerald x16 xp2
+298	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2
+299	9 emerald -> 1 bookshelf x12 xp1 | 24 paper -> 1 emerald x16 xp2

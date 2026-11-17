@@ -13,18 +13,18 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
-struct Browser {
+pub(crate) struct Browser {
     child: std::process::Child,
     to: std::fs::File,
     from: Receiver<Value>,
     next: u64,
     session: Option<String>,
     /// The page's console lines and exceptions seen so far.
-    console: Vec<String>,
+    pub(crate) console: Vec<String>,
 }
 
 impl Browser {
-    fn start(browser: &Path, window: &str, scale: f32, url: &str) -> Result<Browser> {
+    pub(crate) fn start(browser: &Path, window: &str, scale: f32, url: &str) -> Result<Browser> {
         let mut a = [0i32; 2];
         let mut b = [0i32; 2];
         // SAFETY: plain pipe(2) calls on local arrays.
@@ -81,7 +81,7 @@ impl Browser {
     }
 
     /// Send a command (to the attached page when there is one) and wait for its reply.
-    fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         let id = self.next;
         self.next += 1;
         let mut msg = json!({ "id": id, "method": method, "params": params });
@@ -122,7 +122,7 @@ impl Browser {
     }
 
     /// Take the events that arrived (console lines), waiting up to `wait`.
-    fn drain(&mut self, wait: Duration) {
+    pub(crate) fn drain(&mut self, wait: Duration) {
         let deadline = Instant::now() + wait;
         while let Ok(v) = self.from.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             self.event(&v);
@@ -130,7 +130,7 @@ impl Browser {
     }
 
     /// Attach to the page tab (the first `page` target).
-    fn attach_page(&mut self) -> Result<()> {
+    pub(crate) fn attach_page(&mut self) -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             let t = self.call("Target.getTargets", json!({}))?;
@@ -147,7 +147,7 @@ impl Browser {
         }
     }
 
-    fn eval(&mut self, expr: &str) -> Result<Value> {
+    pub(crate) fn eval(&mut self, expr: &str) -> Result<Value> {
         let r = self.call("Runtime.evaluate", json!({ "expression": expr, "returnByValue": true }))?;
         Ok(r["result"]["value"].clone())
     }
@@ -325,7 +325,7 @@ pub fn cmd_record(url: &str, out: &Path, index: usize, window: &str, scale: f32,
     }
 }
 
-fn base64_decode(s: &str) -> Result<Vec<u8>> {
+pub(crate) fn base64_decode(s: &str) -> Result<Vec<u8>> {
     let val = |c: u8| -> Option<u32> {
         Some(match c {
             b'A'..=b'Z' => (c - b'A') as u32,

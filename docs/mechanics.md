@@ -1257,3 +1257,69 @@ change is one pulse.
 `setBlock` of a request, and a block event queued by an `onPlace` (a piston placed with updates)
 kept that object, so it ran at the next block's cell; fixed on main (4a4fd3e), and the fuzzer places
 update-mode blocks one per request anyway.
+
+## The enchanting table and the player's random generator — crates/rng
+
+What the site's enchanting table calculator rests on ([site.md](site.md#tools-cratessitesrctoolsrs);
+`crates/rng`, checked against the real game by `mctas rng game`, [tools.md](tools.md#the-enchanting-table-and-the-librarian-mctas-rng)):
+
+* **The offers** (`EnchantmentMenu.slotsChanged`, 86): the menu's own random (Java's 48-bit
+  LCG) is seeded with the player's enchanting seed (`enchantmentSeed`, saved as `XpSeed`; 100);
+  the three costs are `EnchantmentHelper.getEnchantmentCost(random, slot, bookcases, item)` in turn
+  (103); a slot's enchantments are `getEnchantmentList` (187), the random seeded again with
+  `seed + slot` (188); the hint is one entry of that list at random (115). Reading the table
+  (opening it, changing the item or the bookshelves) never draws from the player: `rng game`
+  checks it at every reading.
+* **The seed changes only on an enchant** (`clickMenuButton` 135 → 154 →
+  `Player.onEnchantmentPerformed` 1537: `enchantmentSeed = random.nextInt()` at 1545, from the
+  player's own generator `Entity.random`, the same 48-bit LCG). `XpSeed` is saved with the player
+  (625, 648); the generator is not: a new one for every player entity (joining the world,
+  respawning), so the calculator's player seed does not survive leaving the world.
+* **Two seeds in a row give the generator away**: `nextInt()` is the top 32 bits of the 48-bit
+  state, so only its low 16 bits are unknown: of the 65,536 states, the one whose next `nextInt()`
+  is the second seed (`rng::player::crack_player`). Likewise only 65,536 seeds can follow a known
+  one (`next_seed_candidates`): one or two readings find the second seed.
+* **One press of Q is four draws** (`ServerPlayer.drop(false)` 2120 →
+  `LivingEntity.createItemStackToDrop` 3448, the thrown-from-hand branch: `dir`, `pow2` and two for
+  the upward speed); Ctrl+Q is one press too (a whole stack, four draws). `rng game enchant` checks
+  that N presses move the generator exactly 4N steps.
+* **What else draws from the player's generator** (and breaks a plan): sprinting on a visible
+  block (`Entity.baseTick` 544 → `spawnSprintParticle` 1758: two a tick), taking damage
+  (`LivingEntity.hurtServer` 1178 → `playHurtSound` 1434 → `getVoicePitch` 2320), eating and
+  drinking (`Consumable`, 78: the user's random), swimming (`Entity.playSwimSound` 1515) and
+  falling into water (`doWaterSplashEffect` 1712), a parrot on the shoulder
+  (`ServerPlayer.playShoulderEntityAmbientSound` 786: 1 in 200 a tick), experience repairing a
+  damaged Mending item (`ExperienceOrb` 299 → `EnchantmentHelper.getRandomItemWith`). Walking
+  (step sounds have no random pitch, `Entity.playStepSound`) and jumping draw nothing.
+* **Readings needed** (`rng game enchant`): costs alone leave one seed of 2^32 after 6 to 14
+  readings at different bookshelf counts (7 in most of 14 trials), then 3 or 4 for the next seed;
+  with the hints, 2 to 4 then 1 or 2.
+* **The plan** (the order of Earthcomputer's EnchantmentCracker): for 0, 1, 2, … drops, then 0 to
+  15 bookshelves, then slots 1 to 3, the first offer with every wanted enchantment at its level and
+  none unwanted, where the player's level covers the cost (plus the throwaway's level when there
+  are drops). With drops, a throwaway enchant comes before the real one: it uses up the seed now
+  and draws the seed the drops lined up.
+
+## Villager trades: the world's random sequences — crates/rng
+
+What the site's librarian calculator rests on:
+
+* **Trade sets** (26.3): a villager's trades for a level are a `TradeSet`
+  (`data/minecraft/trade_set/librarian/level_1.json`, …) naming a random sequence;
+  `AbstractVillager.addOffersFromTradeSet` (232) builds the loot context with
+  `.create(tradeSet.randomSequence())`, and `LootContext.Builder.create` (139, 142) takes that
+  sequence's random from `MinecraftServer.getRandomSequence` (1753): one generator per sequence
+  for the whole server, saved with the world (`RandomSequences`), never the villager's own.
+* **Its seed** (`RandomSequences.createSequence` 54, `RandomSequence.createSequence` 29): the world
+  seed (when `include_world_seed`) XOR `salt`, upgraded to 128 bits unmixed, XOR the MD5 of the
+  sequence's name (`seedForKey` 38, when `include_sequence_id`), mixed, into Xoroshiro128++
+  (defaults: salt 0, both on).
+* **When it draws**: `AbstractVillager.getOffers` (113) makes the trades the first time anything
+  asks for them: the trade screen, but also `Villager.restock` (339) and `needsToRestock` (355),
+  which `WorkAtPoi.start` (42) reaches when the villager works at its job block: a librarian
+  working at its lectern gets its trades unseen. A villager that loses its profession before its
+  first trade forgets them; the next time it becomes a librarian it takes the next generation.
+* `rng game librarian` checks it: 300 rerolls in a row in worlds 8675309 and
+  -5584399522669591931 (every trade, book, level, price and use count), the sequence's state after
+  them, and a villager rerolling by itself with a lectern; the tests replay the recordings
+  (`crates/rng/data/`).

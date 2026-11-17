@@ -755,6 +755,25 @@ pub fn build(a: &BuildArgs) -> Result<()> {
             }
         }
     };
+    // the Tools pages' bundle (web/tools: the calculators): `--pkg-ref`'s when it carries one built
+    // from this checkout's sources, else built here (`--no-wasm`: none; the pages are still written)
+    let tools_pkg = out.join("tools/pkg");
+    let tools = if a.no_wasm {
+        false
+    } else {
+        let copied = a.pkg_ref.as_ref().is_some_and(|r| {
+            let from = format!("{r}:tools/pkg");
+            files_from_ref(&repo, r, "tools/pkg/", &tools_pkg).is_ok() && web::check_copied_tools(&repo, &tools_pkg, &from).map_err(|e| eprintln!("tools: {e}: building it")).is_ok()
+        });
+        if copied {
+            eprintln!("tools: the bundle from {}:tools/pkg (not rebuilt)", a.pkg_ref.as_deref().unwrap_or(""));
+        } else {
+            let _ = std::fs::remove_dir_all(&tools_pkg);
+            web::build_tools(&repo, &tools_pkg)?;
+        }
+        write(&tools_pkg.join("worker.js"), &web::tools_worker(&tools_pkg))?;
+        true
+    };
     // the game's textures, vendored in the repo (web/textures/<version>), served with the
     // site: the viewer fetches them same-origin. A build without them is not a site.
     let tex_from = repo.join(mcview::atlas::vanilla::DIR);
@@ -763,7 +782,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     }
     let n = copy_tree(&tex_from, &out.join(mcview::atlas::vanilla::SITE_DIR))?;
     eprintln!("textures: {n} files from {}", tex_from.display());
-    let scripts = Scripts { viewer, app: false, ui: app };
+    let scripts = Scripts { viewer, app: false, ui: app, tools: false };
     // pages
     write(&out.join("style.css"), STYLE)?;
     write(&out.join("favicon.svg"), FAVICON)?;
@@ -775,10 +794,12 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         ui_js: pages::file_hash(&out.join(format!("pkg/{}.js", web::UI_NAME))),
         ui_wasm: pages::file_hash(&out.join(format!("pkg/{}_bg.wasm", web::UI_NAME))),
         data: pages::file_hash(&out.join("data/site.json")),
+        tools_js: pages::file_hash(&tools_pkg.join(format!("{}.js", web::TOOLS_NAME))),
+        tools_wasm: pages::file_hash(&tools_pkg.join(format!("{}_bg.wasm", web::TOOLS_NAME))),
     });
     // GitHub Pages: serve every file as is (no Jekyll)
     write(&out.join(".nojekyll"), "")?;
-    write(&out.join("index.html"), &pages::index_page(&site, Scripts { viewer, app, ui: app }))?;
+    write(&out.join("index.html"), &pages::index_page(&site, Scripts { viewer, app, ui: app, tools: false }))?;
     write(&out.join("404.html"), &pages::not_found_page(&site))?;
     // pages vjeux deleted (13:35Z: "Delete these pages altogether"): never written, and gone from
     // an output folder an earlier build left them in
@@ -885,6 +906,18 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         write(&out.join(&path), &html)?;
         overviews.push((path, html));
     }
+    // the Tools section (src/tools.rs): the calculators' list and each calculator's page, its
+    // bundle and its seed search's worker by their content hashes
+    let tool_scripts = Scripts { tools, ..scripts };
+    let worker = format!("pkg/worker.js?v={}", pages::file_hash(&tools_pkg.join("worker.js")));
+    for (path, html) in [
+        ("tools/index.html", crate::tools::tools_index(&site, scripts)),
+        ("tools/enchanting.html", crate::tools::enchanting_page(&site, tool_scripts, &worker)),
+        ("tools/librarian.html", crate::tools::librarian_page(&site, tool_scripts)),
+    ] {
+        write(&out.join(path), &html)?;
+        overviews.push((path.to_string(), html));
+    }
     let overview_paths: Vec<String> = overviews.iter().map(|(p, _)| p.clone()).collect();
     let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::page_faults(html, &pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
     if !internal.is_empty() {
@@ -930,7 +963,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         .map(|b| b.page.clone())
         .chain(overview_paths.iter().cloned())
         .chain(built_paths.iter().cloned())
-        .chain(["index.html".to_string(), "farms/index.html".to_string()])
+        .chain(["index.html".to_string(), "farms/index.html".to_string(), "tools/index.html".to_string()])
         .filter(|p| !meant.contains(&p.as_str()) && stub(p))
         .collect();
     stubs.sort();

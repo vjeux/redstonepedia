@@ -21,6 +21,8 @@ mobfarm = { path = "../mobfarm" }
 piston-door = { path = "../piston-door" }
 # the site's WebKit rig (`web perf --engine webkit`, `web qa`)
 site = { path = "../site" }
+# the Tools pages' own answers (`web tools`)
+rng = { path = "../rng" }
 base64.workspace = true
 zip.workspace = true
 serde_json.workspace = true

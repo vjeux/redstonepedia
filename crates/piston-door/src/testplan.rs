@@ -157,6 +157,9 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/mctas/src/fabric.rs", Pick::Nothing("videos (the client launcher)")),
     ("crates/mctas/src/net.rs", Pick::Nothing("downloads (setup)")),
     ("crates/mctas/", Pick::Everything),
+    // the rng crate's own bridge (mctas rng game: the enchanting table and the librarians in the
+    // real game), apart from the simulator's
+    ("bridge/rng/", Pick::Nothing("the game's random generators (the Tools pages): the rng crate's tests replay the real game's recordings")),
     ("bridge/", Pick::Sim(EVERY_AREA)),
     // redsim, by area: the engine touches every area; the entity, fluid, crop, TNT, rail, light
     // and weather code is covered by the recorded traces (no live fuzzer generates entities)
@@ -238,6 +241,7 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/farmopt", Pick::Nothing("the farm optimizer (farmopt, farmopt-iron): no calibration pieces; the farms it finds run their own judge")),
     // the site, the viewer, docs: nothing (publishing runs no tests)
     ("crates/site/", Pick::Nothing("the site")),
+    ("crates/rng/", Pick::Nothing("the game's random generators (the Tools pages): no calibration pieces; its own tests replay the real game's recordings")),
     ("crates/site-model/", Pick::Nothing("the site")),
     ("crates/web-cli/", Pick::Nothing("the viewer")),
     ("crates/mcview", Pick::Nothing("the viewer")),

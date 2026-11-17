@@ -358,3 +358,57 @@ a.pick.on span { color: #fff; opacity: .85; }
 details.layouts summary { font-weight: 600; }
 tr.showing { background: var(--accent-soft); }
 a.view { font-weight: 700; }
+/* the Tools pages (crates/site/src/tools.rs; their forms answered by web/tools) */
+.card.tool .meta { padding: 14px 16px; }
+.card.tool .title { font-size: 16px; }
+.calc section.step, section.how { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 16px 12px; margin: 0 0 14px; }
+.calc h2, section.how h2 { margin: 12px 0 6px; font-size: 17px; }
+.calc p, section.how p { margin: 6px 0 10px; }
+section.how code { overflow-wrap: anywhere; }
+.calc .hint { color: var(--muted); }
+.calc .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 8px 0; }
+.calc label { white-space: nowrap; }
+.calc input, .calc select { font: inherit; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }
+.calc input.num { width: 4.2em; }
+.calc input.num.wide { width: 6em; }
+.calc input.hex { width: 8.5em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.calc input.hex.wide { width: 11em; }
+.calc input.seed { width: 15em; }
+.calc button { font: inherit; cursor: pointer; }
+.calc button.act { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 650; }
+.calc button.act[disabled] { opacity: .55; cursor: default; }
+.calc button.small { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; }
+.calc .readings .row { border-top: 1px dashed var(--line); padding-top: 6px; }
+.calc .readings .row:first-child { border-top: 0; padding-top: 0; }
+.calc .opt { color: var(--muted); }
+.calc .opt select { max-width: 11em; }
+.calc progress { width: 200px; max-width: 100%; }
+.calc .out { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--bg); border-left: 3px solid var(--line); overflow-wrap: anywhere; }
+.calc .out.good { border-left-color: var(--ok); }
+.calc .out.bad { border-left-color: var(--accent); }
+.calc .out ol { margin: 0 0 6px 18px; padding: 0; }
+.calc .levels { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; align-items: center; margin: 8px 0; }
+.calc .lv { display: flex; flex-wrap: wrap; gap: 3px; }
+.calc .lv button { min-width: 30px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; padding: 2px 6px; }
+.calc .lv button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.calc .lv button.no.on { background: var(--accent); border-color: var(--accent); }
+.calc .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.calc .big { font-size: 17px; font-weight: 700; }
+.calc table.screens { border-collapse: collapse; margin-top: 8px; }
+.calc table.screens td { border-top: 1px solid var(--line); padding: 4px 8px 4px 0; vertical-align: top; }
+.calc table.screens tr.hl td { background: var(--ok-soft); }
+.calc [hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .calc label { white-space: normal; }
+  .calc .opt select { max-width: 8.5em; }
+  /* a reading on a phone: bookshelves, the three levels, the item and the three hints in a row,
+     the remove button in the corner */
+  .calc .readings .row { position: relative; padding-right: 36px; gap: 6px 8px; }
+  .calc .readings .row > button[data-act=rm-row] { position: absolute; right: 0; top: 6px; }
+  .calc .readings .row:first-child > button[data-act=rm-row] { top: 0; }
+  .calc .readings .row input.num { width: 3.2em; }
+  .calc .readings .row span.opt { display: flex; gap: 4px; width: 100%; }
+  .calc .readings .row span.opt select { flex: 1 1 0; min-width: 0; max-width: none; }
+  .calc .levels { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .calc .lvname { margin-top: 6px; font-weight: 600; }
+}

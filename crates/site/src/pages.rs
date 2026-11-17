@@ -19,6 +19,9 @@ pub struct Scripts {
     pub app: bool,
     /// Whether the site has the UI at all (pages with in-place swaps load it too).
     pub ui: bool,
+    /// The Tools pages' bundle (tools/pkg/tools.js, web/tools: the calculators): only on a tool's
+    /// page, when the site has it.
+    pub tools: bool,
 }
 
 /// A whole page around `body`. `prefix` is the path from the page to the site root.
@@ -32,8 +35,9 @@ pub fn shell_with(title: &str, description: &str, prefix: &str, body: &str, scri
 }
 
 /// The header (vjeux, 01:13Z: "clean up the top"): the title, the Doors / Clocks / Circuits tabs
-/// (`kind`: the page's own, shown active) and the search box (a plain form to the index, which
-/// the index's UI turns into its live search; on the Clocks tab it also takes a period).
+/// (`kind`: the page's own, shown active), the Tools tab (the calculators: crates/site/src/tools.rs)
+/// and the search box (a plain form to the index, which the index's UI turns into its live search;
+/// on the Clocks tab it also takes a period).
 pub fn header(prefix: &str, kind: Option<&str>) -> String {
     header_with(prefix, kind, None)
 }
@@ -54,13 +58,19 @@ fn tab_counts(site: &Site) -> [usize; 4] {
 pub fn header_with(prefix: &str, kind: Option<&str>, counts: Option<[usize; 4]>) -> String {
     let tab = |k: &str, label: &str, frag: &str, n: Option<usize>| -> String {
         let count = n.map(|n| format!(" <span class=\"count\">{n}</span>")).unwrap_or_default();
-        // (the Farms tab opens its overview, the farm types: a few kinds, each with its own page)
-        let href = if k == "farm" { format!("{prefix}farms/index.html") } else { format!("{prefix}index.html#{frag}") };
+        // (the Farms tab opens its overview, the farm types: a few kinds, each with its own page;
+        // the Tools tab its list of calculators)
+        let href = match k {
+            "farm" => format!("{prefix}farms/index.html"),
+            "tools" => format!("{prefix}tools/index.html"),
+            _ => format!("{prefix}index.html#{frag}"),
+        };
         format!("<a id=\"tab-{k}\" class=\"tab-top{}\" href=\"{href}\">{label}{count}</a>", if kind == Some(k) { " on" } else { "" })
     };
+    // (the tools are no kind of build: a search from their pages searches every build)
     let hidden = match kind {
-        Some(k) => format!("<input type=\"hidden\" name=\"kind\" value=\"{}\">", esc(k)),
-        None => String::new(),
+        Some(k) if k != "tools" => format!("<input type=\"hidden\" name=\"kind\" value=\"{}\">", esc(k)),
+        _ => String::new(),
     };
     // the index UI's own placeholders (web/site's render)
     let placeholder = match kind {
@@ -71,12 +81,13 @@ pub fn header_with(prefix: &str, kind: Option<&str>, counts: Option<[usize; 4]>)
         _ => "Search every build",
     };
     format!(
-        "<header class=\"top\"><a class=\"logo\" href=\"{prefix}index.html\"><span class=\"logo-dot\"></span>{SITE_NAME}</a><nav class=\"tabs-top\" aria-label=\"kinds\">{}{}{}{}</nav>\
+        "<header class=\"top\"><a class=\"logo\" href=\"{prefix}index.html\"><span class=\"logo-dot\"></span>{SITE_NAME}</a><nav class=\"tabs-top\" aria-label=\"kinds\">{}{}{}{}{}</nav>\
          <form id=\"hsearch\" class=\"hsearch\" action=\"{prefix}index.html\" method=\"get\" role=\"search\">{hidden}<input id=\"hq\" name=\"q\" type=\"search\" placeholder=\"{placeholder}\" aria-label=\"Search\" autocomplete=\"off\"></form></header>\n",
         tab("door", "Doors", "kind=door", counts.map(|c| c[0])),
         tab("clock", "Clocks", "kind=clock", counts.map(|c| c[1])),
         tab("circuit", "Circuits", "kind=circuit", counts.map(|c| c[2])),
-        tab("farm", "Farms", "kind=farm", counts.map(|c| c[3]))
+        tab("farm", "Farms", "kind=farm", counts.map(|c| c[3])),
+        tab("tools", "Tools", "", counts.map(|_| crate::tools::PAGES.len()))
     )
 }
 
@@ -139,6 +150,14 @@ pub fn shell_full(title: &str, description: &str, prefix: &str, body: &str, scri
             v.viewer_js, v.viewer_wasm
         ));
     }
+    if scripts.tools {
+        s.push_str(&format!(
+            "<script type=\"module\">import init from \"{module}tools/pkg/{name}.js?v={}\"; init({{module_or_path: \"{module}tools/pkg/{name}_bg.wasm?v={}\"}});</script>\n",
+            v.tools_js,
+            v.tools_wasm,
+            name = crate::web::TOOLS_NAME
+        ));
+    }
     s.push_str("</body>\n</html>\n");
     s
 }
@@ -159,6 +178,9 @@ pub struct Versions {
     pub ui_js: String,
     pub ui_wasm: String,
     pub data: String,
+    /// The Tools pages' bundle (web/tools).
+    pub tools_js: String,
+    pub tools_wasm: String,
 }
 
 static VERSIONS: std::sync::RwLock<Option<Versions>> = std::sync::RwLock::new(None);
@@ -2199,7 +2221,7 @@ mod tests {
     #[test]
     fn build_page_has_the_parts() {
         let s = tiny_site();
-        let p = build_page(&s, &s.builds[0], "name: obs2\n", "designs/clocks/archive/obs2.txt", Scripts { viewer: true, app: false, ui: false });
+        let p = build_page(&s, &s.builds[0], "name: obs2\n", "designs/clocks/archive/obs2.txt", Scripts { viewer: true, ..Default::default() });
         assert!(p.starts_with("<!DOCTYPE html>"));
         // the kind and the properties lead; the design's name only in the collapsed details
         assert!(p.contains("<title>Clock: every 6 ticks (0.3 s) · 2 blocks · REDSTONEPEDIA</title>"), "{p}");
@@ -2230,7 +2252,7 @@ mod tests {
     #[test]
     fn index_loads_the_app() {
         let s = tiny_site();
-        let p = index_page(&s, Scripts { viewer: true, app: false, ui: false });
+        let p = index_page(&s, Scripts { viewer: true, ..Default::default() });
         assert!(p.contains("import init from \"./pkg/redstonepedia.js?v="), "{p}");
         assert!(p.contains("id=\"grid\""));
         // (two clocks pulsing every 6 ticks: one period)

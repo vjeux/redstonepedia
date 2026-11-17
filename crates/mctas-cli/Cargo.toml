@@ -35,3 +35,4 @@ farmopt-iron = { path = "../farmopt-iron" }
 terrain = { path = "../terrain" }
 mobai = { path = "../mobai" }
 boat-leads = { path = "../boat-leads" }
+rng = { path = "../rng", features = ["cli"] }

@@ -33,6 +33,7 @@ pub mod read;
 pub mod serve;
 pub mod simulate;
 pub mod split;
+pub mod tools;
 pub mod web;
 pub mod webkit;
 

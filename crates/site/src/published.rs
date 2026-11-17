@@ -206,6 +206,10 @@ pub fn built_pages(site: &Site) -> Vec<Entry> {
     for p in farms {
         v.push(Entry { path: p, what: "page".into(), ..Default::default() });
     }
+    // the Tools section (crates/site/src/tools.rs): its list and each calculator
+    for p in std::iter::once("tools/index.html").chain(crate::tools::PAGES.iter().map(|(p, _, _)| *p)) {
+        v.push(Entry { path: p.to_string(), what: "page".into(), ..Default::default() });
+    }
     v
 }
 

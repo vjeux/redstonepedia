@@ -18,6 +18,8 @@ piston-door = { path = "../piston-door" }
 clock = { path = "../clock" }
 circuit = { path = "../circuit" }
 site-model = { path = "../site-model" }
+# the Tools pages' item and book lists (src/tools.rs)
+rng = { path = "../rng" }
 litematic = { path = "../litematic" }
 # the viewer's own session (webrender): whether the 3D view can run a design or shows it as built,
 # and a shulker machine run the way the view runs it (the boxes it sends out)

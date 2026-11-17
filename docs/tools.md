@@ -1002,6 +1002,31 @@ plus the hallway check, footsteps for sculk designs, QUART SEAMLESS or better an
 | `door relever <design>... [--subs note,dust] [--out-dir DIR] [--why]` | make working doors repeater-input eligible: the lever's cell becomes a note block (the lever hung on it, or kept on its old support) or dust (the lever kept on its support); every variant judged like a record and checked with `--eligible`; table with ticks, seamless tier and volume |
 | `door audit [designs or folders...] [--sections checks,mech,wiring,rules] [--jvm] [--out F] [--tsv MECH.tsv] [--explain]` | what our rules, checks, generators and wiring tools silently exclude, found on WORKING doors ([audit.md](audit.md)): every check on each design, its mechanism extracted from a redsim cycle and tested against families' own generator under each bound setting (the exact bound when it is out), connect / topology in its own box, what satwire / cosearch / boxproof cannot hold, every hard-coded rule with live file:line; `--explain` prints one door's paths and every move with the piston that made it |
 
+## The enchanting table and the librarian (`mctas rng`)
+
+The game's random number generators a player can steer, as the site's Tools pages compute them
+(`crates/rng`, the same code in the browser through `web/tools`; [site.md](site.md#tools-cratessitesrctoolsrs);
+the mechanics: [mechanics.md](mechanics.md#the-enchanting-table-and-the-players-random-generator--cratesrng)).
+An enchanting seed is 8 hex digits (`5F94CCE0`) or a number; a player seed 12 hex digits.
+
+| command | when to use it |
+|---|---|
+| `rng offers --seed S [--item diamond_sword] [--shelves N]` | what the table offers for an enchanting seed: the three costs, hints and full lists (every bookshelf count without `--shelves`) |
+| `rng crack --obs "shelves=15 costs=7,13,30" --obs "shelves=8 costs=2,9,12 item=diamond_sword clues=unbreaking:1,smite:2,looting:2" [--after S]` | the enchanting seed from readings of the table: all 2^32 seeds on every core (seconds), or only the 65,536 that can follow seed `S` (one enchant later) |
+| `rng player --xp1 S1 --xp2 S2 [--max-gap N]` | the player's own generator from two enchanting seeds in a row (`--max-gap`: other draws between them) |
+| `rng plan --player P --item diamond_sword --want sharpness:4 --want looting:3 [--not fire_aspect] [--max-shelves 15 --max-drops 2048 --level 30]` | how many items to drop with Q, then one throwaway enchant, then the bookshelves and the slot: fewest drops, then fewest bookshelves, then the lowest slot |
+| `rng trades list --world-seed W [--profession librarian --level 1 --from N --count 20]` | a trade set's generations from the world's first (26.3's world random sequences) |
+| `rng trades sync --world-seed W --seen "book=mending:1 price=23" --seen nobook ...` | where a world is in its sequence, from fresh trade screens in order |
+| `rng trades plan --world-seed W --after N --want mending [--max-price 20 --verbose]` | the rerolls after generation `N` until the book |
+| `rng game datagen` | dump the game's data (enchantments, items, tags, trade sets) from the real server into `crates/rng/data/mc-<version>.json`: once per game version |
+| `rng game table [--seeds 200] [--record]` | every offer of the real EnchantmentMenu (costs, hints, lists) for N seeds, every enchantable item and every bookshelf count against crates/rng; `--record` writes the replay `crates/rng/data/game-<version>-table.tsv` (a digest of every row and every 1,000th row in full) |
+| `rng game enchant [--trials 7] [--clues]` | the calculator's whole method on mock players of the real server: read the table until one seed is left, enchant something cheap, read again, find the player's generator, plan, press Q that many times, throwaway, enchant; each trial must get exactly the planned enchantments |
+| `rng game librarian [--world-seed W] [--generations 300] [--ai-rerolls 3] [--record]` | a villager made a librarian again and again, then one rerolling by its own AI with a lectern, against crates/rng's generations from the world seed alone; `--record` writes the replay `crates/rng/data/game-<version>-librarian-<W>.tsv` |
+
+`rng game` runs the unmodified 26.3 dedicated server in one JVM with the rng bridge
+(`bridge/rng/`: mock players ticked like network clients; it only acts and reads, every comparison
+is made in Rust). crates/rng's unit tests replay the recordings without a server.
+
 ## Videos and showcase (coordinator only: the X displays are shared)
 
 | command | when to use it |
@@ -1022,7 +1047,7 @@ Never edit these by hand; change their generator or its inputs and regenerate:
 |---|---|---|
 | `designs/piston-door-3x3/LEADERBOARD.md` | `door leaderboard` | every design on main and `explore/*`, the verdict and shape caches, the `videos` release (GIFs, videos, montages), `archive/captions.tsv` |
 | `designs/piston-door-3x3/archive/README.md` | `door catalog`, `door video-all` | the archive files, the verdict cache, `archive/records.tsv`, `archive/captions.tsv`, `tracks/buildable/scripts/`, the `videos` release |
-| the `gh-pages` branch (REDSTONEPEDIA, https://vjeux.github.io/redstonepedia/) | `site publish` | every archive and its caches, captions, traces, `web/viewer/`, `web/site/` ([site.md](site.md)) |
+| the `gh-pages` branch (REDSTONEPEDIA, https://vjeux.github.io/redstonepedia/) | `site publish` | every archive and its caches, captions, traces, `web/viewer/`, `web/site/`, `web/tools/` and `crates/rng/` (the Tools pages) ([site.md](site.md)) |
 
 `archive/records.tsv` (the solid record progression, one row per record) and
 `archive/captions.tsv` (one line per design: how it works) are hand-edited data: add a row when

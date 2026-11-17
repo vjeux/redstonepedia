@@ -1,0 +1,27 @@
+[package]
+name = "rng"
+description = "The game's random number generators a player can steer (docs/mechanics.md): the enchanting table's seed found from what the table shows and steered by dropping items, and the librarian's trades read from the world's random sequences (mctas rng; the site's Tools pages, web/tools)"
+# explicit fields (no workspace inheritance): web/tools, a separate workspace, depends on this crate by path
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/vjeux/redstonepedia"
+
+[features]
+default = []
+# the mctas command line and the runs on the real 26.3 server (mctas rng ...): not in the browser
+# build (web/tools)
+cli = ["dep:anyhow", "dep:clap", "dep:mctas", "dep:zip", "dep:sha2"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+md-5 = "0.10"
+anyhow = { version = "1", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+mctas = { path = "../mctas", optional = true }
+zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
+sha2 = { version = "0.10", optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"
