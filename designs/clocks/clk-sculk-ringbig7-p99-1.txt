@@ -1,0 +1,86 @@
+# Clock: every 99 ticks (4.95 s) · 16 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-ringbig7-p99-1.html
+# CLOCK: period 99, warmup 21
+name: clk-sculk-ringbig7-p99-1
+port output: 19 0 0
+port start: 17 0 1 use
+origin: -16 0 -17
+palette:
+  A minecraft:amethyst_block
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:stone
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..................................S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  ............CA
+  .
+  .
+  ...........................C
+  ...........................A
+  .
+  .
+  .
+  .
+  CA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................cB
+  .................................N
+  .
+  .
+  .
+  .
+  .
+  A
+  C
+  .
+  .
+  .
+  .
+  .
+  ..........................AC
+  .
+  .
+  ...........AC

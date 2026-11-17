@@ -1,0 +1,58 @@
+# Clock: every 181 ticks (9.05 s) · 80 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p181-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-80b-0821f4.html
+# CLOCK: period 181, warmup 116
+name: clk-misc-p181-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-80b-0821f4
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3.5 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssss
+  .SS.sssss
+  .
+layer 0:
+  .ss.sssss
+  s.WO.....O
+  s.WO.....O
+  .ss.sssss
+layer 1:
+  .
+  ..W
+  ..W.s
+  .
+layer 2:
+  .
+  .
+  ..Ww
+  ..s
+layer 3:
+  .
+  .
+  ..W
+  .
+layer 4:
+  ..s
+  ..Wwssss
+  ..Wwssss..s
+  ..s
+layer 5:
+  .sssssss
+  sW
+  sWW
+  .sssssss
+layer 6:
+  .
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  ....s
+  .

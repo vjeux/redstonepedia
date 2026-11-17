@@ -1,0 +1,58 @@
+# Auto-composter: 1 composter a slice, one crop each · slices side by side · 18 blocks
+# https://vjeux.github.io/redstonepedia/circuits/compost/compost-row.html
+name: compost-row
+circuit: composter 1
+tile: 1 0 0
+port items: 0 4 0
+port pass: 1 3 0
+port output: 0 -2 0
+origin: 0 0 0
+palette:
+  L minecraft:hopper[enabled=true,facing=east]
+  A minecraft:hopper[enabled=true,facing=down]
+  B minecraft:hopper[enabled=false,facing=down]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=north,lit=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  X minecraft:composter[level=0]
+  O minecraft:hopper[enabled=true,facing=down]
+layer -1:
+  O
+  .
+  .
+  S
+  .
+layer 0:
+  X
+  T
+  S
+  R
+  S
+layer 1:
+  B
+  S
+  S
+  S
+  r
+layer 2:
+  A
+  C
+  r
+  r
+  .
+layer 3:
+  L
+  .
+  .
+  .
+  .
+layer 4:
+  S
+  .
+  .
+  .
+  .
+nbt: 0 2 0 {Items:[{Slot:0b,id:"minecraft:wheat_seeds",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:wheat_seeds",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}

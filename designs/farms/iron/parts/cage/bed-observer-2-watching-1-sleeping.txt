@@ -1,0 +1,92 @@
+# Villager cage: bed-observer cage, 2 watching villagers
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/cage/index.html#bed-observer-2-watching-1-sleeping
+name: bed-observer-2-watching-1-sleeping
+origin: -6 0 -7
+palette:
+  C minecraft:cobblestone
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  T minecraft:torch
+  c minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  o minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....C.C.C
+  ....C.C.C
+layer 0:
+  .......c
+  ....C.C
+  ...C.C
+  ....CC
+  .CCC
+  .C
+  .
+  ...CrCrCr
+  ....R.R.R
+layer 1:
+  .
+  ...C.C.O
+  .
+  ...C
+  .r..C
+  .R
+  ....C
+  ...C.CoCoC
+  ....C.C.C
+layer 2:
+  .......C
+  ...T.T
+  .
+  .C.T
+  C.C.T
+  .C
+  ....C
+  ...C.C.C.C
+  ....C.C.C
+layer 3:
+  .......C
+  .
+  .
+  .C
+  C.C
+  .C
+  ....T
+  ...CCCCCCC
+  ...CCCCCCC
+layer 4:
+  .......T
+  .
+  .
+  .T
+  CCC
+  CCC
+  .
+  ...CCCCCCC
+  ...CCCCCCC
+layer 5:
+  .
+  .
+  .
+  .
+  CCC
+  CCC
+  .
+  ...TTTTTTT
+  ...TTTTTTT
+layer 6:
+  .
+  .
+  .
+  .
+  TTT
+  TTT
+  .
+  .
+  .

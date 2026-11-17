@@ -1,0 +1,15 @@
+# Clock: every 67 ticks (3.35 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-chain-p67-10.html
+# CLOCK: period 67, warmup 0
+name: clk-sculk-chain-p67-10
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer 0:
+  .ssss
+layer 1:
+  SRRRRO

@@ -1,0 +1,19 @@
+# Signal shortener: at most 8 ticks (0.4 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-limiter-instant-L8.html
+name: pulse-limiter-instant-L8
+circuit: pulse-limiter
+origin: 0 0 0
+port input: 0 0 0
+port output: 3 0 1
+palette:
+  D minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  K minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=south]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  G minecraft:stone
+layer -1:
+  .G.
+  GG.
+layer 0:
+  .RP
+  DDK

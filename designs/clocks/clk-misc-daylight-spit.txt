@@ -1,0 +1,16 @@
+# Clock: every 40 ticks (2 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-daylight-spit.html
+# CLOCK: period 40, warmup 2506
+name: clk-misc-daylight-spit
+port start: 3 1 0 minecraft:redstone_block 2
+port output: -1 0 0
+palette:
+  D minecraft:daylight_detector[inverted=true,power=0]
+  O minecraft:observer[facing=west,powered=false]
+  X minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=west]
+  B minecraft:stone
+layer 0:
+  DOX
+layer 1:
+  .BP

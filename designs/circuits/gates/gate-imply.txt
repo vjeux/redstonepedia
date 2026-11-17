@@ -1,0 +1,15 @@
+# Logic gate: (NOT A) OR B · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-imply.html
+name: gate-imply
+circuit: gate imply
+port input.a: 0 0 0
+port input.b: -1 1 0
+port output: 1 1 0
+origin: 0 0 0
+palette:
+  R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  E minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  .E
+layer 1:
+  R.

@@ -1,0 +1,34 @@
+# One pulse on every switch: 30-tick pulse · 29 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-dual-edge-reset-v60-29b-0.html
+name: pulse-dual-edge-reset-v60-29b-0
+circuit: dual-edge
+port input: 2 1 3
+port output: 3 1 0
+origin: 0 0 -3
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  o minecraft:observer[facing=west,powered=false]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer 0:
+  SSOSS
+  S...S
+  ....S
+  S..SS
+  ..S
+  .
+  .
+layer 1:
+  RRRRR
+  A...B
+  W...B
+  CoWcR
+  ..r
+  ..O
+  ..W

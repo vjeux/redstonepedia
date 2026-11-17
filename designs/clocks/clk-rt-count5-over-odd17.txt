@@ -1,0 +1,38 @@
+# Clock: every 85 ticks (4.25 s) · 46 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-count5-over-odd17.html
+# CLOCK: period 85, warmup 29
+name: clk-rt-count5-over-odd17
+port output: 0 0 -2
+port start: 1 0 6 minecraft:redstone_wall_torch[facing=south,lit=true] 1 at 7
+origin: -4 0 -1
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:redstone_wire
+  E minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  F minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  G minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  H minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ....SSS
+  .....SSSS
+  .....S
+  .SSSSS
+  ......S
+  .....S.S
+  .....S.S
+  ......S
+layer 1:
+  ....DBBSr
+  ....ScCDD
+  .....D
+  RDDDDA
+  .....SHS
+  .....D.G
+  .....E.G
+  .....SFS

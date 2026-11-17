@@ -1,0 +1,17 @@
+# Clock: every 674 ticks (33.7 s) · 58 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-fade-n10.html
+name: clk-rt-fade-x10
+port output: 13 -1 0
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSSSSSSSSSSSS
+  SSSSSSSSSSSSSSS
+layer 1:
+  rccccccccccccSR
+  rCCCCCCCCCCCCrr

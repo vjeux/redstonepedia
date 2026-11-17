@@ -1,0 +1,23 @@
+# Clock: every 9 ticks (0.45 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p9-comparator-bulb-note-obs-stk-stone-7b-55dc37.html
+# CLOCK: period 9, warmup 6
+name: clk-obs-p9-comparator-bulb-note-obs-stk-stone-7b-55dc37
+port output: 3 0 2
+port start: 0 0 2 last
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  .
+  ..s
+layer 0:
+  S
+  oO
+  WNC

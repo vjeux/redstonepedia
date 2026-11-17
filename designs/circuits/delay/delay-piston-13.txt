@@ -1,0 +1,25 @@
+# Delay: 13-tick delay · 10 blocks
+# https://vjeux.github.io/redstonepedia/circuits/delay/delay-piston-13.html
+name: delay-piston-13
+circuit: delay
+port input: 0 1 0
+port output: 8 1 4
+origin: 0 0 0
+palette:
+  P minecraft:sticky_piston[extended=false,facing=east]
+  Q minecraft:sticky_piston[extended=false,facing=south]
+  R minecraft:redstone_block
+  D minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  .........
+  .........
+  ....S....
+  .........
+  .........
+layer 1:
+  .PR......
+  ...Q.....
+  ...RDPR..
+  .......Q.
+  .......R.

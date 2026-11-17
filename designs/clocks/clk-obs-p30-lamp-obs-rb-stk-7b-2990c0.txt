@@ -1,0 +1,26 @@
+# Clock: every 30 ticks (1.5 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p30-lamp-obs-rb-stk-7b-2990c0.html
+# CLOCK: period 30, warmup 9
+name: clk-obs-p30-lamp-obs-rb-stk-7b-2990c0
+origin: 0 0 0
+port output: 0 -2 1
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:redstone_lamp[lit=false]
+  D minecraft:redstone_block
+  E minecraft:sticky_piston[extended=false,facing=north]
+  F minecraft:observer[facing=down,powered=false]
+  G minecraft:observer[facing=north,powered=false]
+layer -1:
+  A
+  .
+  B
+layer 0:
+  C
+  D
+  E
+layer 1:
+  F
+  G
+  .

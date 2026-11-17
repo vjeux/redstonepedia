@@ -1,0 +1,27 @@
+# Clock: every 23 ticks (1.15 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p23-note-obs-rb-stk-8b-f2475e.html
+# CLOCK: period 23, warmup 4
+name: clk-obs-p23-note-obs-rb-stk-8b-f2475e
+origin: 0 0 0
+port output: 0 -1 1
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=down]
+  B minecraft:note_block[instrument=harp,note=0,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=south]
+  G minecraft:redstone_block
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  E
+layer 2:
+  F
+  .
+  G

@@ -1,0 +1,45 @@
+# Clock: every 187 ticks (9.35 s) · 65 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c.html
+# CLOCK: period 187, warmup 84
+name: clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -1
+palette:
+  B minecraft:big_dripleaf[facing=west,tilt=none,waterlogged=true]
+  D minecraft:dirt
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssD
+  .SS.sssD
+  .
+layer 0:
+  .ss.ssss
+  s.WO...BO
+  s.WO...BO
+  .ss.ssss
+layer 1:
+  .
+  ..Wwsss
+  ..Wwsss..s
+  .
+layer 2:
+  .ssssss
+  sW
+  sWW
+  .ssssss
+layer 3:
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  ....s
+  .

@@ -1,0 +1,26 @@
+# Signal shortener: at most 36 ticks (1.8 s) · 17 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-limiter-u-L36-v20-17b.html
+name: pulse-limiter-u-L36-v20-17b
+circuit: pulse-limiter
+port input: 0 1 0
+port output: 2 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer 0:
+  .S
+  SS
+  SS
+  SS
+  .S
+layer 1:
+  .C
+  Ar
+  Ar
+  AB
+  SR

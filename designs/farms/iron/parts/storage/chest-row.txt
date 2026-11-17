@@ -1,0 +1,10 @@
+# Storage: hopper into a double chest beside the chest
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/storage/index.html#chest-row
+name: chest-row
+origin: 3 0 2
+palette:
+  C minecraft:chest[facing=south,type=left,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  c minecraft:chest[facing=south,type=right,waterlogged=false]
+layer -25:
+  HcC

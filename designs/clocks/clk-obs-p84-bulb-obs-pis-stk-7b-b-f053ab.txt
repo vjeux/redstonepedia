@@ -1,0 +1,26 @@
+# Clock: every 6 ticks (0.3 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p84-bulb-obs-pis-stk-7b-b-f053ab.html
+# CLOCK: period 84, warmup 8
+name: clk-obs-p84-bulb-obs-pis-stk-7b-b-f053ab
+port output: -2 -1 2
+port start: 0 0 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+layer -1:
+  .
+  .o
+  OW
+layer 0:
+  .A
+  .o
+  .S
+layer 1:
+  .P
+  .A
+  .

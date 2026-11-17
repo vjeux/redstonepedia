@@ -1,0 +1,27 @@
+# Clock: every 180 ticks (9 s) · 28 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-rect-inv-n4.html
+name: clk-rt-rect-inv-x4
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=west,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S
+layer 1:
+  SCS
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  rRS

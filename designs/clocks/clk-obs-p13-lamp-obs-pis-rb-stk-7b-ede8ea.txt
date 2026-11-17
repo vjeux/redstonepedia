@@ -1,0 +1,23 @@
+# Clock: every 13 ticks (0.65 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p13-lamp-obs-pis-rb-stk-7b-ede8ea.html
+# CLOCK: period 13, warmup 2
+name: clk-obs-p13-lamp-obs-pis-rb-stk-7b-ede8ea
+origin: 0 0 0
+port output: 1 0 -1
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=east]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:redstone_lamp[lit=false]
+  E minecraft:piston[extended=false,facing=west]
+  F minecraft:redstone_block
+  G minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  A.
+  .E
+  ..
+layer 0:
+  B.
+  CF
+  DG

@@ -1,0 +1,19 @@
+# Clock: every 40 ticks (2 s) · 14 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-cart-pingpong-bare.html
+# CLOCK: period 40, warmup 0
+name: clk-misc-cart-pingpong-bare
+port output: 2 -1 -1
+entity: minecraft:minecart 5.5 0.0625 0.5
+origin: 0 0 -1
+palette:
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  .....L
+  .SSSSS
+layer 0:
+  .
+  SPDRRPS

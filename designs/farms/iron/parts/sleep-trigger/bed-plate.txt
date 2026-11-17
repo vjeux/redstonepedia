@@ -1,0 +1,40 @@
+# Sleep trigger: bed plate (no redstone)
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/sleep-trigger/index.html#bed-plate
+name: bed-plate
+origin: 2 0 -7
+palette:
+  G minecraft:glass
+  O minecraft:oak_pressure_plate[powered=false]
+  R minecraft:red_bed[facing=west,occupied=false,part=foot]
+  S minecraft:stone
+  o minecraft:oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=west,occupied=false,part=head]
+  s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer 0:
+  s
+  .
+  .
+layer 1:
+  .
+  oSSS
+  .
+layer 2:
+  SGGG
+  GOrRG
+  .GGG
+layer 3:
+  GGGG
+  G...G
+  .GGG
+layer 4:
+  .
+  .SSS
+  .
+layer 5:
+  .
+  .SSS
+  .
+layer 6:
+  .
+  .GGG
+  .

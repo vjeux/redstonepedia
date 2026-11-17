@@ -1,0 +1,86 @@
+# Clock: every 142 ticks (7.1 s) · 73 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-oak_door-ring-n33.html
+name: clk-misc-oak_door-ring-n33
+port start: 1 35 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=down,powered=false]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  O minecraft:oak_door[facing=north,half=lower,hinge=left,open=false,powered=false]
+  o minecraft:oak_door[facing=north,half=upper,hinge=left,open=false,powered=false]
+layer 0:
+  BC
+layer 1:
+  AC
+layer 2:
+  AC
+layer 3:
+  AC
+layer 4:
+  AC
+layer 5:
+  AC
+layer 6:
+  AC
+layer 7:
+  AC
+layer 8:
+  AC
+layer 9:
+  AC
+layer 10:
+  AC
+layer 11:
+  AC
+layer 12:
+  AC
+layer 13:
+  AC
+layer 14:
+  AC
+layer 15:
+  AC
+layer 16:
+  AC
+layer 17:
+  AC
+layer 18:
+  AC
+layer 19:
+  AC
+layer 20:
+  AC
+layer 21:
+  AC
+layer 22:
+  AC
+layer 23:
+  AC
+layer 24:
+  AC
+layer 25:
+  AC
+layer 26:
+  AC
+layer 27:
+  AC
+layer 28:
+  AC
+layer 29:
+  AC
+layer 30:
+  AC
+layer 31:
+  AC
+layer 32:
+  AC
+layer 33:
+  AC
+layer 34:
+  AC
+layer 35:
+  OD
+layer 36:
+  o

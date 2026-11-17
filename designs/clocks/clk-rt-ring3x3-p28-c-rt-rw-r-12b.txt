@@ -1,0 +1,21 @@
+# Clock: every 28 ticks (1.4 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-ring3x3-p28-c-rt-rw-r-12b.html
+# CLOCK: period 28, warmup 6
+name: clk-rt-ring3x3-p28-c-rt-rw-r-12b
+port output: -1 0 2
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=west,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire
+layer 0:
+  .S
+  S.S
+  S
+layer 1:
+  SAS
+  C.B
+  rRS

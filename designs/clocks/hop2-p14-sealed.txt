@@ -1,0 +1,19 @@
+# Clock: every 14 ticks (0.7 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/hop2-p14-sealed.html
+# CLOCK: period 14, warmup 7
+name: hop2-p14-sealed
+port output: -2 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  S
+layer 1:
+  CHh
+layer 2:
+  .GG

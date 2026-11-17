@@ -1,0 +1,23 @@
+# Clock: every 14 ticks (0.7 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-item-hopper-ring-sealed.html
+# CLOCK: period 14, warmup 3
+name: clk-item-hopper-ring-sealed
+period: 14
+port output: 1 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  SS
+  .
+layer 1:
+  CC
+  Hh
+layer 2:
+  .
+  GG

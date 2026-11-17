@@ -1,0 +1,104 @@
+# Iron farm: 296 iron an hour · 198 blocks · 1.5 an hour per block · 18 iron to build · golems burn in lava pits
+# https://vjeux.github.io/redstonepedia/farms/iron/iron-day1.html
+# CIRCUIT: seconds per golem 48.5
+name: iron-day1
+circuit: mob-farm iron_ingot day-1
+how: golems burn in lava pits
+port output: 0 -3 -6
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager 4.5 0.5625 0.5
+entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+origin: -10 0 -8
+palette:
+  A minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  B minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  L minecraft:lava[level=0]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  T minecraft:torch
+  W minecraft:water[level=0]
+  c minecraft:cobblestone
+  o minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  t minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+layer -3:
+  .
+  .
+  ..........C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -2:
+  .
+  .
+  ..ccccccccH
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -1:
+  .
+  .cccccccccc
+  .cW........c
+  .cccccccccc
+  .
+  .
+  .
+  .
+  ..........c.c.c
+  ..........c.c.c
+layer 0:
+  .
+  .cccccccccc.A
+  cBttttttttttDc
+  .cccccccccc
+  .
+  .
+  .
+  .
+  ..........r.r.r
+  ..........R.R.R
+layer 1:
+  ..AAAAAAAA
+  .ALLLLLLLLA
+  ccOOOOOOOOcOO
+  .ALLLLLLLLA
+  ..AAAAAAAA
+  .
+  .
+  .
+  .........cocococ
+  ..........c.c.c
+layer 2:
+  .
+  ..AAAAAAAA..A
+  ..ccccccccA
+  ..AAAAAAAA
+  .
+  .
+  .
+  .
+  .........c.c.c.c
+  ..........c.c.c
+layer 3:
+  .
+  .
+  ..TTTTTTTT
+  .
+  .
+  .
+  .
+  .
+  .........AAAAAAA
+  .........AAAAAAA

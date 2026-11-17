@@ -1,0 +1,25 @@
+# Clock: every 21 ticks (1.05 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p42-bulb-lamp-obs-rb-stk-8b-a4e698.html
+# CLOCK: period 42, warmup 6
+name: clk-obs-p42-bulb-lamp-obs-rb-stk-8b-a4e698
+origin: -2 0 0
+port output: 0 -1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=down]
+  D minecraft:redstone_block
+  E minecraft:observer[facing=down,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=north]
+  G minecraft:redstone_lamp[lit=false]
+  H minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  A.D
+  ...
+layer 1:
+  .BE
+  ..F
+layer 2:
+  .CG
+  ..H

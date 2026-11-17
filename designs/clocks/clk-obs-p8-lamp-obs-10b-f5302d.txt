@@ -1,0 +1,28 @@
+# Clock: every 8 ticks (0.4 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-lamp-obs-10b-f5302d.html
+# CLOCK: period 8, warmup 28
+name: clk-obs-p8-lamp-obs-10b-f5302d
+origin: 0 0 0
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:redstone_lamp[lit=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:observer[facing=north,powered=false]
+layer 0:
+  A
+  B
+  A
+  C
+layer 1:
+  D
+  C
+  E
+  E
+layer 2:
+  D
+  E
+  .
+  .

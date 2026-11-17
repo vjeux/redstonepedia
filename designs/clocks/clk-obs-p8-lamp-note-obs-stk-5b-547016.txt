@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-lamp-note-obs-stk-5b-547016.html
+# CLOCK: period 8, warmup 8
+name: clk-obs-p8-lamp-note-obs-stk-5b-547016
+origin: 0 0 0
+port output: 0 -1 -1
+port start: 0 0 2 last
+palette:
+  A minecraft:redstone_lamp[lit=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:observer[facing=north,powered=false]
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  .

@@ -1,0 +1,11 @@
+# Collection: one hopper into a chest
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/collection/index.html#one-hopper-chest
+name: one-hopper-chest
+origin: 0 0 3
+palette:
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=down]
+layer -15:
+  C
+layer -14:
+  H

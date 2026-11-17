@@ -1,0 +1,25 @@
+# Clock: every 20 ticks (1 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/dropring-p20.html
+# CLOCK: period 20, warmup 34
+
+name: dropring-p20
+port output: 1 0 3
+nbt: 0 0 1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 0 0 2 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+origin: 0 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  d minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  .
+  .S
+  .
+layer 0:
+  HHA
+  hCA
+  Ddd

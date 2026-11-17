@@ -1,0 +1,17 @@
+# Clock: every 12 ticks (0.6 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-divider-tap.html
+# CLOCK: period 12, warmup 2
+name: clk-obs-divider-tap
+origin: -2 0 0
+port output: -3 0 0
+port start: 1 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:comparator[facing=east,mode=compare,powered=false]
+  E minecraft:stone
+layer -1:
+  E...
+layer 0:
+  DCAB

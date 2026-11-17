@@ -1,0 +1,25 @@
+# Clock: every 91 ticks (4.55 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-crafter-loop-sealed.html
+# CLOCK: period 91, warmup 12
+name: clk-misc-crafter-loop-sealed
+port output: -3 0 -1
+port start: 0 1 0 minecraft:redstone_block 2
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:slime_block",count:1}]}
+origin: -2 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=south]
+  O minecraft:observer[facing=north,powered=false]
+  S minecraft:stone
+  c minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  o minecraft:observer[facing=west,powered=false]
+layer -1:
+  S
+  .
+layer 0:
+  CSH
+  Ooc
+layer 1:
+  ..G
+  .

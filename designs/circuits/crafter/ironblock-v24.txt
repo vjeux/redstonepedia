@@ -1,0 +1,25 @@
+# Auto-crafter: crafts an iron block from every 9 iron ingots · 16 blocks
+# https://vjeux.github.io/redstonepedia/circuits/crafter/ironblock-v24.html
+name: ironblock-v24
+circuit: crafter iron_block
+port items: -1 1 0
+port output: 0 -1 0
+origin: -1 0 -1
+palette:
+  M minecraft:crafter[crafting=false,orientation=down_north,triggered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  J minecraft:comparator[facing=west,mode=compare,powered=false]
+  R minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  ..SS
+  ..SS
+  .SS.
+layer 0:
+  .SRr
+  HMKr
+  CJr.
+nbt: -1 0 1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}

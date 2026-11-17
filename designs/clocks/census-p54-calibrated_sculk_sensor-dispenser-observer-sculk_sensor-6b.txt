@@ -1,0 +1,17 @@
+# Clock: every 54 ticks (2.7 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p54-calibrated_sculk_sensor-dispenser-observer-sculk_sensor-6b.html
+# CLOCK: period 54, warmup 27
+name: census-p54-calibrated_sculk_sensor-dispenser-observer-sculk_sensor-6b
+port start: 0 0 0 last
+port output: 1 0 2
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:stone
+layer 0:
+  Oos
+  SCD

@@ -1,0 +1,18 @@
+# Clock: every 4 ticks (0.2 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p20-note-obs-stk-6b-b-8457fd.html
+# CLOCK: period 20, warmup 4
+name: clk-obs-p20-note-obs-stk-6b-b-8457fd
+origin: 0 0 0
+port output: 1 0 4
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  AD
+  B.
+  CE
+  .B

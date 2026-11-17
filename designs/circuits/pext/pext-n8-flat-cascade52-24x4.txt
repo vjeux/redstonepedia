@@ -1,0 +1,30 @@
+# Piston extender: reach 8 · 52 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n8-flat-cascade52-24x4.html
+name: pext-n8-flat-cascade52-24x4
+circuit: piston-extender 8
+travel: 1 0 0
+port input: 22 4 0 lever
+port payload: 16 1 0
+origin: 1 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsSsSsSsSsSsG
+layer 2:
+  .A.A.A.B.A.A.A
+layer 3:
+  AAooA.A.A.A.A..A..A..A
+layer 4:
+  roO..pRoRoRoo.PCooo.pL

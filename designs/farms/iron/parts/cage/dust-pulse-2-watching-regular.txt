@@ -1,0 +1,53 @@
+# Villager cage: dust-pulse cage, 2 watching villagers (regular)
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/cage/index.html#dust-pulse-2-watching-regular
+name: dust-pulse-2-watching-regular
+origin: -2 0 -7
+palette:
+  A minecraft:cobblestone_slab[type=top,waterlogged=false]
+  C minecraft:cobblestone
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  W minecraft:wall_torch[facing=east]
+  c minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  o minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+layer -1:
+  .
+  .....C
+  .
+  .
+  .
+  .
+  C.....C
+  .
+  .
+layer 0:
+  ...c
+  ....C
+  .
+  .
+  .
+  .
+  .
+  r.r.r
+  R.R.R
+layer 1:
+  .
+  ...O
+  .
+  .
+  .
+  ..A.A
+  ..A.A
+  ..o.o
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  ..W
+  .
+  .
+  .
+  .

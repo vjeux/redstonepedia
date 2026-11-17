@@ -1,0 +1,18 @@
+# Clock: every 43 ticks (2.15 s) · 15 blocks
+# https://vjeux.github.io/redstonepedia/clocks/kit-shuttle-minecart-p43-15b.html
+# CLOCK: period 43, warmup 34
+name: kit-shuttle-minecart-p43-15b
+kit: shuttle (kit-shuttle-6-2981157): period 43 gt, family detector_rail+minecart+powered_rail, minimal; 69 types with this period
+port output: 4 0 -1
+entity: minecraft:minecart 5.5 1.0625 0.5
+origin: -1 0 0
+palette:
+  D minecraft:detector_rail[shape=east_west]
+  P minecraft:powered_rail[shape=east_west]
+  R minecraft:rail[shape=east_west]
+  S minecraft:stone
+  r minecraft:redstone_block
+layer 0:
+  .rrSSSr
+layer 1:
+  SPPRPDPS

@@ -1,0 +1,28 @@
+# Clock: every 13 ticks (0.65 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p26-bulb-lamp-obs-rb-stk-7b-b-ae8e13.html
+# CLOCK: period 26, warmup 2
+name: clk-obs-p26-bulb-lamp-obs-rb-stk-7b-b-ae8e13
+port output: 1 1 3
+port start: 0 0 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  A
+  .
+  .
+layer 1:
+  Os
+  RW
+  .o
+layer 2:
+  r
+  S
+  .

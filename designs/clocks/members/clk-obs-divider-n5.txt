@@ -1,0 +1,16 @@
+# Clock: every 384 ticks (19.2 s) · 20 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-divider-n5.html
+name: clk-obs-divider-n5
+origin: -12 0 0
+port output: -13 0 0
+port start: 1 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:comparator[facing=east,mode=compare,powered=false]
+  E minecraft:stone
+layer -1:
+  E.E.E.E.E.E...
+layer 0:
+  DCDCDCDCDCDCAB

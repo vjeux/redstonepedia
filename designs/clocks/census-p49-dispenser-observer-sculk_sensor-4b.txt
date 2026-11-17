@@ -1,0 +1,14 @@
+# Clock: every 49 ticks (2.45 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p49-dispenser-observer-sculk_sensor-4b.html
+# CLOCK: period 49, warmup 0
+name: census-p49-dispenser-observer-sculk_sensor-4b
+port start: 0 0 0 last
+port output: 0 0 -1
+origin: 0 0 0
+palette:
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer 0:
+  SOsD

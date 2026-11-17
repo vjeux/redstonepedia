@@ -1,0 +1,19 @@
+# Clock: every 44 ticks (2.2 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-two-p44-1.html
+# CLOCK: period 44, warmup 14
+name: clk-sculk-two-p44-1
+port output: 1 0 -1
+port start: -3 2 0 minecraft:redstone_block 1
+origin: -2 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=down,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  ..cC
+layer 1:
+  ..O
+layer 2:
+  DoO

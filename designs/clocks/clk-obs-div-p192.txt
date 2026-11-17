@@ -1,0 +1,27 @@
+# Clock: every 192 ticks (9.6 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-div-p192.html
+# CLOCK: period 192, warmup 0
+name: clk-obs-div-p192
+name: clk-obs-div-p192
+port output: 0 0 -5
+port start: 0 0 0 last
+origin: 0 0 -4
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:stone
+layer -1:
+  s
+  .
+  s
+  .
+  .
+layer 0:
+  C
+  W
+  C
+  W
+  SOD

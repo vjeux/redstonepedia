@@ -1,0 +1,22 @@
+# Tall flying machine: carries up to 18 extra blocks · 7 blocks
+# https://vjeux.github.io/redstonepedia/circuits/fly/fly-payload-n1.html
+name: fly-payload-n1
+circuit: flying-machine
+distance: 24
+travel: 1 0 0
+port payload: 2 2 0
+port start: -1 0 0 minecraft:stone 1
+origin: 0 0 0
+palette:
+  G minecraft:gold_block
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  oSs
+layer 1:
+  .PSO
+layer 2:
+  ..G

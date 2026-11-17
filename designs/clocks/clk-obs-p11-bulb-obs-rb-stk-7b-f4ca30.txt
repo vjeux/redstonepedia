@@ -1,0 +1,28 @@
+# Clock: every 11 ticks (0.55 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p11-bulb-obs-rb-stk-7b-f4ca30.html
+# CLOCK: period 11, warmup 15
+name: clk-obs-p11-bulb-obs-rb-stk-7b-f4ca30
+port output: -2 2 1
+port start: 0 1 1 last
+origin: -1 0 0
+palette:
+  A minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  .s
+  .s
+  .
+layer 1:
+  .R
+  AS
+  .O
+layer 2:
+  .
+  CW
+  .r

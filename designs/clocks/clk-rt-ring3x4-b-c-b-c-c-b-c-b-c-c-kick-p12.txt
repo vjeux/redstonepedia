@@ -1,0 +1,24 @@
+# Clock: every 12 ticks (0.6 s) · 17 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-ring3x4-b-c-b-c-c-b-c-b-c-c-kick-p12.html
+# CLOCK: period 12, warmup 8
+name: clk-rt-ring3x4-b,c,b,c,c,b,c,b,c,c-kick-p12
+port output: -2 1 1
+port start: 0 0 0 minecraft:redstone_wall_torch[facing=north,lit=true] 3
+origin: -1 0 0
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+layer 0:
+  ..S
+  .S.S
+  .S.S
+  ..S
+layer 1:
+  .SBS
+  OA.c
+  .A.c
+  .SCS

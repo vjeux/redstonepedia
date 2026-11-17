@@ -1,0 +1,14 @@
+# Logic gate: NOT (A AND B) · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-nand.html
+name: gate-nand
+circuit: gate nand
+port input.a: 0 1 0
+port input.b: 2 1 2
+port output: 2 1 0
+origin: 1 0 0
+palette:
+  E minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:redstone_wall_torch[facing=north,lit=true]
+layer 1:
+  E.
+  .N

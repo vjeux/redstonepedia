@@ -1,0 +1,30 @@
+# Clock: every 57 ticks (2.85 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p57-bulb-obs-pis-rb-stk-9b-40854a.html
+# CLOCK: period 57, warmup 5
+name: clk-obs-p57-bulb-obs-pis-rb-stk-9b-40854a
+origin: 0 0 -1
+port output: 0 1 -2
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:piston[extended=false,facing=north]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:piston[extended=false,facing=down]
+  F minecraft:waxed_copper_bulb[lit=false,powered=false]
+  G minecraft:sticky_piston[extended=false,facing=south]
+  H minecraft:redstone_block
+layer 0:
+  A
+  B
+  .
+  C
+layer 1:
+  .
+  D
+  E
+  F
+layer 2:
+  B
+  G
+  H
+  .

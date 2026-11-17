@@ -1,0 +1,20 @@
+# Clock: every 4 ticks (0.2 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p4-crafter-obs-6b-b-2a7658.html
+# CLOCK: period 4, warmup 4
+name: clk-misc-p4-crafter-obs-6b-b-2a7658
+origin: 0 0 0
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+layer 0:
+  A
+  A
+layer 1:
+  B
+  C
+layer 2:
+  A
+  A

@@ -1,0 +1,17 @@
+# Clock: every 59 ticks (2.95 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-chain-p59-13.html
+# CLOCK: period 59, warmup 2
+name: clk-sculk-chain-p59-13
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  r minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .sss
+layer 1:
+  SrrRoO

@@ -1,0 +1,26 @@
+# Clock: every 8 ticks (0.4 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-lamp-obs-pis-6b-b-7db6a6.html
+# CLOCK: period 8, warmup 11
+name: clk-obs-p8-lamp-obs-pis-6b-b-7db6a6
+origin: 0 0 0
+port output: -1 2 0
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=north]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:piston[extended=false,facing=down]
+  F minecraft:redstone_lamp[lit=false]
+layer 0:
+  A
+  B
+  .
+layer 1:
+  C
+  D
+  E
+layer 2:
+  F
+  .
+  .

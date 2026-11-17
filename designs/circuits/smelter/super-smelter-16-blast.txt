@@ -1,0 +1,57 @@
+# Auto-smelter: a double chest of raw iron in 18 min (99% of 16 blast furnaces) · ~8 stacks of coal · 221 blocks · rests
+# https://vjeux.github.io/redstonepedia/circuits/smelter/super-smelter-16-blast.html
+name: super-smelter-16-blast
+circuit: smelter 16
+port items: 8 4 0
+port items.b: 9 4 0
+port fuel: 8 2 1
+port fuel.b: 9 2 1
+port output: 8 -1 0
+origin: -3 0 -1
+palette:
+  X minecraft:stone
+  r minecraft:redstone_wire
+  k minecraft:comparator[facing=east,mode=compare,powered=false]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  p minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  P minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  t minecraft:redstone_torch[lit=true]
+  O minecraft:hopper[enabled=true,facing=east]
+  Z minecraft:hopper[enabled=true,facing=west]
+  F minecraft:blast_furnace[facing=north,lit=false]
+  Y minecraft:hopper[enabled=true,facing=north]
+  E minecraft:hopper[enabled=true,facing=down]
+  D minecraft:hopper[enabled=true,facing=down]
+  T minecraft:hopper[enabled=true,facing=east]
+  W minecraft:hopper[enabled=true,facing=west]
+  L minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  ........................
+  ...OOOOOOOO.ZZZZZZZZZ...
+  ........................
+  ........................
+layer 0:
+  ........................
+  ...FFFFFFFF..FFFFFFFF...
+  ...YYYYYYYY..YYYYYYYY...
+  ..XXXXXXXXX..XXXXXXXXX..
+layer 1:
+  ........................
+  ...EEEEEEEE..EEEEEEEE...
+  ...WWWWWWWWWTTTTTTTTT...
+  .Xrrrrrrrrr..rrrrrrrrrX.
+layer 2:
+  ...XXXXXXXX..XXXXXXXX...
+  .XXDDDDDDDD..DDDDDDDDXX.
+  ........................
+  Xr....................rX
+layer 3:
+  XXXrrrrrrrr..rrrrrrrrXXX
+  XpkWWWWWWWWWLLLLLLLLLKPX
+  X......................X
+  r......................r
+layer 4:
+  rrr..................rrr
+  t......................t
+  r......................r
+  ........................

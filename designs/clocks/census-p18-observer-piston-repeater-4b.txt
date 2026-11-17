@@ -1,0 +1,16 @@
+# Clock: every 18 ticks (0.9 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p18-observer-piston-repeater-4b.html
+# CLOCK: period 18, warmup 6
+name: census-p18-observer-piston-repeater-4b
+port output: -1 1 0
+port start: 1 1 0 last
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  o minecraft:observer[facing=west,powered=false]
+layer 0:
+  P
+layer 1:
+  ROo

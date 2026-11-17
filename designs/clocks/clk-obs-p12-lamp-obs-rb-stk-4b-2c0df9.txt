@@ -1,0 +1,20 @@
+# Clock: every 12 ticks (0.6 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p12-lamp-obs-rb-stk-4b-2c0df9.html
+# CLOCK: period 12, warmup 0
+name: clk-obs-p12-lamp-obs-rb-stk-4b-2c0df9
+origin: 0 0 0
+port output: 0 -1 1
+port start: 0 1 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:redstone_lamp[lit=false]
+layer 0:
+  A
+  B
+  .
+layer 1:
+  .
+  C
+  D

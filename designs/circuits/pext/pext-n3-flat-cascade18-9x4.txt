@@ -1,0 +1,25 @@
+# Piston extender: reach 3 · 18 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n3-flat-cascade18-9x4.html
+name: pext-n3-flat-cascade18-9x4
+circuit: piston-extender 3
+travel: 1 0 0
+port input: 8 4 0 lever
+port payload: 6 1 0
+origin: 1 0 0
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  G minecraft:gold_block
+  L minecraft:lever[face=floor,facing=north]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  S minecraft:slime_block
+  o minecraft:observer[facing=up,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsG
+layer 2:
+  oo.o
+layer 3:
+  A.P...oS
+layer 4:
+  .OOOO.PL

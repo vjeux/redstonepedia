@@ -1,0 +1,19 @@
+# Clock: every 144 ticks (7.2 s) · 21 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-p144-21b.html
+# CLOCK: period 144, warmup 0
+name: clk-rt-uloop-p144-21b
+uloop: C-c,c,c-c,c,d-F
+port output: 3 0 1
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSSS
+  .SSSSS
+layer 1:
+  rcccSR
+  SCCrrr

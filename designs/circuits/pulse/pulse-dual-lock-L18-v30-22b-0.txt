@@ -1,0 +1,32 @@
+# One pulse on every switch: 18-tick pulse · 22 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-dual-lock-L18-v30-22b-0.html
+name: pulse-dual-lock-L18-v30-22b-0
+circuit: dual-edge
+port input: 2 1 3
+port output: 3 1 0
+origin: 2 0 -2
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+layer 0:
+  SSS
+  S.S
+  .O
+  WSS
+  .
+  .
+layer 1:
+  RRR
+  B.D
+  WCS
+  ArR
+  o
+  W

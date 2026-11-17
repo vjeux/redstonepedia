@@ -1,0 +1,26 @@
+# Clock: every 4 ticks (0.2 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p52-note-obs-pis-7b-b-3c6106.html
+# CLOCK: period 52, warmup 10
+name: clk-obs-p52-note-obs-pis-7b-b-3c6106
+port output: -2 1 -1
+port start: 0 1 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=south]
+layer 0:
+  .
+  .N
+  .p
+layer 1:
+  oA
+  .A
+  .O
+layer 2:
+  .
+  .O
+  .P

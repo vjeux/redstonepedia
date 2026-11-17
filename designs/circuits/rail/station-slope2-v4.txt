@@ -1,0 +1,24 @@
+# Minecart station: a stop on a two-way line · 10 blocks
+# https://vjeux.github.io/redstonepedia/circuits/rail/station-slope2-v4.html
+name: station-slope2-v4
+circuit: station 2
+port line.in: -1 3 0
+port line.out: 4 1 0
+port input.go: 1 2 -1 button
+origin: -1 0 -1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:stone_button[face=floor,facing=north,powered=false]
+layer 0:
+  ......
+  ..SSR.
+layer 1:
+  ..S...
+  .SADP.
+layer 2:
+  ..B...
+  SA....

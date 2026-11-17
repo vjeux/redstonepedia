@@ -1,0 +1,34 @@
+# Signal stretcher: at least 128 ticks (6.4 s) · 13 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-extender-hopper-oneshot-L128.html
+name: pulse-extender-hopper-oneshot-L128
+circuit: pulse-extender
+origin: 0 0 0
+port input: 5 2 2
+port output: 1 2 1
+palette:
+  G minecraft:stone
+  S minecraft:hopper[enabled=false,facing=east]
+  U minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=true]
+  F minecraft:stone
+  Y minecraft:stone
+  T minecraft:redstone_wall_torch[facing=east,lit=false]
+  W minecraft:redstone_wall_torch[facing=west,lit=true]
+  X minecraft:stone
+  K minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  ......
+  G.....
+  ......
+layer 1:
+  SU....
+  CF....
+  YT....
+layer 2:
+  WX....
+  .K....
+  .B.OP.
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:16}]}

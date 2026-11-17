@@ -1,0 +1,17 @@
+# Clock: every 42 ticks (2.1 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p42-11.html
+# CLOCK: period 42, warmup 33
+name: clk-sculk-hyb3b-p42-11
+port output: 0 0 -1
+origin: -3 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=down,powered=false]
+  s minecraft:stone
+layer 0:
+  OP.S
+layer 1:
+  sAAo

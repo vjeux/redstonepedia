@@ -1,0 +1,52 @@
+# Flying machine with docking stations: flies to its docking stations and back · an on/off lever · 15 blocks
+# https://vjeux.github.io/redstonepedia/circuits/fly/fly-docking-15b-narrow.html
+name: fly-docking-15b-narrow
+circuit: flying-machine
+distance: 8
+travel: 0 0 1
+port input: -2 0 4 lever
+port start: 0 -1 0 minecraft:stone 1
+port station.0: -2 0 5
+port station.1: -2 0 4
+port station.10: -1 0 4
+port station.2: -1 0 5
+port station.3: 0 0 5
+port station.4: 0 0 6
+port station.5: 0 1 6
+port station.6: 1 0 6
+port station.7: 1 0 -1
+port station.8: 1 0 -2
+port station.9: 1 1 -2
+origin: -2 0 -2
+palette:
+  A minecraft:observer[facing=south]
+  B minecraft:obsidian
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:stone
+  L minecraft:lever[face=wall,facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:slime_block
+  o minecraft:observer[facing=north]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  ...E
+  ...A
+  ..O
+  ...O
+  .
+  .
+  LE
+  so
+  ..EB
+layer 1:
+  ...R
+  .
+  ..SD
+  ..CS
+  .
+  .
+  .
+  .
+  ..R

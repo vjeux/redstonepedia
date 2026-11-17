@@ -1,0 +1,25 @@
+# Clock: every 16 ticks (0.8 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p16-note-obs-stk-6b-b-2deee2.html
+# CLOCK: period 16, warmup 6
+name: clk-obs-p16-note-obs-stk-6b-b-2deee2
+origin: 0 0 0
+port output: 0 -1 1
+port start: 0 1 1 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:observer[facing=down,powered=false]
+layer 0:
+  A
+  .
+  B
+layer 1:
+  B
+  C
+  .
+layer 2:
+  D
+  E
+  .

@@ -1,0 +1,75 @@
+# Shulker box unloader: 2.50 items a second · 22 blocks
+# https://vjeux.github.io/redstonepedia/circuits/shulker/shulker-unloader-1wide-22b.html
+name: shulker-unloader-1wide-22b
+circuit: shulker-unloader
+tile: 1 0 0
+port boxes: 0 4 0
+port items: 0 -1 0
+port output: 0 0 -2
+origin: 0 0 -2
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:redstone_torch[lit=true]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:dispenser[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_torch[lit=false]
+layer -3:
+  .
+  .
+  .
+  .
+  P
+  .
+layer -2:
+  .
+  .
+  .
+  W
+  C
+  d
+layer -1:
+  .
+  .
+  .
+  A
+  O
+  B
+layer 0:
+  .
+  h
+  H
+  C
+  E
+  D
+layer 1:
+  W
+  .
+  .
+  O
+  S
+  r
+layer 2:
+  c
+  R
+  D
+  .
+  .
+  .
+layer 3:
+  O
+  o
+  H
+  .
+  .
+  .

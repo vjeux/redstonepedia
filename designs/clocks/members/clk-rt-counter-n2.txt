@@ -1,0 +1,43 @@
+# Clock: every 22344 ticks (18 min 37.2 s) · 70 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-counter-n2.html
+name: clk-rt-count-x2
+port output: 3 -1 0
+origin: -2 0 -1
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=north,mode=subtract,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=south,mode=compare,powered=false]
+  E minecraft:comparator[facing=south,mode=subtract,powered=false]
+  F minecraft:comparator[facing=west,mode=compare,powered=false]
+  G minecraft:redstone_wall_torch[facing=north,lit=true]
+  H minecraft:redstone_wall_torch[facing=west,lit=true]
+  I minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ..SSS
+  ...SSSS
+  ...S
+  .SSS
+  ....S
+  ....S
+  ...SS..SSSSS
+  ...SSSS..SSS
+  ...S..S
+  ......S
+  .
+layer 1:
+  ..IFFSr
+  ..ScCII
+  ...I
+  RIIE
+  ...GI
+  ...SI
+  ...DA..IIFFI
+  ...DBIcHSCCI
+  ...IS.I
+  ......I
+  ......R

@@ -1,0 +1,14 @@
+# Clock: every 172 ticks (8.6 s) · 86 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-obs-ring-n41.html
+name: clk-obs-obs-ring-n41
+origin: 0 0 0
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+  DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDC

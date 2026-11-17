@@ -1,0 +1,20 @@
+# Clock: every 15 ticks (0.75 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p30-bulb-lamp-note-obs-pis-rb-stk-8b-dcaa4b.html
+# CLOCK: period 30, warmup 18
+name: clk-obs-p30-bulb-lamp-note-obs-pis-rb-stk-8b-dcaa4b
+origin: 0 0 0
+port output: 1 -1 2
+port start: 0 0 0 last
+palette:
+  A minecraft:redstone_lamp[lit=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=east]
+  D minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:observer[facing=south,powered=false]
+  F minecraft:piston[extended=false,facing=south]
+  G minecraft:waxed_copper_bulb[lit=false,powered=false]
+  H minecraft:redstone_block
+layer 0:
+  ADF
+  BEG
+  C.H

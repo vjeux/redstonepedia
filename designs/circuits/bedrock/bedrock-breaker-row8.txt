@@ -1,0 +1,75 @@
+# Bedrock breaker: 8 bedrock · 51 blocks
+# https://vjeux.github.io/redstonepedia/circuits/bedrock/bedrock-breaker-row8.html
+name: bedrock-breaker-row8
+circuit: bedrock-breaker 8
+port bedrock: 0 5 0
+port bedrock.2: 1 5 0
+port bedrock.3: 2 5 0
+port bedrock.4: 3 5 0
+port bedrock.5: 4 5 0
+port bedrock.6: 5 5 0
+port bedrock.7: 6 5 0
+port bedrock.8: 7 5 0
+port press: 0 6 -1
+port press.2: 1 6 -1
+port press.3: 2 6 -1
+port press.4: 3 6 -1
+port press.5: 4 6 -1
+port press.6: 5 6 -1
+port press.7: 6 6 -1
+port press.8: 7 6 -1
+port start: 1 8 3 last
+port swap: 0 6 0
+port swap.2: 1 6 0
+port swap.3: 2 6 0
+port swap.4: 3 6 0
+port swap.5: 4 6 0
+port swap.6: 5 6 0
+port swap.7: 6 6 0
+port swap.8: 7 6 0
+origin: -2 0 -2
+palette:
+  A minecraft:observer[facing=south]
+  B minecraft:bedrock
+  C minecraft:piston[facing=west]
+  D minecraft:redstone_wire
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false]
+  P minecraft:piston[facing=east]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east]
+  p minecraft:piston[facing=up]
+  r minecraft:redstone_lamp
+  s minecraft:stone
+layer 5:
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+  BBBBBBBBBBB
+layer 6:
+  .
+  .
+  ..CppppppP
+  .
+  ...D
+  ..DDssssss
+  .
+layer 7:
+  .
+  ..OOOOOOOO
+  .
+  ..ssssssss
+  ..AAAAAAAA
+  .SR.DDDDDD
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  ..or
+  .

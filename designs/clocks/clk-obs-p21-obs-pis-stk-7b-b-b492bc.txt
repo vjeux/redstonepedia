@@ -1,0 +1,20 @@
+# Clock: every 21 ticks (1.05 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p21-obs-pis-stk-7b-b-b492bc.html
+# CLOCK: period 21, warmup 23
+name: clk-obs-p21-obs-pis-stk-7b-b-b492bc
+origin: 0 0 -2
+port output: -1 0 -1
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:piston[extended=false,facing=east]
+  E minecraft:sticky_piston[extended=false,facing=north]
+  F minecraft:observer[facing=south,powered=false]
+layer 0:
+  A.
+  .B
+  BE
+  CF
+  D.

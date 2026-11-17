@@ -1,0 +1,39 @@
+# Clock: every 73 ticks (3.65 s) · 18 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p73-oak_boat-soul_sand-stone-tripwire-tripwire_hook-water-18b-982299.html
+# CLOCK: period 73, warmup 33
+name: clk-misc-p73-oak_boat-soul_sand-stone-tripwire-tripwire_hook-water-18b-982299
+port output: -1 1 2
+entity: minecraft:oak_boat 1 1 1
+origin: -1 0 -1
+palette:
+  A minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  S minecraft:soul_sand
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  W minecraft:water[level=0]
+  s minecraft:stone
+  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+layer -2:
+  .
+  .Ss
+  .ss
+  .
+layer -1:
+  .ss
+  sW.s
+  s..s
+  .ss
+layer 0:
+  .
+  .
+  .
+  .
+layer 1:
+  .
+  .A
+  .T
+  .t
+layer 2:
+  .
+  .s
+  .
+  .

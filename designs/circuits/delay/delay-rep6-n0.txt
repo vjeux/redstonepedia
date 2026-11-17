@@ -1,0 +1,15 @@
+# Delay: 6-tick delay · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/delay/delay-rep6-n0.html
+name: delay-rep6-n0
+circuit: delay
+tile: 0 0 1
+port input: 0 1 0
+port output: 1 1 0
+origin: 1 0 0
+palette:
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  S
+layer 1:
+  R

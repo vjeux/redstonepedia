@@ -1,0 +1,37 @@
+# Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting
+# https://vjeux.github.io/redstonepedia/circuits/autodoor/auto-door-raised-torch.html
+name: auto-door-raised-torch
+circuit: auto-door
+port door.a: 0 0 0
+port door.b: 1 1 0
+origin: -3 0 -1
+palette:
+  S minecraft:stone
+  A minecraft:smooth_stone
+  P minecraft:stone_pressure_plate[powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  T minecraft:redstone_torch[lit=true]
+  K minecraft:sticky_piston[extended=true,facing=east]
+  k minecraft:piston_head[facing=east,short=false,type=sticky]
+  J minecraft:sticky_piston[extended=true,facing=west]
+  j minecraft:piston_head[facing=west,short=false,type=sticky]
+layer -3:
+  ...SS...
+  ..SSSS..
+  ...SS...
+layer -2:
+  ...WW...
+  .SWWWWS.
+  ...WW...
+layer -1:
+  ...SS...
+  SW....WS
+  ...SS...
+layer 0:
+  ...PP...
+  TKkAAjJT
+  ...PP...
+layer 1:
+  ........
+  SKkAAjJS
+  ........

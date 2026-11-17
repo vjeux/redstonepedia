@@ -1,0 +1,30 @@
+# Clock: every 9 ticks (0.45 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p18-obs-pis-rb-7b-3d79d9.html
+# CLOCK: period 18, warmup 7
+name: clk-obs-p18-obs-pis-rb-7b-3d79d9
+origin: 0 0 0
+port output: -1 1 1
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=up]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:redstone_block
+  E minecraft:observer[facing=down,powered=false]
+  F minecraft:redstone_lamp[lit=false]
+  G minecraft:piston[extended=false,facing=down]
+layer -2:
+  .
+  A
+layer -1:
+  .
+  B
+layer 0:
+  C
+  D
+layer 1:
+  E
+  .
+layer 2:
+  F
+  G

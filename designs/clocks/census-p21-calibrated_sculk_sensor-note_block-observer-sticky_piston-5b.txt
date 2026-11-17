@@ -1,0 +1,21 @@
+# Clock: every 21 ticks (1.05 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p21-calibrated_sculk_sensor-note_block-observer-sticky_piston-5b.html
+# CLOCK: period 21, warmup 12
+name: census-p21-calibrated_sculk_sensor-note_block-observer-sticky_piston-5b
+port output: -1 0 1
+port start: 1 0 0 last
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  s
+layer 0:
+  NOo
+  cCS

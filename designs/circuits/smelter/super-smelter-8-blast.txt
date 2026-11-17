@@ -1,0 +1,52 @@
+# Auto-smelter: a double chest of raw iron in 36 min (100% of 8 blast furnaces) · ~8 stacks of coal · 108 blocks · rests
+# https://vjeux.github.io/redstonepedia/circuits/smelter/super-smelter-8-blast.html
+name: super-smelter-8-blast
+circuit: smelter 8
+port items: 0 4 0
+port items.b: -1 4 0
+port fuel: 0 2 1
+port output: 8 -1 0
+origin: 0 0 -1
+palette:
+  X minecraft:stone
+  r minecraft:redstone_wire
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  P minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  t minecraft:redstone_torch[lit=true]
+  O minecraft:hopper[enabled=true,facing=east]
+  F minecraft:blast_furnace[facing=north,lit=false]
+  Y minecraft:hopper[enabled=true,facing=north]
+  E minecraft:hopper[enabled=true,facing=down]
+  D minecraft:hopper[enabled=true,facing=down]
+  T minecraft:hopper[enabled=true,facing=east]
+  L minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  ...........
+  OOOOOOOO...
+  ...........
+  ...........
+layer 0:
+  ...........
+  FFFFFFFF...
+  YYYYYYYY...
+  XXXXXXXXX..
+layer 1:
+  ...........
+  EEEEEEEE...
+  TTTTTTTT...
+  rrrrrrrrrX.
+layer 2:
+  XXXXXXXX...
+  DDDDDDDDXX.
+  ...........
+  .........rX
+layer 3:
+  rrrrrrrrXXX
+  LLLLLLLLKPX
+  ..........X
+  ..........r
+layer 4:
+  ........rrr
+  ..........t
+  ..........r
+  ...........

@@ -1,0 +1,31 @@
+# One pulse when switched off: 36-tick pulse · 24 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-oneshot-fall-falling-edge-L36-v48-24b.html
+name: pulse-oneshot-fall-falling-edge-L36-v48-24b
+circuit: falling-edge
+port input: -1 1 0
+port output: 2 1 1
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .
+  ..ss
+  .s.s
+  .s.s
+  .s.s
+  ..Ws
+layer 1:
+  SO
+  .WCR
+  .r.B
+  .r.B
+  .A.B
+  .sRR

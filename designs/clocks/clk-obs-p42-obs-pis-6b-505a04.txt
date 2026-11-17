@@ -1,0 +1,17 @@
+# Clock: every 6 ticks (0.3 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p42-obs-pis-6b-505a04.html
+# CLOCK: period 42, warmup 8
+name: clk-obs-p42-obs-pis-6b-505a04
+port output: -3 0 1
+port start: 0 0 0 last
+origin: -2 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+layer 0:
+  ..Ap
+  OooA
+  ..P

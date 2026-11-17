@@ -1,0 +1,15 @@
+# Counter: every 8th pulse · 9 blocks
+# https://vjeux.github.io/redstonepedia/circuits/memory/counter8-bulb3.html
+name: counter8-bulb3
+circuit: counter 8
+port input: -1 1 0
+port output: 6 1 0
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+layer 0:
+  .S.S.S
+layer 1:
+  WCWCWC

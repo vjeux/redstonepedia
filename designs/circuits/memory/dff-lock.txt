@@ -1,0 +1,20 @@
+# Clocked memory: reacts in 6 ticks (0.3 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/circuits/memory/dff-lock.html
+name: dff-lock
+circuit: dff
+port input.clk: 0 1 2
+port input.d: -1 1 0
+port output: 2 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+layer 0:
+  SS
+  SS
+layer 1:
+  BB
+  AA
+  .R

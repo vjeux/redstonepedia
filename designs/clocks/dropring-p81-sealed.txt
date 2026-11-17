@@ -1,0 +1,28 @@
+# Clock: every 27 ticks (1.35 s) · 16 blocks
+# https://vjeux.github.io/redstonepedia/clocks/dropring-p81-sealed.html
+# CLOCK: period 81, warmup 21
+name: dropring-p81-sealed
+port output: -1 0 1
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 0 0 1 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+origin: 0 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=south]
+layer -1:
+  .
+  .S
+  .
+layer 0:
+  HHh
+  DCh
+  DAA
+layer 1:
+  GGG
+  ..G
+  .GG

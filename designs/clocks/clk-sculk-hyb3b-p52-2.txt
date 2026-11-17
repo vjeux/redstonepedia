@@ -1,0 +1,21 @@
+# Clock: every 52 ticks (2.6 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p52-2.html
+# CLOCK: period 52, warmup 17
+name: clk-sculk-hyb3b-p52-2
+port output: -1 -4 0
+port start: 0 -3 0 minecraft:redstone_block 1
+origin: -2 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=up,powered=false]
+layer -3:
+  .D
+layer -2:
+  So
+layer -1:
+  .Oo
+layer 0:
+  ..C

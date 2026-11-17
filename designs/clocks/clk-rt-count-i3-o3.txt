@@ -1,0 +1,40 @@
+# Clock: every 2380 ticks (1 min 59 s) · 52 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-count-i3-o3.html
+# CLOCK: period 2380, warmup 18
+name: clk-rt-count-i3-o3
+port output: 4 0 -1
+origin: -2 0 -1
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=south,mode=subtract,powered=false]
+  E minecraft:comparator[facing=west,mode=compare,powered=false]
+  F minecraft:redstone_wall_torch[facing=north,lit=true]
+  G minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ..SSSS
+  ...SSSSS
+  ...S
+  .SSS
+  ....S
+  ....S
+  ...SS
+  ...SS
+  ...SS
+  ...SS
+layer 1:
+  ..GEEESr
+  ..ScCCGG
+  ...G
+  RGGD
+  ...FG
+  ...SG
+  ...BA
+  ...BA
+  ...BA
+  ...GG

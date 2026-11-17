@@ -1,0 +1,15 @@
+# Clock: every 76 ticks (3.8 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-chain-p76-5.html
+# CLOCK: period 76, warmup 46
+name: clk-sculk-chain-p76-5
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer 0:
+  .sssss
+layer 1:
+  SRRRRRO

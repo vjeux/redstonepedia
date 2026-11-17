@@ -1,0 +1,100 @@
+# TNT duper: explodes each TNT at one exact point in the air · about 22 TNT a minute · 66 blocks
+# https://vjeux.github.io/redstonepedia/circuits/tnt/tnt-airburst-lever-66b.html
+# CIRCUIT: safe drop 0 blocks
+name: tnt-airburst-lever-66b
+circuit: tnt-duper
+port input: 4 2 2 lever
+port start: 5 2 1 last
+origin: 3 0 -8
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=west,powered=false]
+  F minecraft:obsidian
+  G minecraft:piston_head[facing=north,short=false,type=sticky]
+  H minecraft:redstone_wall_torch[facing=north,lit=true]
+  I minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  J minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  K minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  L minecraft:lever[face=ceiling,facing=north,powered=false]
+  M minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  N minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:piston[extended=false,facing=up]
+  Q minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  T minecraft:sticky_piston[extended=false,facing=up]
+  U minecraft:sticky_piston[extended=false,facing=west]
+  V minecraft:sticky_piston[extended=true,facing=down]
+  W minecraft:sticky_piston[extended=true,facing=north]
+  X minecraft:stone
+  d minecraft:dropper[facing=west,triggered=false]
+  o minecraft:observer[facing=down,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+  s minecraft:slime_block
+  t minecraft:tnt[unstable=false]
+  w minecraft:water[level=0]
+layer -1:
+  .
+  ....T
+  ....E
+  .
+  ....X
+  ....X
+  ....X
+  ....X
+  ..X.X
+  ..X.X
+  ..XXX
+layer 0:
+  .
+  ...Fs
+  ....K
+  ....X
+  ....C
+  ....Q
+  ..d.Q
+  ..B.Q
+  ..I.Q
+  ..N.Q
+  ..ISI
+layer 1:
+  ...O
+  .oA.O
+  ..AX
+  .
+  .sss
+  .G.s
+  .WFs
+  .
+  .
+  ..U
+  .
+layer 2:
+  ..B
+  ..w
+  .
+  .
+  .Dt
+  ...R
+  ..Js
+  .
+  .X
+  o.pEP
+  .L
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  ..ss
+  .H.s
+  .X
+  .M
+  .XVA
+  .Xr

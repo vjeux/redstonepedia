@@ -1,0 +1,18 @@
+# Clock: every 42 ticks (2.1 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p42-9.html
+# CLOCK: period 42, warmup 10
+name: clk-sculk-hyb3b-p42-9
+port output: -1 0 0
+origin: 0 0 0
+palette:
+  I minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  O minecraft:observer[facing=up,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer -2:
+  .I
+layer -1:
+  .Os
+layer 0:
+  So

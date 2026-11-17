@@ -1,0 +1,32 @@
+# Clock: every 456 ticks (22.8 s) · 52 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-div-fade-n2.html
+name: clk-rt-div-fade2-x2
+port output: 4 0 -5
+origin: 0 0 -7
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  ...SS
+  .SSSS
+  ..SS
+  ....SS
+  ..SSSS
+  ...S
+  SSS
+  SSSSS
+layer 1:
+  .TRrr
+  .rAAr
+  ..BB
+  ..TRrr
+  ..rAAr
+  ...B
+  rccSR
+  rCCrr

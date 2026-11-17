@@ -1,0 +1,23 @@
+# Clock: every 15 ticks (0.75 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p15-note-obs-rb-lamp-stk-6b-9528e4.html
+# CLOCK: period 15, warmup 0
+name: clk-obs-p15-note-obs-rb-lamp-stk-6b-9528e4
+port output: 0 -1 1
+port start: 0 2 0 last
+origin: 0 0 0
+palette:
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:observer[facing=up,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+layer 0:
+  S
+  R
+layer 1:
+  o
+  O
+layer 2:
+  r
+  N

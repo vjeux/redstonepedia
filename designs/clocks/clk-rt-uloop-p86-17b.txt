@@ -1,0 +1,19 @@
+# Clock: every 86 ticks (4.3 s) · 17 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-p86-17b.html
+# CLOCK: period 86, warmup 4
+name: clk-rt-uloop-p86-17b
+uloop: C-d,c-c,c-F
+port output: 3 0 -1
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSS
+  .SSSS
+layer 1:
+  rrcSR
+  SCCrr

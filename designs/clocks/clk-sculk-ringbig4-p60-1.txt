@@ -1,0 +1,32 @@
+# Clock: every 60 ticks (3 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-ringbig4-p60-1.html
+# CLOCK: period 60, warmup 21
+name: clk-sculk-ringbig4-p60-1
+port output: -10 0 -7
+port start: 8 0 7 use
+origin: -9 0 -9
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  ................C
+  ................A
+  CA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................Nc
+  ..A
+  ..C

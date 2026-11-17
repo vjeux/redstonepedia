@@ -1,0 +1,23 @@
+# Clock: every 74 ticks (3.7 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p74-obs-stk-8b-687b5c.html
+# CLOCK: period 74, warmup 3
+name: clk-obs-p74-obs-stk-8b-687b5c
+origin: -1 0 0
+port output: -3 -1 2
+port start: 0 0 2 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=west]
+  C minecraft:sticky_piston[extended=false,facing=east]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=up]
+  G minecraft:observer[facing=north,powered=false]
+layer -1:
+  ...
+  ...
+  ABF
+layer 0:
+  .C.
+  .DG
+  .EB

@@ -1,0 +1,19 @@
+# Clock: every 37 ticks (1.85 s) · 16 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-cart-pingpong-n0.html
+# CLOCK: period 37, warmup 0
+name: clk-misc-cart-pingpong-n0
+port output: 2 -1 -1
+entity: minecraft:minecart 6.5 0.0625 0.5
+origin: 0 0 -1
+palette:
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  .....L
+  .SSSSSS
+layer 0:
+  .
+  SPDRPPPS

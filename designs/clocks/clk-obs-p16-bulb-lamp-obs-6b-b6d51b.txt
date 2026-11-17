@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p16-bulb-lamp-obs-6b-b6d51b.html
+# CLOCK: period 16, warmup 6
+name: clk-obs-p16-bulb-lamp-obs-6b-b6d51b
+origin: 0 0 0
+port output: 0 0 -1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:redstone_lamp[lit=false]
+layer 0:
+  A
+  A
+  B
+layer 1:
+  C
+  D
+  E

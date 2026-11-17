@@ -1,0 +1,19 @@
+# Clock: every 28 ticks (1.4 s) · 14 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-p28-rw-r-14b.html
+# CLOCK: period 28, warmup 4
+name: clk-rt-uloop-p28-rw-r-14b
+uloop: C-2*,4*-4,4-d
+port output: 0 0 0
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+layer 0:
+  SSS
+  .SSS
+layer 1:
+  RrBS
+  SAAR

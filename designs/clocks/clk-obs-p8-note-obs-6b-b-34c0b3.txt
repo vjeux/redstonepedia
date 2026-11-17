@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-note-obs-6b-b-34c0b3.html
+# CLOCK: period 8, warmup 2
+name: clk-obs-p8-note-obs-6b-b-34c0b3
+origin: 0 0 0
+port output: -1 0 0
+port start: 0 0 2 last
+palette:
+  A minecraft:stone
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  E minecraft:observer[facing=north,powered=false]
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  E

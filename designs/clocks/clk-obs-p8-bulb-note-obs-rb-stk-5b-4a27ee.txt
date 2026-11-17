@@ -1,0 +1,23 @@
+# Clock: every 8 ticks (0.4 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-bulb-note-obs-rb-stk-5b-4a27ee.html
+# CLOCK: period 8, warmup 4
+name: clk-obs-p8-bulb-note-obs-rb-stk-5b-4a27ee
+port output: -2 1 0
+port start: 0 1 0 last
+origin: -1 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=south]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:stone
+layer 0:
+  sS
+  .
+  .R
+layer 1:
+  CW
+  .O
+  .N

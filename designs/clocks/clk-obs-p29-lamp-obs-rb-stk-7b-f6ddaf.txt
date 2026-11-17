@@ -1,0 +1,26 @@
+# Clock: every 29 ticks (1.45 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p29-lamp-obs-rb-stk-7b-f6ddaf.html
+# CLOCK: period 29, warmup 0
+name: clk-obs-p29-lamp-obs-rb-stk-7b-f6ddaf
+origin: 0 0 0
+port output: -1 0 1
+port start: 0 2 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=down]
+  F minecraft:redstone_lamp[lit=false]
+layer 0:
+  A
+  .
+  B
+layer 1:
+  C
+  D
+  E
+layer 2:
+  F
+  F
+  .

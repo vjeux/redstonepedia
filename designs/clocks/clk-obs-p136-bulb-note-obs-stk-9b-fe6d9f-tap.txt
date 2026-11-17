@@ -1,0 +1,35 @@
+# Clock: every 136 ticks (6.8 s) · 11 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p136-bulb-note-obs-stk-9b-fe6d9f-tap.html
+# CLOCK: period 136, warmup 6
+name: clk-obs-p136-bulb-note-obs-stk-9b-fe6d9f-tap
+port output: -2 2 2
+port start: 0 1 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  .N
+  .A
+  .S
+  .s
+  .
+layer 1:
+  .S
+  .o
+  B
+  .
+  .O
+layer 2:
+  .
+  .
+  CW
+  .A
+  .

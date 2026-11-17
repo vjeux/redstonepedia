@@ -1,0 +1,21 @@
+# Clock: every 6 ticks (0.3 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p6-obs-rb-stk-6b-9654c8.html
+# CLOCK: period 6, warmup 13
+name: clk-obs-p6-obs-rb-stk-6b-9654c8
+origin: 0 0 0
+port output: -1 2 0
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=down]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:redstone_lamp[lit=false]
+layer 0:
+  A
+  B
+layer 1:
+  C
+  A
+layer 2:
+  D
+  A

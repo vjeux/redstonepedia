@@ -1,0 +1,19 @@
+# Clock: every 12 ticks (0.6 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-tr-9-12.html
+# CLOCK: period 12, warmup 2
+name: clk-rt-tr-9-12
+origin: 0 0 -1
+port output: 0 0 0
+palette:
+  S minecraft:stone
+  A minecraft:stone
+  F minecraft:stone
+  T minecraft:redstone_wall_torch[facing=north,lit=true]
+  R minecraft:repeater[facing=west,delay=2,locked=false,powered=false]
+  w minecraft:redstone_wire
+layer 0:
+  .S.
+  .SS
+layer 1:
+  TRF
+  Aww
