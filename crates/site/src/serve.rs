@@ -761,11 +761,13 @@ pub fn smoke(dir: &Path, chrome_path: Option<&Path>, budget_ms: u32, remote: Opt
     // each 3D thumbnail with its still frame (webrender's data-still: no search in the browser;
     // tick 0 since vjeux 21:29Z, no simulation on the grid)
     check("index: every 3D thumbnail carries its still frame", dom.matches(" data-still=\"").count() == thumbs, format!("{} of {thumbs}", dom.matches(" data-still=\"").count()));
-    // the header: the title, the three kind tabs and the search box, nothing else (vjeux 01:13Z)
+    // the header: the title, the kind tabs, the Tools tab and the search box, nothing else (vjeux
+    // 01:13Z; the Farms tab since the farms went live, the Tools tab since the calculators)
     let header = dom.split("<header class=\"top\">").nth(1).and_then(|h| h.split("</header>").next()).unwrap_or("");
+    let tabs = ["tab-door", "tab-clock", "tab-circuit", "tab-farm", "tab-tools"];
     check(
-        "index: the header is the title, Doors / Clocks / Circuits and the search box",
-        header.matches("<a ").count() == 4 && header.contains("id=\"tab-door\"") && header.contains("id=\"tab-clock\"") && header.contains("id=\"tab-circuit\"") && header.contains("id=\"hq\"") && header.contains("class=\"count\""),
+        "index: the header is the title, the Doors / Clocks / Circuits / Farms / Tools tabs and the search box",
+        header.matches("<a ").count() == 1 + tabs.len() && tabs.iter().all(|t| header.contains(&format!("id=\"{t}\""))) && header.contains("id=\"hq\"") && header.contains("class=\"count\""),
         format!("{} links, search box: {}", header.matches("<a ").count(), header.contains("id=\"hq\"")),
     );
     check("index: the filter panel was drawn", dom.contains("data-act=\"block\"") && !dom.contains("id=\"f-time\""), "block-kind chips, no second search box".into());
